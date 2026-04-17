@@ -1,6 +1,7 @@
 let currentTab = 'original';
 let currentViewMode = 'rich';
 let fileContent = {
+    taskId: '',
     original: '',
     fileName: '',
     corrected: '',
@@ -16,6 +17,10 @@ let fileContent = {
     processingAudit: null
 };
 window.fileContent = fileContent;
+let currentUser = null;
+let taskHistory = [];
+let adminUsers = [];
+let adminEvents = [];
 const SETTINGS_STORAGE_KEY = 'manuscript_editor_ai_settings_v1';
 const FIRST_RUN_SETUP_KEY = 'manuscript_editor_first_run_setup_v1';
 const FIRST_RUN_SETUP_VERSION = '20260417r2';
@@ -71,9 +76,31 @@ let isApplyingGroupDecisions = false;
 let pendingGroupDecisionApply = false;
 const FIXED_JOURNAL_PROFILE = 'vancouver_periods';
 
+const loginView = document.getElementById('login-view');
+const appShell = document.getElementById('app-shell');
+const loginStatus = document.getElementById('login-status');
+const loginDomainsEl = document.getElementById('login-domains');
+const userNameEl = document.getElementById('user-name');
+const userRoleEl = document.getElementById('user-role');
+const logoutBtn = document.getElementById('logout-btn');
+const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+const taskHistoryEl = document.getElementById('task-history');
+const openAdminPanelBtn = document.getElementById('open-admin-panel-btn');
+const adminPanelBackdrop = document.getElementById('admin-panel-backdrop');
+const adminClosePanelBtn = document.getElementById('admin-close-panel-btn');
+const adminRefreshUsersBtn = document.getElementById('admin-refresh-users-btn');
+const adminRefreshAuditBtn = document.getElementById('admin-refresh-audit-btn');
+const adminUsersBody = document.getElementById('admin-users-body');
+const adminAuditBody = document.getElementById('admin-audit-body');
+
 // File handling
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
+const browseFileBtn = document.getElementById('browse-file-btn');
+const processBtn = document.getElementById('process-btn');
+const saveCleanBtn = document.getElementById('save-clean-btn');
+const saveHighlightBtn = document.getElementById('save-highlight-btn');
+const clearBtn = document.getElementById('clear-btn');
 const aiProvider = document.getElementById('ai-provider');
 const ollamaModelSelect = document.getElementById('ollama-model-select');
 const refreshModelsBtn = document.getElementById('refresh-models-btn');
@@ -153,6 +180,420 @@ function clampInt(value, min, max, fallback) {
         return fallback;
     }
     return Math.min(max, Math.max(min, parsed));
+}
+
+function formatUnixTimestamp(ts) {
+    const value = Number(ts || 0);
+    if (!Number.isFinite(value) || value <= 0) {
+        return '-';
+    }
+    try {
+        return new Date(value * 1000).toLocaleString();
+    } catch (err) {
+        return '-';
+    }
+}
+
+function setLoginStatus(message, type = 'info') {
+    if (!loginStatus) {
+        return;
+    }
+    loginStatus.textContent = message || '';
+    const colors = {
+        info: '#a8bddf',
+        success: '#a9f2d3',
+        warning: '#ffd58d',
+        error: '#ffb8c2'
+    };
+    loginStatus.style.color = colors[type] || colors.info;
+}
+
+function showLoginView() {
+    if (loginView) {
+        loginView.classList.remove('hidden');
+    }
+    if (appShell) {
+        appShell.classList.add('hidden');
+    }
+}
+
+function showAppView() {
+    if (loginView) {
+        loginView.classList.add('hidden');
+    }
+    if (appShell) {
+        appShell.classList.remove('hidden');
+    }
+}
+
+function applyCurrentUser(user) {
+    if (!user || typeof user !== 'object') {
+        currentUser = null;
+        if (userNameEl) {
+            userNameEl.textContent = 'User';
+        }
+        if (userRoleEl) {
+            userRoleEl.textContent = 'USER';
+        }
+        if (openAdminPanelBtn) {
+            openAdminPanelBtn.classList.add('hidden');
+        }
+        return;
+    }
+    currentUser = user;
+    if (userNameEl) {
+        userNameEl.textContent = String(user.display_name || user.email || 'User');
+    }
+    const role = String(user.role || 'USER').toUpperCase();
+    if (userRoleEl) {
+        userRoleEl.textContent = role;
+    }
+    if (openAdminPanelBtn) {
+        openAdminPanelBtn.classList.toggle('hidden', role !== 'ADMIN');
+    }
+}
+
+function renderTaskHistory() {
+    if (!taskHistoryEl) {
+        return;
+    }
+
+    if (!Array.isArray(taskHistory) || taskHistory.length === 0) {
+        taskHistoryEl.innerHTML = '<p class=\"task-empty\">No tasks yet. Upload a manuscript to start.</p>';
+        return;
+    }
+
+    let html = '';
+    taskHistory.forEach((task) => {
+        const taskId = String(task.id || '');
+        const activeClass = taskId && taskId === fileContent.taskId ? ' active' : '';
+        const status = escapeHtml(String(task.status || 'UPLOADED'));
+        const words = Number(task.word_count || 0);
+        html += `<div class=\"task-history-item${activeClass}\" data-task-id=\"${escapeHtml(taskId)}\">`;
+        html += `<div class=\"task-history-title\">${escapeHtml(String(task.file_name || 'Untitled manuscript'))}</div>`;
+        html += `<div class=\"task-history-meta\">${status} • ${words} words • ${escapeHtml(formatUnixTimestamp(task.updated_at))}</div>`;
+        html += '</div>';
+    });
+    taskHistoryEl.innerHTML = html;
+
+    taskHistoryEl.querySelectorAll('.task-history-item[data-task-id]').forEach((node) => {
+        node.addEventListener('click', () => {
+            const taskId = String(node.getAttribute('data-task-id') || '').trim();
+            if (taskId) {
+                loadTaskIntoEditor(taskId);
+            }
+        });
+    });
+}
+
+function refreshTaskHistory() {
+    if (typeof eel === 'undefined' || typeof eel.list_tasks !== 'function') {
+        return;
+    }
+    eel.list_tasks(120)(function (response) {
+        if (!response || !response.success) {
+            return;
+        }
+        taskHistory = Array.isArray(response.tasks) ? response.tasks : [];
+        renderTaskHistory();
+    });
+}
+
+function applyTaskDetailsToState(task) {
+    if (!task || typeof task !== 'object') {
+        return;
+    }
+    fileContent.taskId = String(task.id || '');
+    fileContent.fileName = String(task.file_name || '');
+    fileContent.original = String(task.original_text || '');
+    fileContent.corrected = String(task.corrected_text || '');
+    fileContent.fullCorrectedText = String(task.full_corrected_text || '');
+
+    const reports = task.reports && typeof task.reports === 'object' ? task.reports : {};
+    fileContent.correctedAnnotatedHtml = String(reports.corrected_annotated_html || '');
+    fileContent.redline = String(reports.redline_html || '');
+    fileContent.corrections = reports.corrections_report || null;
+    fileContent.nounReport = reports.noun_report || null;
+    fileContent.domainReport = reports.domain_report || null;
+    fileContent.journalProfileReport = reports.journal_profile_report || null;
+    fileContent.citationReferenceReport = reports.citation_reference_report || null;
+    fileContent.processingAudit = reports.processing_audit || null;
+    fileContent.groupDecisions = buildDefaultGroupDecisions();
+
+    const fileNameEl = document.getElementById('file-name');
+    if (fileNameEl) {
+        fileNameEl.textContent = fileContent.fileName || 'No file selected';
+    }
+    const wordCountEl = document.getElementById('word-count');
+    if (wordCountEl) {
+        wordCountEl.textContent = 'Words: ' + Number(task.word_count || 0);
+    }
+
+    const processed = String(task.status || '').toUpperCase() === 'PROCESSED';
+    if (saveCleanBtn) {
+        saveCleanBtn.disabled = !processed;
+    }
+    if (saveHighlightBtn) {
+        saveHighlightBtn.disabled = !processed;
+    }
+
+    switch_tab(processed ? 'corrected' : 'original');
+    renderTaskHistory();
+}
+
+function loadTaskIntoEditor(taskId) {
+    if (!taskId || typeof eel === 'undefined' || typeof eel.get_task !== 'function') {
+        return;
+    }
+    setStatus('Loading task...', 'warning');
+    eel.get_task(taskId)(function (response) {
+        if (!response || !response.success || !response.task) {
+            setStatus('Could not load selected task', 'error');
+            return;
+        }
+        applyTaskDetailsToState(response.task);
+        setStatus('Task loaded', 'success');
+    });
+}
+
+function ensureGoogleSigninButton() {
+    if (!window.google || !google.accounts || !google.accounts.id) {
+        setLoginStatus('Google Sign-In script not ready. Retrying...', 'warning');
+        setTimeout(ensureGoogleSigninButton, 500);
+        return;
+    }
+    const clientId = window.__GOOGLE_CLIENT_ID__ || '';
+    if (!clientId) {
+        setLoginStatus('GOOGLE_CLIENT_ID is not configured on the server.', 'error');
+        return;
+    }
+    google.accounts.id.initialize({
+        client_id: clientId,
+        callback: onGoogleCredentialResponse
+    });
+    const holder = document.getElementById('google-signin-button');
+    if (!holder) {
+        return;
+    }
+    holder.innerHTML = '';
+    google.accounts.id.renderButton(holder, {
+        theme: 'outline',
+        size: 'large',
+        shape: 'rectangular',
+        text: 'signin_with',
+        width: 320
+    });
+    setLoginStatus('Please sign in to continue.', 'info');
+}
+
+function loadAuthConfigThenRenderLogin() {
+    if (typeof eel === 'undefined' || typeof eel.auth_config !== 'function') {
+        setLoginStatus('Cannot read auth configuration from server.', 'error');
+        return;
+    }
+    eel.auth_config()(function (response) {
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Auth config unavailable';
+            setLoginStatus(message, 'error');
+            return;
+        }
+        window.__GOOGLE_CLIENT_ID__ = String(response.google_client_id || '');
+        const domains = Array.isArray(response.allowed_domains) ? response.allowed_domains : [];
+        if (loginDomainsEl && domains.length > 0) {
+            loginDomainsEl.innerHTML = 'Allowed domains: ' + domains.map((domain) => `<code>${escapeHtml(String(domain))}</code>`).join(', ');
+        }
+        ensureGoogleSigninButton();
+    });
+}
+
+function onGoogleCredentialResponse(response) {
+    const credential = response && response.credential ? String(response.credential) : '';
+    if (!credential) {
+        setLoginStatus('Google sign-in failed: missing credential.', 'error');
+        return;
+    }
+    if (typeof eel === 'undefined' || typeof eel.auth_google_login !== 'function') {
+        setLoginStatus('Auth bridge unavailable.', 'error');
+        return;
+    }
+    setLoginStatus('Signing in...', 'warning');
+    eel.auth_google_login(credential)(function (authResponse) {
+        if (!authResponse || !authResponse.success) {
+            const message = authResponse && authResponse.error ? String(authResponse.error) : 'Login failed';
+            setLoginStatus(message, 'error');
+            return;
+        }
+        const user = authResponse.user || null;
+        applyCurrentUser(user);
+        showAppView();
+        setStatus('Authenticated', 'success');
+        maybeShowSetupWizardOnFirstRun();
+        refreshTaskHistory();
+        if (currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN') {
+            refreshAdminUsers();
+            refreshAdminAudit();
+        }
+    });
+}
+
+function checkAuthenticatedUser() {
+    if (typeof eel === 'undefined' || typeof eel.auth_me !== 'function') {
+        showLoginView();
+        setLoginStatus('Auth bridge unavailable.', 'error');
+        return;
+    }
+    eel.auth_me()(function (response) {
+        if (!response || !response.success || !response.user) {
+            applyCurrentUser(null);
+            showLoginView();
+            loadAuthConfigThenRenderLogin();
+            return;
+        }
+        applyCurrentUser(response.user);
+        showAppView();
+        maybeShowSetupWizardOnFirstRun();
+        refreshTaskHistory();
+        if (String(currentUser.role || '').toUpperCase() === 'ADMIN') {
+            refreshAdminUsers();
+            refreshAdminAudit();
+        }
+    });
+}
+
+function logoutCurrentUser() {
+    if (typeof eel === 'undefined' || typeof eel.auth_logout !== 'function') {
+        return;
+    }
+    eel.auth_logout()(function () {
+        applyCurrentUser(null);
+        clear_all();
+        showLoginView();
+        loadAuthConfigThenRenderLogin();
+    });
+}
+
+function renderAdminUsers() {
+    if (!adminUsersBody) {
+        return;
+    }
+    if (!Array.isArray(adminUsers) || adminUsers.length === 0) {
+        adminUsersBody.innerHTML = '<tr><td colspan=\"4\">No users found.</td></tr>';
+        return;
+    }
+    let html = '';
+    adminUsers.forEach((user) => {
+        const userId = escapeHtml(String(user.id || ''));
+        const status = String(user.status || 'ACTIVE').toUpperCase();
+        const isActive = status === 'ACTIVE';
+        const role = escapeHtml(String(user.role || 'USER'));
+        const email = escapeHtml(String(user.email || ''));
+        const statusClass = isActive ? 'active' : 'inactive';
+        const actionLabel = isActive ? 'Deactivate' : 'Activate';
+        const nextStatus = isActive ? 'INACTIVE' : 'ACTIVE';
+        html += '<tr>';
+        html += `<td>${email}<br><small>${escapeHtml(String(user.display_name || ''))}</small></td>`;
+        html += `<td>${role}</td>`;
+        html += `<td><span class=\"status-pill ${statusClass}\">${escapeHtml(status)}</span></td>`;
+        html += `<td><button class=\"btn-secondary btn-small\" data-user-id=\"${userId}\" data-next-status=\"${nextStatus}\">${actionLabel}</button></td>`;
+        html += '</tr>';
+    });
+    adminUsersBody.innerHTML = html;
+    adminUsersBody.querySelectorAll('button[data-user-id][data-next-status]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const userId = String(button.getAttribute('data-user-id') || '').trim();
+            const nextStatus = String(button.getAttribute('data-next-status') || '').trim();
+            if (userId && nextStatus) {
+                updateAdminUserStatus(userId, nextStatus);
+            }
+        });
+    });
+}
+
+function renderAdminAudit() {
+    if (!adminAuditBody) {
+        return;
+    }
+    if (!Array.isArray(adminEvents) || adminEvents.length === 0) {
+        adminAuditBody.innerHTML = '<tr><td colspan=\"4\">No events found.</td></tr>';
+        return;
+    }
+    let html = '';
+    adminEvents.forEach((event) => {
+        const ts = formatUnixTimestamp(event.created_at);
+        const actor = escapeHtml(String(event.actor_email || '-'));
+        const target = escapeHtml(String(event.target_email || '-'));
+        const eventType = escapeHtml(String(event.event_type || 'unknown'));
+        html += '<tr>';
+        html += `<td>${escapeHtml(ts)}</td>`;
+        html += `<td>${actor}</td>`;
+        html += `<td>${eventType}</td>`;
+        html += `<td>${target}</td>`;
+        html += '</tr>';
+    });
+    adminAuditBody.innerHTML = html;
+}
+
+function refreshAdminUsers() {
+    if (!currentUser || String(currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        return;
+    }
+    if (typeof eel === 'undefined' || typeof eel.admin_list_users !== 'function') {
+        return;
+    }
+    eel.admin_list_users(300)(function (response) {
+        if (!response || !response.success) {
+            return;
+        }
+        adminUsers = Array.isArray(response.users) ? response.users : [];
+        renderAdminUsers();
+    });
+}
+
+function refreshAdminAudit() {
+    if (!currentUser || String(currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        return;
+    }
+    if (typeof eel === 'undefined' || typeof eel.admin_list_audit_events !== 'function') {
+        return;
+    }
+    eel.admin_list_audit_events({ limit: 300 })(function (response) {
+        if (!response || !response.success) {
+            return;
+        }
+        adminEvents = Array.isArray(response.events) ? response.events : [];
+        renderAdminAudit();
+    });
+}
+
+function updateAdminUserStatus(userId, nextStatus) {
+    if (typeof eel === 'undefined' || typeof eel.admin_set_user_status !== 'function') {
+        return;
+    }
+    eel.admin_set_user_status(userId, nextStatus)(function (response) {
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Could not update user status';
+            alert(message);
+            return;
+        }
+        refreshAdminUsers();
+        refreshAdminAudit();
+    });
+}
+
+function openAdminPanel() {
+    if (!adminPanelBackdrop) {
+        return;
+    }
+    adminPanelBackdrop.classList.remove('hidden');
+    refreshAdminUsers();
+    refreshAdminAudit();
+}
+
+function closeAdminPanel() {
+    if (!adminPanelBackdrop) {
+        return;
+    }
+    adminPanelBackdrop.classList.add('hidden');
 }
 
 function parseCustomTerms(raw) {
@@ -1359,6 +1800,10 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && setupWizardBackdrop && !setupWizardBackdrop.classList.contains('hidden')) {
         closeSetupWizard(true);
         setStatus('Setup closed. Reopen anytime from AI Settings.', 'warning');
+        return;
+    }
+    if (event.key === 'Escape' && adminPanelBackdrop && !adminPanelBackdrop.classList.contains('hidden')) {
+        closeAdminPanel();
     }
 });
 refreshModelsBtn.addEventListener('click', () => fetchOllamaModels(ollamaModelSelect.value));
@@ -1437,7 +1882,6 @@ if (!pagePresetSelect.value) {
     setPagePreset('manuscript_default');
 }
 updateAiProviderUI();
-maybeShowSetupWizardOnFirstRun();
 [
     aiEnabled,
     aiProvider,
@@ -1484,6 +1928,98 @@ fileInput.addEventListener('change', (e) => {
     }
 });
 
+if (browseFileBtn) {
+    browseFileBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+}
+
+if (processBtn) {
+    processBtn.addEventListener('click', () => {
+        process_document();
+    });
+}
+
+if (saveCleanBtn) {
+    saveCleanBtn.addEventListener('click', () => {
+        save_file('clean');
+    });
+}
+
+if (saveHighlightBtn) {
+    saveHighlightBtn.addEventListener('click', () => {
+        save_file('highlighted');
+    });
+}
+
+if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+        clear_all();
+    });
+}
+
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+        logoutCurrentUser();
+    });
+}
+
+if (refreshHistoryBtn) {
+    refreshHistoryBtn.addEventListener('click', () => {
+        refreshTaskHistory();
+    });
+}
+
+if (openAdminPanelBtn) {
+    openAdminPanelBtn.addEventListener('click', () => {
+        openAdminPanel();
+    });
+}
+
+if (adminClosePanelBtn) {
+    adminClosePanelBtn.addEventListener('click', () => {
+        closeAdminPanel();
+    });
+}
+
+if (adminRefreshUsersBtn) {
+    adminRefreshUsersBtn.addEventListener('click', () => {
+        refreshAdminUsers();
+    });
+}
+
+if (adminRefreshAuditBtn) {
+    adminRefreshAuditBtn.addEventListener('click', () => {
+        refreshAdminAudit();
+    });
+}
+
+if (adminPanelBackdrop) {
+    adminPanelBackdrop.addEventListener('click', (event) => {
+        if (event.target === adminPanelBackdrop) {
+            closeAdminPanel();
+        }
+    });
+}
+
+document.querySelectorAll('.tab[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const tab = String(btn.dataset.tab || '').trim();
+        if (tab) {
+            switch_tab(tab);
+        }
+    });
+});
+
+document.querySelectorAll('.view-tab[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const mode = String(btn.dataset.view || '').trim();
+        if (mode) {
+            switch_view(mode);
+        }
+    });
+});
+
 function handleFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (ext !== 'txt' && ext !== 'docx') {
@@ -1525,6 +2061,7 @@ function handleFile(file) {
 function handleLoadResponse(displayName) {
     return function (response) {
         if (response.success) {
+            fileContent.taskId = String(response.task_id || '');
             fileContent.original = response.text;
             fileContent.fileName = displayName;
             fileContent.corrected = '';
@@ -1544,6 +2081,7 @@ function handleLoadResponse(displayName) {
             document.getElementById('save-clean-btn').disabled = true;
             document.getElementById('save-highlight-btn').disabled = true;
             setStatus('File loaded successfully', 'success');
+            refreshTaskHistory();
         } else {
             setStatus('Error loading file', 'error');
             alert('Error loading file: ' + response.error);
@@ -1559,7 +2097,7 @@ function switch_tab(tab) {
     if (tab === 'redline') {
         if (!fileContent.redline && fileContent.corrected && typeof eel !== 'undefined' && typeof eel.get_redline_preview === 'function') {
             try {
-                eel.get_redline_preview()(function (response) {
+                eel.get_redline_preview(fileContent.taskId || '')(function (response) {
                     if (response && response.success) {
                         fileContent.redline = response.redline_html || '';
                     }
@@ -1611,6 +2149,7 @@ function setProgress(progress) {
 function applyProcessResponseToState(response, options = {}) {
     const opts = options || {};
     const keepGroupDecisions = opts.keepGroupDecisions === true;
+    fileContent.taskId = String(response.task_id || fileContent.taskId || '');
     fileContent.corrected = response.text;
     fileContent.original = response.original;
     fileContent.fullCorrectedText = response.full_corrected_text || response.text || '';
@@ -1665,7 +2204,7 @@ function process_document() {
     };
     saveAiSettings();
 
-    eel.process_document(options)(function(response) {
+    eel.process_document(options, fileContent.taskId || '')(function(response) {
         if (response.success) {
             applyProcessResponseToState(response, { keepGroupDecisions: false });
             if (fileContent.processingAudit && fileContent.processingAudit.mode === 'sectioned') {
@@ -1684,6 +2223,7 @@ function process_document() {
                 setStatus('Processing complete', 'success');
             }
             setProgress(100);
+            refreshTaskHistory();
         } else {
             setStatus('Error: ' + response.error, 'error');
             alert('Processing error: ' + response.error);
@@ -1707,6 +2247,7 @@ function applyCurrentGroupDecisions() {
     isApplyingGroupDecisions = true;
     setStatus('Applying change decisions...', 'warning');
     const payload = {
+        task_id: fileContent.taskId || '',
         group_decisions: normalizeGroupDecisions(fileContent.groupDecisions),
         original_text: fileContent.original || '',
         full_corrected_text: fileContent.fullCorrectedText || fileContent.corrected || ''
@@ -1719,6 +2260,7 @@ function applyCurrentGroupDecisions() {
             applyProcessResponseToState(response, { keepGroupDecisions: true });
             renderCurrentPreview();
             setStatus('Decision update applied', 'success');
+            refreshTaskHistory();
             if (hadPending) {
                 applyCurrentGroupDecisions();
             }
@@ -1807,6 +2349,7 @@ function save_file(file_type) {
 
     setStatus('Preparing download...', 'warning');
     eel.export_file({
+        task_id: fileContent.taskId || '',
         file_type: file_type,
         original_text: fileContent.original || '',
         corrected_text: fileContent.corrected || '',
@@ -1840,6 +2383,7 @@ function clear_all() {
     }
 
     fileContent = {
+        taskId: '',
         original: '',
         fileName: '',
         corrected: '',
@@ -1864,3 +2408,5 @@ function clear_all() {
     setStatus('Ready', 'info');
     setProgress(0);
 }
+
+checkAuthenticatedUser();

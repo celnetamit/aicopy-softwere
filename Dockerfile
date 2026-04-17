@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8000 \
-    GUNICORN_WORKERS=1 \
+    GUNICORN_WORKERS=2 \
     GUNICORN_THREADS=8 \
     GUNICORN_TIMEOUT=600
 
@@ -29,5 +29,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/api/health" || exit 1
 
-# Keep a single worker because the current session store is in-process memory.
 CMD ["sh", "-c", "exec gunicorn --worker-class gthread --workers \"${GUNICORN_WORKERS:-1}\" --threads \"${GUNICORN_THREADS:-8}\" --timeout \"${GUNICORN_TIMEOUT:-600}\" --bind \"0.0.0.0:${PORT:-8000}\" webapp:app"]

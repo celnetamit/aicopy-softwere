@@ -8,6 +8,10 @@ See [KID_GUIDE.md](KID_GUIDE.md).
 ## Features
 
 - **AI-Powered Editing**: Uses local Ollama AI for intelligent context-aware corrections
+- **Secure Access (Auth Upgrade)**: Google Sign-In only with domain allowlist enforcement
+- **Role Hierarchy (v1)**: `ADMIN` and `USER` roles with admin monitoring capabilities
+- **Task Dashboard**: Each signed-in user gets task history with downloadable outputs
+- **Admin Activity Tracking**: Admin panel for user status control and audit timeline
 - **Multi-Provider AI Settings**: Switch between local Ollama and Google Gemini from the UI
 - **First-Run Setup Wizard (Week 8)**: Guided setup text for API keys and Ollama host on first launch
 - **Chicago Style Compliance**: Applies The Chicago Manual of Style formatting rules
@@ -24,6 +28,8 @@ See [KID_GUIDE.md](KID_GUIDE.md).
 
 - Python 3.8+
 - Ollama (optional, for AI-enhanced editing)
+- Google OAuth Client ID for web login (`GOOGLE_CLIENT_ID`)
+- PostgreSQL recommended for production (`DATABASE_URL`)
 
 ### Python Dependencies
 
@@ -236,7 +242,18 @@ MANUSCRIPT_EDITOR_HOST=0.0.0.0 MANUSCRIPT_EDITOR_PORT=8000 python3 webapp.py
 
 The WSGI entrypoint is `webapp:app`.
 
-The web mode keeps document state per browser session in memory, so multiple users can use one server process without sharing edits, but a shared session store would still be better for multi-instance production hosting.
+Web mode now requires authentication for all editing/task APIs.
+
+Required auth env vars for web mode:
+1. `GOOGLE_CLIENT_ID` (OAuth client for Google Sign-In)
+2. `ALLOWED_EMAIL_DOMAINS` (comma-separated allowlist)
+3. `ADMIN_EMAILS` (comma-separated admin users)
+
+Recommended persistence env vars:
+1. `DATABASE_URL` (PostgreSQL URL; SQLite fallback works for local/test)
+2. `DATA_DIR` (persistent storage for uploaded/generated task files)
+3. `SESSION_TTL_HOURS` (default `12`)
+4. `FILE_RETENTION_DAYS` (default `30`)
 
 ### Coolify Deployment
 
@@ -251,15 +268,23 @@ Coolify settings:
 
 Suggested environment variables:
 1. `PORT=8000`
-2. `GUNICORN_WORKERS=1`
+2. `GUNICORN_WORKERS=2` (or higher once PostgreSQL is configured)
 3. `GUNICORN_THREADS=8`
 4. `GUNICORN_TIMEOUT=600`
+5. `DATABASE_URL=postgresql://...`
+6. `GOOGLE_CLIENT_ID=...`
+7. `ALLOWED_EMAIL_DOMAINS=celnet.in,conwiz.in,stmjournals.in,stmjournals.com,nanoschool.in,nstc.in`
+8. `ADMIN_EMAILS=amit@conwiz.in,puneet.mehrotra@celnet.in`
+9. `DATA_DIR=/app/data`
+10. `SESSION_TTL_HOURS=12`
+11. `FILE_RETENTION_DAYS=30`
 
 Important:
-1. Keep `GUNICORN_WORKERS=1` for now. The app currently stores session state in-process, so multiple workers can break active browser sessions.
+1. Use a managed PostgreSQL service/container and persist `DATA_DIR` with a mounted volume.
 2. The container includes `curl`, so Coolify UI health checks can probe `/api/health`, and the Dockerfile also defines a container health check.
 3. Point the DNS `A` record for `aicopyeditor.celnet.in` to your Coolify server IP before enabling HTTPS.
-4. If you use AI providers server-side, add their keys in Coolify environment variables or enter them from the browser UI after deployment.
+4. Google Sign-In must be configured with your deployment domain in Google Cloud console.
+5. If you use AI providers server-side, add their keys in Coolify environment variables or enter them from the browser UI after deployment.
 
 ### Windows Packaging (`.exe` Installer)
 

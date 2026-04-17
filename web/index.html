@@ -7,10 +7,33 @@
     <link rel="stylesheet" href="style.css?v=20260417r27">
 </head>
 <body>
-    <div class="app">
-        <header>
+    <div class="login-view" id="login-view">
+        <div class="login-card">
             <h1>Manuscript Editor</h1>
-            <p>Professional Copy Editing</p>
+            <p class="login-subtitle">Sign in with your Google Workspace account to continue.</p>
+            <div class="login-domains" id="login-domains">
+                Allowed domains: <code>celnet.in</code>, <code>conwiz.in</code>, <code>stmjournals.in</code>, <code>stmjournals.com</code>, <code>nanoschool.in</code>, <code>nstc.in</code>
+            </div>
+            <div id="google-signin-button"></div>
+            <p class="login-status" id="login-status">Checking authentication status...</p>
+        </div>
+    </div>
+
+    <div class="app hidden" id="app-shell">
+        <header>
+            <div class="header-main">
+                <h1>Manuscript Editor</h1>
+                <p>Professional Copy Editing</p>
+            </div>
+            <div class="header-user">
+                <div class="header-user-meta">
+                    <span id="user-name">User</span>
+                    <span id="user-role">USER</span>
+                </div>
+                <button class="btn-secondary btn-small" id="refresh-history-btn" type="button">Refresh Tasks</button>
+                <button class="btn-secondary btn-small hidden" id="open-admin-panel-btn" type="button">Admin Panel</button>
+                <button class="btn-text" id="logout-btn" type="button">Logout</button>
+            </div>
         </header>
 
         <main>
@@ -21,11 +44,19 @@
                         <div class="upload-icon">📄</div>
                         <p>Drop .txt or .docx file here<br>or click Browse</p>
                         <input type="file" id="file-input" accept=".txt,.docx" hidden>
-                        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">
+                        <button class="btn-secondary" id="browse-file-btn" type="button">
                             Browse Files
                         </button>
                     </div>
                     <p class="file-name" id="file-name">No file selected</p>
+                </section>
+
+                <section class="options-section">
+                    <h2>Your Tasks</h2>
+                    <p class="hint-text">Recent uploads and processed manuscripts are listed here.</p>
+                    <div class="task-history" id="task-history">
+                        <p class="task-empty">No tasks yet. Upload a manuscript to start.</p>
+                    </div>
                 </section>
 
                 <section class="options-section">
@@ -170,34 +201,34 @@
                 </section>
 
                 <section class="actions-section">
-                    <button class="btn-primary" id="process-btn" onclick="process_document()">
+                    <button class="btn-primary" id="process-btn" type="button">
                         Process Document
                     </button>
                     <div class="save-buttons">
-                        <button class="btn-secondary" id="save-clean-btn" onclick="save_file('clean')" disabled>
+                        <button class="btn-secondary" id="save-clean-btn" type="button" disabled>
                             Save Clean Version
                         </button>
-                        <button class="btn-secondary" id="save-highlight-btn" onclick="save_file('highlighted')" disabled>
+                        <button class="btn-secondary" id="save-highlight-btn" type="button" disabled>
                             Save Highlighted
                         </button>
                     </div>
-                    <button class="btn-text" onclick="clear_all()">Clear</button>
+                    <button class="btn-text" id="clear-btn" type="button">Clear</button>
                 </section>
             </aside>
 
             <section class="right-panel">
                 <div class="tabs-row">
                     <div class="tabs">
-                        <button class="tab active" data-tab="original" onclick="switch_tab('original')">Original</button>
-                        <button class="tab" data-tab="corrected" onclick="switch_tab('corrected')">Corrected</button>
-                        <button class="tab" data-tab="redline" onclick="switch_tab('redline')">Redline</button>
-                        <button class="tab" data-tab="corrections" onclick="switch_tab('corrections')">Corrections</button>
+                        <button class="tab active" data-tab="original" type="button">Original</button>
+                        <button class="tab" data-tab="corrected" type="button">Corrected</button>
+                        <button class="tab" data-tab="redline" type="button">Redline</button>
+                        <button class="tab" data-tab="corrections" type="button">Corrections</button>
                     </div>
                     <div class="view-mode">
-                        <button class="view-tab" data-view="compare" onclick="switch_view('compare')">Compare</button>
-                        <button class="view-tab active" data-view="rich" onclick="switch_view('rich')">Rich</button>
-                        <button class="view-tab" data-view="page" onclick="switch_view('page')">Page</button>
-                        <button class="view-tab" data-view="plain" onclick="switch_view('plain')">Plain</button>
+                        <button class="view-tab" data-view="compare" type="button">Compare</button>
+                        <button class="view-tab active" data-view="rich" type="button">Rich</button>
+                        <button class="view-tab" data-view="page" type="button">Page</button>
+                        <button class="view-tab" data-view="plain" type="button">Plain</button>
                     </div>
                 </div>
                 <div class="page-controls hidden" id="page-controls">
@@ -304,7 +335,61 @@
         </div>
     </div>
 
+    <div class="setup-wizard-backdrop hidden" id="admin-panel-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-panel-title">
+        <div class="setup-wizard-card admin-panel-card">
+            <h2 id="admin-panel-title">Admin Dashboard</h2>
+            <p class="setup-wizard-subtitle">Monitor users and activity events in real time.</p>
+
+            <div class="admin-panel-actions">
+                <button class="btn-secondary btn-small" id="admin-refresh-users-btn" type="button">Refresh Users</button>
+                <button class="btn-secondary btn-small" id="admin-refresh-audit-btn" type="button">Refresh Activity</button>
+                <button class="btn-secondary btn-small" id="admin-close-panel-btn" type="button">Close</button>
+            </div>
+
+            <div class="admin-grid">
+                <section class="admin-block">
+                    <h3>Users</h3>
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-body">
+                                <tr><td colspan="4">No users loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Activity Timeline</h3>
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Actor</th>
+                                    <th>Event</th>
+                                    <th>Target</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-audit-body">
+                                <tr><td colspan="4">No events loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script type="text/javascript" src="/eel.js" data-cfasync="false"></script>
-    <script src="app.js?v=20260417r27" data-cfasync="false"></script>
+    <script src="app.js?v=20260417r29" data-cfasync="false"></script>
 </body>
 </html>
