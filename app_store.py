@@ -130,6 +130,27 @@ class AppStore:
         return out
 
     def _init_schema(self):
+        # When multiple Gunicorn workers boot at once, schema creation can race on PostgreSQL
+        # even with IF NOT EXISTS. Serialize bootstrap with an advisory lock.
+        if self.backend == "postgres":
+            lock_key_major = 428_317
+            lock_key_minor = 91_223
+            self._execute(
+                "SELECT pg_advisory_lock(%s, %s)",
+                (lock_key_major, lock_key_minor),
+            )
+            try:
+                self._init_schema_unlocked()
+            finally:
+                self._execute(
+                    "SELECT pg_advisory_unlock(%s, %s)",
+                    (lock_key_major, lock_key_minor),
+                )
+            return
+
+        self._init_schema_unlocked()
+
+    def _init_schema_unlocked(self):
         self._execute(
             """
             CREATE TABLE IF NOT EXISTS users (
