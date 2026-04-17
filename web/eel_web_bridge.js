@@ -25,6 +25,7 @@
     }
 
     var SESSION_STORAGE_KEY = 'manuscript_editor_web_session_id';
+    var fallbackSessionId = '';
 
     function makeSessionId() {
         if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -34,16 +35,23 @@
     }
 
     function getSessionId() {
+        if (fallbackSessionId) {
+            return fallbackSessionId;
+        }
+
         try {
             var current = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
             if (current) {
+                fallbackSessionId = current;
                 return current;
             }
             current = makeSessionId();
             window.sessionStorage.setItem(SESSION_STORAGE_KEY, current);
+            fallbackSessionId = current;
             return current;
         } catch (err) {
-            return makeSessionId();
+            fallbackSessionId = makeSessionId();
+            return fallbackSessionId;
         }
     }
 
