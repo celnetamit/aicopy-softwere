@@ -9,9 +9,10 @@ import webapp
 
 
 class WsgiTestClient:
-    def __init__(self, app):
+    def __init__(self, app, session_id=None):
         self.app = app
         self.cookies = {}
+        self.session_id = session_id
 
     def request(self, method, path, payload=None):
         body = b""
@@ -28,6 +29,8 @@ class WsgiTestClient:
             environ["CONTENT_TYPE"] = "application/json"
         if self.cookies:
             environ["HTTP_COOKIE"] = "; ".join(f"{key}={value}" for key, value in self.cookies.items())
+        if self.session_id:
+            environ["HTTP_X_MANUSCRIPT_SESSION"] = self.session_id
 
         meta = {}
 
@@ -92,8 +95,8 @@ class WebAppApiTests(unittest.TestCase):
         self.assertTrue(payload["file_name"].endswith("_clean.docx"))
 
     def test_sessions_are_isolated_between_clients(self):
-        client_a = WsgiTestClient(webapp.app)
-        client_b = WsgiTestClient(webapp.app)
+        client_a = WsgiTestClient(webapp.app, session_id="client_a")
+        client_b = WsgiTestClient(webapp.app, session_id="client_b")
 
         status, payload = client_a.request(
             "POST",
@@ -123,6 +126,36 @@ class WebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(payload["success"])
         self.assertEqual(payload.get("error_code"), "EXPORT_NO_CORRECTED_DOC")
+
+    def test_header_based_session_survives_without_cookie_round_trip(self):
+        client = WsgiTestClient(webapp.app, session_id="sticky_header_session")
+
+        status, payload = client.request(
+            "POST",
+            "/api/load-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["success"])
+
+        client.cookies.clear()
+
+        status, payload = client.request(
+            "POST",
+            "/api/process-document",
+            {
+                "options": {
+                    "spelling": True,
+                    "sentence_case": True,
+                    "punctuation": True,
+                    "chicago_style": True,
+                    "ai": {"enabled": False},
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["text"])
 
     def test_reset_session_clears_loaded_state(self):
         status, payload = self.client.request(

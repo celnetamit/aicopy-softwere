@@ -22,6 +22,7 @@ WEB_DIR = os.path.join(ROOT_DIR, "web")
 REQUIRED_WEB_ASSETS = ("index.html", "style.css", "app.js", "eel_web_bridge.js")
 SESSION_COOKIE_NAME = "manuscript_editor_sid"
 SESSION_COOKIE_ENV_KEY = "manuscript_editor.session_id"
+SESSION_HEADER_NAME = "HTTP_X_MANUSCRIPT_SESSION"
 SESSION_TTL_SECONDS = 12 * 60 * 60
 SESSION_STORE_LIMIT = 256
 
@@ -124,14 +125,28 @@ def _prune_sessions_locked(now: float):
             _SESSION_STORE.pop(session_id, None)
 
 
+def _normalize_session_id(raw_value: str) -> str:
+    candidate = str(raw_value or "").strip()
+    if not candidate:
+        return ""
+    safe = []
+    for char in candidate:
+        if char.isalnum() or char in ("-", "_"):
+            safe.append(char)
+    normalized = "".join(safe)
+    return normalized[:128]
+
+
 def _get_session_state() -> SessionState:
     now = time.time()
-    incoming_session_id = str(request.get_cookie(SESSION_COOKIE_NAME) or "").strip()
+    header_session_id = _normalize_session_id(request.environ.get(SESSION_HEADER_NAME, ""))
+    cookie_session_id = _normalize_session_id(request.get_cookie(SESSION_COOKIE_NAME) or "")
+    incoming_session_id = header_session_id or cookie_session_id
     with _SESSION_LOCK:
         _prune_sessions_locked(now)
         state = _SESSION_STORE.get(incoming_session_id)
         if state is None:
-            incoming_session_id = uuid.uuid4().hex
+            incoming_session_id = incoming_session_id or uuid.uuid4().hex
             state = SessionState()
             _SESSION_STORE[incoming_session_id] = state
         state.last_accessed = now
@@ -231,7 +246,6 @@ def eel_bridge():
 
 @app.get("/api/health")
 def api_health():
-    _get_session_state()
     return _json_response({"success": True, "status": "ok"})
 
 
