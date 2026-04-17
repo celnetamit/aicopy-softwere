@@ -15,7 +15,7 @@ import uuid
 from functools import wraps
 from typing import Dict, Optional, Tuple
 
-from bottle import Bottle, HTTPResponse, request, run, static_file
+from bottle import Bottle, HTTPResponse, request, response, run, static_file
 
 from app_store import AppStore, ROLE_ADMIN, STATUS_ACTIVE, STATUS_INACTIVE, SessionContext
 from document_processor import DocumentProcessor
@@ -730,7 +730,13 @@ def index():
 @app.get("/eel.js")
 def eel_bridge():
     _ensure_web_assets()
-    return static_file("eel_web_bridge.js", root=WEB_DIR, mimetype="application/javascript")
+    asset = static_file("eel_web_bridge.js", root=WEB_DIR, mimetype="application/javascript")
+    try:
+        asset.set_header("Cache-Control", "no-store, max-age=0, must-revalidate")
+        asset.set_header("Pragma", "no-cache")
+    except Exception:
+        pass
+    return asset
 
 
 @app.get("/api/health")

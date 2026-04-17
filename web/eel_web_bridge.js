@@ -3,8 +3,11 @@
         return;
     }
 
-    if (window.eel && typeof window.eel.expose === 'function') {
-        return;
+    // Upgrade-safe bridge bootstrap:
+    // if an older script already defined window.eel, merge/override required methods.
+    var eelObj = (window.eel && typeof window.eel === 'object') ? window.eel : {};
+    if (typeof eelObj.expose !== 'function') {
+        eelObj.expose = function () {};
     }
 
     function responseToJson(response) {
@@ -117,8 +120,8 @@
         };
     }
 
-    window.eel = {
-        expose: function () {},
+    var bridgeApi = {
+        expose: eelObj.expose,
 
         auth_google_login: callbackWrapper(function (idToken) {
             return postJson('/api/auth/google-login', {
@@ -290,6 +293,12 @@
             return postJson('/api/reset-session', {});
         })
     };
+
+    Object.keys(bridgeApi).forEach(function (key) {
+        eelObj[key] = bridgeApi[key];
+    });
+
+    window.eel = eelObj;
 
     window.__MANUSCRIPT_WEB_MODE__ = true;
 }());
