@@ -172,6 +172,7 @@ def _build_process_payload(state: SessionState, original: str, corrected: str) -
         "success": True,
         "text": corrected,
         "original": original,
+        "full_corrected_text": state.full_corrected_text or corrected,
         "word_count": len(corrected.split()),
         "redline_html": state.processor.build_redline_html(original, corrected),
         "corrected_annotated_html": state.processor.build_foreign_annotated_html(corrected),
@@ -308,10 +309,18 @@ def process_document():
     state = _get_session_state()
     payload = _read_json_payload()
     options = payload.get("options", {})
+    source_text = str(payload.get("source_text", "") or "")
+    source_file_name = str(payload.get("source_file_name", "") or "")
     if not isinstance(options, dict):
         options = {}
 
     try:
+        if not state.original_text.strip() and source_text.strip():
+            state.current_file = source_file_name or state.current_file or "manuscript.txt"
+            state.original_text = source_text
+            state.corrected_text = ""
+            state.full_corrected_text = ""
+
         if not state.original_text.strip():
             return _json_response({"success": False, "error": "No document loaded"}, status=400)
 
@@ -327,10 +336,17 @@ def apply_correction_group_decisions():
     state = _get_session_state()
     payload = _read_json_payload()
     group_decisions = payload.get("group_decisions", {})
+    original_text = str(payload.get("original_text", "") or "")
+    full_corrected_text = str(payload.get("full_corrected_text", "") or "")
     if not isinstance(group_decisions, dict):
         group_decisions = {}
 
     try:
+        if not state.original_text.strip() and original_text.strip():
+            state.original_text = original_text
+        if not state.full_corrected_text.strip() and full_corrected_text.strip():
+            state.full_corrected_text = full_corrected_text
+
         if not state.original_text.strip():
             return _json_response({"success": False, "error": "No document loaded"}, status=400)
         if not state.full_corrected_text.strip():
@@ -383,6 +399,15 @@ def export_file():
     state = _get_session_state()
     payload = _read_json_payload()
     file_type = str(payload.get("file_type", "") or "")
+    original_text = str(payload.get("original_text", "") or "")
+    corrected_text = str(payload.get("corrected_text", "") or "")
+    file_name = str(payload.get("file_name", "") or "")
+    if not state.original_text.strip() and original_text.strip():
+        state.original_text = original_text
+    if not state.corrected_text.strip() and corrected_text.strip():
+        state.corrected_text = corrected_text
+    if file_name.strip():
+        state.current_file = file_name.strip()
     return _json_response(_export_file_payload(state, file_type))
 
 

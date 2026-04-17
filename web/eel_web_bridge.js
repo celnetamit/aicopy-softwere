@@ -133,12 +133,16 @@
         }),
         process_document: callbackWrapper(function (options) {
             return postJson('/api/process-document', {
-                options: options
+                options: options,
+                source_text: (window.fileContent && window.fileContent.original) || '',
+                source_file_name: (window.fileContent && window.fileContent.fileName) || ''
             });
         }),
         apply_correction_group_decisions: callbackWrapper(function (groupDecisions) {
             return postJson('/api/apply-correction-group-decisions', {
-                group_decisions: groupDecisions
+                group_decisions: groupDecisions && groupDecisions.group_decisions ? groupDecisions.group_decisions : groupDecisions,
+                original_text: groupDecisions && groupDecisions.original_text ? groupDecisions.original_text : '',
+                full_corrected_text: groupDecisions && groupDecisions.full_corrected_text ? groupDecisions.full_corrected_text : ''
             });
         }),
         get_redline_preview: callbackWrapper(function () {
@@ -152,8 +156,15 @@
             return getJson('/api/ollama-models' + query);
         }),
         export_file: callbackWrapper(function (fileType) {
+            var payload = fileType;
+            if (typeof payload === 'string') {
+                payload = { file_type: payload };
+            }
             return postJson('/api/export-file', {
-                file_type: fileType
+                file_type: payload && payload.file_type ? payload.file_type : '',
+                original_text: payload && payload.original_text ? payload.original_text : '',
+                corrected_text: payload && payload.corrected_text ? payload.corrected_text : '',
+                file_name: payload && payload.file_name ? payload.file_name : ''
             });
         }),
         save_file: callbackWrapper(function (fileType) {

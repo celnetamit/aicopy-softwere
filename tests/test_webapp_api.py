@@ -94,6 +94,41 @@ class WebAppApiTests(unittest.TestCase):
         self.assertIn("base64_data", payload)
         self.assertTrue(payload["file_name"].endswith("_clean.docx"))
 
+    def test_process_document_can_seed_state_from_request_body(self):
+        status, payload = self.client.request(
+            "POST",
+            "/api/process-document",
+            {
+                "source_text": "This are sample text.",
+                "source_file_name": "sample.txt",
+                "options": {
+                    "spelling": True,
+                    "sentence_case": True,
+                    "punctuation": True,
+                    "chicago_style": True,
+                    "ai": {"enabled": False},
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["original"], "This are sample text.")
+
+    def test_export_file_can_use_request_body_when_session_is_empty(self):
+        status, payload = self.client.request(
+            "POST",
+            "/api/export-file",
+            {
+                "file_type": "clean",
+                "original_text": "Hello world.",
+                "corrected_text": "Hello, world.",
+                "file_name": "sample.txt",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["success"])
+        self.assertIn("base64_data", payload)
+
     def test_sessions_are_isolated_between_clients(self):
         client_a = WsgiTestClient(webapp.app, session_id="client_a")
         client_b = WsgiTestClient(webapp.app, session_id="client_b")

@@ -2,7 +2,9 @@ let currentTab = 'original';
 let currentViewMode = 'rich';
 let fileContent = {
     original: '',
+    fileName: '',
     corrected: '',
+    fullCorrectedText: '',
     correctedAnnotatedHtml: '',
     redline: '',
     corrections: null,
@@ -13,6 +15,7 @@ let fileContent = {
     groupDecisions: null,
     processingAudit: null
 };
+window.fileContent = fileContent;
 const SETTINGS_STORAGE_KEY = 'manuscript_editor_ai_settings_v1';
 const FIRST_RUN_SETUP_KEY = 'manuscript_editor_first_run_setup_v1';
 const FIRST_RUN_SETUP_VERSION = '20260417r2';
@@ -1541,7 +1544,9 @@ function handleLoadResponse(displayName) {
     return function (response) {
         if (response.success) {
             fileContent.original = response.text;
+            fileContent.fileName = displayName;
             fileContent.corrected = '';
+            fileContent.fullCorrectedText = '';
             fileContent.correctedAnnotatedHtml = '';
             fileContent.redline = '';
             fileContent.corrections = null;
@@ -1626,6 +1631,7 @@ function applyProcessResponseToState(response, options = {}) {
     const keepGroupDecisions = opts.keepGroupDecisions === true;
     fileContent.corrected = response.text;
     fileContent.original = response.original;
+    fileContent.fullCorrectedText = response.full_corrected_text || response.text || '';
     fileContent.correctedAnnotatedHtml = response.corrected_annotated_html || '';
     fileContent.redline = response.redline_html || '';
     fileContent.corrections = response.corrections_report || null;
@@ -1718,7 +1724,11 @@ function applyCurrentGroupDecisions() {
 
     isApplyingGroupDecisions = true;
     setStatus('Applying change decisions...', 'warning');
-    const payload = normalizeGroupDecisions(fileContent.groupDecisions);
+    const payload = {
+        group_decisions: normalizeGroupDecisions(fileContent.groupDecisions),
+        original_text: fileContent.original || '',
+        full_corrected_text: fileContent.fullCorrectedText || fileContent.corrected || ''
+    };
     eel.apply_correction_group_decisions(payload)(function(response) {
         isApplyingGroupDecisions = false;
         const hadPending = pendingGroupDecisionApply;
@@ -1813,7 +1823,12 @@ function save_file(file_type) {
     }
 
     setStatus('Preparing download...', 'warning');
-    eel.export_file(file_type)(function(response) {
+    eel.export_file({
+        file_type: file_type,
+        original_text: fileContent.original || '',
+        corrected_text: fileContent.corrected || '',
+        file_name: fileContent.fileName || 'manuscript.docx'
+    })(function(response) {
         if (response && response.success && response.base64_data) {
             downloadBase64Docx(response.base64_data, response.file_name, response.mime_type);
             setStatus(file_type + ' version downloaded', 'success');
@@ -1838,7 +1853,9 @@ function clear_all() {
 
     fileContent = {
         original: '',
+        fileName: '',
         corrected: '',
+        fullCorrectedText: '',
         correctedAnnotatedHtml: '',
         redline: '',
         corrections: null,
@@ -1849,6 +1866,7 @@ function clear_all() {
         groupDecisions: null,
         processingAudit: null
     };
+    window.fileContent = fileContent;
     document.getElementById('file-name').textContent = 'No file selected';
     document.getElementById('word-count').textContent = 'Words: 0';
     document.getElementById('save-clean-btn').disabled = true;
