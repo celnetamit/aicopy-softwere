@@ -188,8 +188,8 @@ def _build_process_payload(state: SessionState, original: str, corrected: str) -
 
 def _build_download_filename(state: SessionState, file_type: str) -> str:
     base_name = os.path.splitext(os.path.basename(state.current_file or "manuscript"))[0].strip() or "manuscript"
-    suffix = "clean" if file_type == "clean" else "highlighted"
-    return f"{base_name}_{suffix}.docx"
+    prefix = "clean" if file_type == "clean" else "highlighted"
+    return f"{prefix}_{base_name}.docx"
 
 
 def _export_file_payload(state: SessionState, file_type: str) -> Dict:

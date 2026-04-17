@@ -128,8 +128,8 @@ def _build_process_payload(original: str, corrected: str):
 def _build_download_filename(file_type: str) -> str:
     """Build a friendly output filename based on loaded manuscript name."""
     base_name = os.path.splitext(os.path.basename(current_file or "manuscript"))[0].strip() or "manuscript"
-    suffix = "clean" if file_type == "clean" else "highlighted"
-    return f"{base_name}_{suffix}.docx"
+    prefix = "clean" if file_type == "clean" else "highlighted"
+    return f"{prefix}_{base_name}.docx"
 
 
 def _build_fallback_save_path(file_type: str) -> str:

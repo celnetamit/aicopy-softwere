@@ -1158,23 +1158,31 @@ Corrected manuscript:"""
         font.name = 'Times New Roman'
         font.size = Pt(12)
 
-        paragraph = doc.add_paragraph()
-        paragraph.paragraph_format.space_after = Pt(0)
-        paragraph.paragraph_format.line_spacing = 1.5
+        original_lines = original.split('\n')
+        corrected_lines = corrected.split('\n')
+        total_lines = max(len(original_lines), len(corrected_lines), 1)
 
-        for segment_type, segment_text in self._iter_diff_segments(original, corrected):
-            for is_foreign, sub_segment in self._iter_foreign_segments(segment_text):
-                run = paragraph.add_run(sub_segment.lower() if is_foreign else sub_segment)
-                if is_foreign:
-                    run.italic = True
-                if segment_type == "delete":
-                    run.font.strike = True
-                    run.font.color.rgb = RGBColor(139, 0, 0)
-                    run.font.highlight_color = WD_COLOR_INDEX.DARK_RED
-                elif segment_type == "insert":
-                    run.font.underline = True
-                    run.font.color.rgb = RGBColor(0, 100, 0)
-                    run.font.highlight_color = WD_COLOR_INDEX.BRIGHT_GREEN
+        for idx in range(total_lines):
+            paragraph = doc.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(0)
+            paragraph.paragraph_format.line_spacing = 1.5
+
+            original_line = original_lines[idx] if idx < len(original_lines) else ""
+            corrected_line = corrected_lines[idx] if idx < len(corrected_lines) else ""
+
+            for segment_type, segment_text in self._iter_diff_segments(original_line, corrected_line):
+                for is_foreign, sub_segment in self._iter_foreign_segments(segment_text):
+                    run = paragraph.add_run(sub_segment.lower() if is_foreign else sub_segment)
+                    if is_foreign:
+                        run.italic = True
+                    if segment_type == "delete":
+                        run.font.strike = True
+                        run.font.color.rgb = RGBColor(200, 0, 0)
+                        run.font.highlight_color = WD_COLOR_INDEX.PINK
+                    elif segment_type == "insert":
+                        run.font.underline = True
+                        run.font.color.rgb = RGBColor(200, 0, 0)
+                        run.font.highlight_color = WD_COLOR_INDEX.YELLOW
 
         doc.save(output_path)
 

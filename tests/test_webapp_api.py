@@ -92,7 +92,7 @@ class WebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload["success"])
         self.assertIn("base64_data", payload)
-        self.assertTrue(payload["file_name"].endswith("_clean.docx"))
+        self.assertEqual(payload["file_name"], "clean_sample.docx")
 
     def test_process_document_can_seed_state_from_request_body(self):
         status, payload = self.client.request(

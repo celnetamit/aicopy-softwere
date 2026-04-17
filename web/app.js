@@ -1776,11 +1776,12 @@ function applyAllGroupDecisions(accepted) {
 }
 
 function save_file(file_type) {
-    function buildSaveErrorMessage(response, fallbackLabel) {
+    const isBrowserWebMode = window.__MANUSCRIPT_WEB_MODE__ === true;
+
+    function buildSaveErrorMessage(response) {
         const code = response && response.error_code ? String(response.error_code) : 'UNKNOWN_SAVE_ERROR';
         const message = response && response.error ? String(response.error) : 'Unknown save error';
-        const source = fallbackLabel ? ` (${fallbackLabel})` : '';
-        return `Save failed${source}\nCode: ${code}\nMessage: ${message}`;
+        return `Download failed\nCode: ${code}\nMessage: ${message}`;
     }
 
     function fallbackLegacySave() {
@@ -1794,7 +1795,7 @@ function save_file(file_type) {
                 alert(msg);
             } else {
                 setStatus('Save failed', 'error');
-                alert(buildSaveErrorMessage(response, 'legacy save'));
+                alert(buildSaveErrorMessage(response));
             }
         });
     }
@@ -1836,7 +1837,12 @@ function save_file(file_type) {
         }
         if (response && response.error) {
             const code = response.error_code ? ` [${response.error_code}]` : '';
-            console.warn('Browser download failed, trying legacy save:' + code, response.error);
+            console.warn('Browser download failed:' + code, response.error);
+        }
+        if (isBrowserWebMode) {
+            setStatus('Download failed', 'error');
+            alert(buildSaveErrorMessage(response));
+            return;
         }
         fallbackLegacySave();
     });

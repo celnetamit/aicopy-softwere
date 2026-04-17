@@ -2,7 +2,11 @@
 
 import builtins
 import os
+import tempfile
 import unittest
+
+from docx import Document
+from docx.enum.text import WD_COLOR_INDEX
 
 import main
 
@@ -30,12 +34,40 @@ class ExportSaveTelemetryTests(unittest.TestCase):
         response = main.export_file("clean")
         self.assertTrue(response["success"])
         self.assertIn("base64_data", response)
-        self.assertTrue(response["file_name"].endswith("_clean.docx"))
+        self.assertEqual(response["file_name"], "clean_sample.docx")
 
         telemetry = main.get_runtime_telemetry()["telemetry"]
         self.assertEqual(telemetry["export_attempts"], 1)
         self.assertEqual(telemetry["export_successes"], 1)
         self.assertEqual(telemetry["export_failures"], 0)
+
+    def test_highlighted_export_uses_prefixed_filename(self):
+        main.original_text = "Hello world."
+        main.corrected_text = "Hello, world."
+        response = main.export_file("highlighted")
+        self.assertTrue(response["success"])
+        self.assertEqual(response["file_name"], "highlighted_sample.docx")
+
+    def test_highlighted_docx_uses_red_change_text(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
+            output_path = handle.name
+
+        try:
+            main.processor.generate_highlighted_docx("old text", "new text", output_path)
+            doc = Document(output_path)
+            runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
+
+            deleted_runs = [run for run in runs if run.font.strike]
+            inserted_runs = [run for run in runs if run.font.underline]
+
+            self.assertTrue(deleted_runs)
+            self.assertTrue(inserted_runs)
+            self.assertEqual(str(deleted_runs[0].font.color.rgb), "C80000")
+            self.assertEqual(str(inserted_runs[0].font.color.rgb), "C80000")
+            self.assertEqual(deleted_runs[0].font.highlight_color, WD_COLOR_INDEX.PINK)
+            self.assertEqual(inserted_runs[0].font.highlight_color, WD_COLOR_INDEX.YELLOW)
+        finally:
+            os.unlink(output_path)
 
     def test_save_without_corrected_text_returns_error_code(self):
         response = main.save_file("clean")
