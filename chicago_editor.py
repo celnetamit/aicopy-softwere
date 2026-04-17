@@ -500,7 +500,7 @@ class ChicagoEditor:
         result = self.normalize_foreign_terms(result)
         # Ensure keyword lines use sentence case per item.
         result = self.normalize_keywords_line(result)
-        # Format reference list in Vancouver numeric style without reordering entries.
+        # Enforce Vancouver numbering so citations and references follow first appearance.
         result = self.format_references_vancouver_numbered(result, options or {})
 
         return result
@@ -1179,6 +1179,26 @@ class ChicagoEditor:
 
         return body_lines, reference_lines
 
+    def _extract_citation_numbers_in_order(self, text: str) -> List[int]:
+        """Return unique citation numbers in the order they first appear in body text."""
+        body_lines, _ = self._split_non_reference_and_reference_lines(text or "")
+        ordered: List[int] = []
+        seen = set()
+
+        for line in body_lines:
+            for match in re.finditer(r'\[(.*?)\]', line):
+                content = (match.group(1) or "").strip()
+                if not re.fullmatch(r'\d+(?:\s*,\s*\d+)*', content):
+                    continue
+                for part in content.split(','):
+                    number = int(part.strip())
+                    if number in seen:
+                        continue
+                    seen.add(number)
+                    ordered.append(number)
+
+        return ordered
+
     def _extract_reference_numbered_entries(self, text: str) -> List[Dict[str, Any]]:
         """Extract reference entries with optional explicit numeric index."""
         lines = (text or "").split('\n')
@@ -1247,6 +1267,65 @@ class ChicagoEditor:
             current_index = len(entries) - 1
 
         return entries
+
+    def _build_vancouver_renumber_plan(self, text: str) -> Tuple[Dict[int, int], List[Dict[str, Any]]]:
+        """Build first-appearance citation remap plus ordered reference entries."""
+        extracted = self._extract_reference_numbered_entries(text or "")
+        indexed_entries: List[Dict[str, Any]] = []
+        entries_by_number: Dict[int, List[Dict[str, Any]]] = {}
+
+        for idx, item in enumerate(extracted):
+            entry = {
+                "source_index": idx,
+                "number": int(item.get("number") or 0),
+                "entry": str(item.get("entry") or ""),
+            }
+            indexed_entries.append(entry)
+            entries_by_number.setdefault(entry["number"], []).append(entry)
+
+        ordered_entries: List[Dict[str, Any]] = []
+        used_source_indexes = set()
+        renumber_map: Dict[int, int] = {}
+
+        for old_number in self._extract_citation_numbers_in_order(text or ""):
+            for entry in entries_by_number.get(old_number, []):
+                source_index = int(entry["source_index"])
+                if source_index in used_source_indexes:
+                    continue
+                used_source_indexes.add(source_index)
+                ordered_entries.append(entry)
+                renumber_map[old_number] = len(ordered_entries)
+                break
+
+        for entry in indexed_entries:
+            source_index = int(entry["source_index"])
+            if source_index in used_source_indexes:
+                continue
+            used_source_indexes.add(source_index)
+            ordered_entries.append(entry)
+            old_number = int(entry["number"])
+            if old_number not in renumber_map:
+                renumber_map[old_number] = len(ordered_entries)
+
+        return renumber_map, ordered_entries
+
+    def _renumber_citation_blocks(self, text: str, renumber_map: Dict[int, int]) -> str:
+        """Renumber numeric body citations with a first-appearance map."""
+        if not renumber_map:
+            return text
+
+        def repl(match):
+            content = (match.group(1) or "").strip()
+            if not re.fullmatch(r'\d+(?:\s*,\s*\d+)*', content):
+                return match.group(0)
+
+            renumbered: List[str] = []
+            for part in content.split(','):
+                old_number = int(part.strip())
+                renumbered.append(str(int(renumber_map.get(old_number, old_number))))
+            return '[' + ', '.join(renumbered) + ']'
+
+        return re.sub(r'\[(.*?)\]', repl, text)
 
     def build_citation_reference_validator_report(self, text: str, options: Optional[Dict] = None) -> Dict[str, Any]:
         """Validate citation/reference integrity with issue categories and counts."""
@@ -1405,67 +1484,42 @@ class ChicagoEditor:
         }
 
     def format_references_vancouver_numbered(self, text: str, options: Optional[Dict] = None) -> str:
-        """Format references section as Vancouver numeric list, preserving original order."""
+        """Format manuscript citations/references in Vancouver first-appearance order."""
         profile = self.resolve_journal_profile(options or {})
+        renumber_map, ordered_entries = self._build_vancouver_renumber_plan(text)
 
         lines = text.split('\n')
         output: List[str] = []
         in_references = False
-        reference_counter = 1
-        current_reference_index: int = -1
+        emitted_references = False
 
         heading_re = re.compile(r'^\s*references?\s*:?\s*$', flags=re.IGNORECASE)
-        leading_marker_re = re.compile(r'^\s*(?:\[\s*\d+\s*\]|\d+\s*[.)])\s*')
         section_break_re = re.compile(
             r'^\s*(?:appendix|acknowledg(?:e)?ments?|funding|conflicts?\s+of\s+interest|author\s+contributions?)\s*:?\s*$',
-            flags=re.IGNORECASE
-        )
-        continuation_re = re.compile(
-            r'^(?:https?://|www\.|doi:\s*10\.|10\.\d{4,9}/|available\s+from|accessed\b|pmid\b|pmcid\b|epub\b)',
             flags=re.IGNORECASE
         )
 
         for line in lines:
             if heading_re.match(line):
                 in_references = True
-                reference_counter = 1
-                current_reference_index = -1
                 output.append("References")
+                if not emitted_references:
+                    for new_number, item in enumerate(ordered_entries, start=1):
+                        normalized_entry = self._normalize_reference_entry(str(item.get("entry") or ""), profile)
+                        output.append(f'[{new_number}] {normalized_entry or str(item.get("entry") or "").strip()}')
+                    emitted_references = True
                 continue
 
             if in_references and section_break_re.match(line):
                 in_references = False
-                current_reference_index = -1
                 output.append(line)
                 continue
 
             if not in_references:
-                output.append(line)
+                output.append(self._renumber_citation_blocks(line, renumber_map))
                 continue
 
-            stripped = line.strip()
-            if not stripped:
-                output.append(line)
-                current_reference_index = -1
-                continue
-
-            cleaned = leading_marker_re.sub('', stripped)
-            is_continuation = (
-                current_reference_index >= 0 and
-                (
-                    line[:1].isspace() or
-                    continuation_re.match(cleaned) is not None
-                )
-            )
-
-            if is_continuation:
-                output[current_reference_index] = output[current_reference_index].rstrip() + ' ' + cleaned
-                continue
-
-            normalized_entry = self._normalize_reference_entry(cleaned, profile)
-            output.append(f'[{reference_counter}] {normalized_entry or cleaned}')
-            current_reference_index = len(output) - 1
-            reference_counter += 1
+            continue
 
         return '\n'.join(output)
 

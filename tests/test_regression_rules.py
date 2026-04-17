@@ -30,16 +30,35 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertNotIn("Dr.", normalized)
         self.assertNotIn("Ar.", normalized)
 
-    def test_reference_order_is_preserved(self):
+    def test_references_follow_first_appearance_order(self):
         source = (
+            "Discussion cites [3] before [1].\n"
             "References\n"
             "Zulu Z. zulu title. Journal of Testing. 2020;1(1):1-2.\n"
             "Alpha A. alpha title. Journal of Testing. 2019;1(1):3-4.\n"
+            "Gamma G. gamma title. Journal of Testing. 2021;1(1):5-6.\n"
         )
         out = self.editor.format_references_vancouver_numbered(source, {})
         lines = [line.strip() for line in out.splitlines() if line.strip()]
-        self.assertEqual(lines[1][:9], "[1] Zulu ")
-        self.assertEqual(lines[2][:10], "[2] Alpha ")
+        self.assertEqual(lines[0], "Discussion cites [1] before [2].")
+        self.assertEqual(lines[2][:10], "[1] Gamma ")
+        self.assertEqual(lines[3][:9], "[2] Zulu ")
+        self.assertEqual(lines[4][:10], "[3] Alpha ")
+
+    def test_uncited_references_append_after_cited_set(self):
+        source = (
+            "Body cites [2].\n"
+            "References\n"
+            "[1] Alpha AB. alpha title. Journal of Testing. 2019;1(1):3-4.\n"
+            "[2] Beta CD. beta title. Journal of Testing. 2020;1(1):1-2.\n"
+            "[3] Gamma EF. gamma title. Journal of Testing. 2021;1(1):5-6.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        lines = [line.strip() for line in out.splitlines() if line.strip()]
+        self.assertEqual(lines[0], "Body cites [1].")
+        self.assertEqual(lines[2][:9], "[1] Beta ")
+        self.assertEqual(lines[3][:10], "[2] Alpha ")
+        self.assertEqual(lines[4][:10], "[3] Gamma ")
 
     def test_urls_and_doi_are_protected_from_rewrite(self):
         source = (

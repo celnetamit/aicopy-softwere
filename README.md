@@ -12,6 +12,7 @@ See [KID_GUIDE.md](KID_GUIDE.md).
 - **First-Run Setup Wizard (Week 8)**: Guided setup text for API keys and Ollama host on first launch
 - **Chicago Style Compliance**: Applies The Chicago Manual of Style formatting rules
 - **Journal Profiles (Week 5)**: Profile-aware Vancouver presets for initials punctuation, title case, and journal abbreviation rules
+- **Vancouver Renumbering**: Renumbers citations and references to match first appearance in the manuscript body
 - **Spelling Corrections**: Fixes misspellings using American spellings
 - **Sentence Case Fixes**: Corrects capitalization (first word, days, months, proper nouns)
 - **Punctuation Refinements**: Fixes spacing, quotes, ellipsis formatting
@@ -115,7 +116,9 @@ Added:
    malformed bracket syntax, duplicate citation numbers inside a block, citations missing matching references
 2. reference list validation:
    missing year, volume, pages, and DOI patterns
-3. Corrections tab warning card:
+3. automatic Vancouver renumbering:
+   citations and references are remapped to first appearance order, with uncited references appended after cited ones
+4. Corrections tab warning card:
    issue totals, category counts, and actionable validation messages
 
 ## Week 7: Pro Editing UX

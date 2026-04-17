@@ -344,7 +344,7 @@ Goals:
 - Harmonize terminology and style consistently across all sections.
 - Preserve paragraph structure and heading order.
 - Keep citations numeric in brackets, e.g. [9, 19].
-- Keep reference entry order unchanged; do not reorder or renumber references.
+- Ensure citations and references follow Vancouver first-appearance numbering.
 - Use journal profile "{journal_profile.get('label', 'Vancouver')}".
 - In references, use initials {initials_rule}, titles in {title_rule}, and journal names as {journal_rule}.
 - Preserve URLs/DOIs/emails exactly.
@@ -1050,7 +1050,7 @@ Final consistent manuscript:"""
   * Keep author affiliation markers as superscripts (for example: ¹ Dr. Name)
   * Keep in-text citations in numeric bracket format like [9, 19] (no author-year citation text in body)
   * Format the References section in Vancouver numbered style (e.g., [1], [2], [3])
-  * Do NOT rearrange or reorder reference entries; keep their original positions/order
+  * Ensure citation numbers and reference numbers follow Vancouver first-appearance order
   * Follow journal profile: {journal_profile.get('label', 'Vancouver')}
   * In references, {initials_rule}
   * In references, {title_rule}
