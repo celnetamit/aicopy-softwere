@@ -122,6 +122,15 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertGreater(report.get("reference_count", 0), 0)
         self.assertTrue(any("period" in msg for msg in messages))
 
+    def test_default_reference_profile_uses_initial_periods(self):
+        source = (
+            "References\n"
+            "Smith AB. sample title. Journal of Architectural Research. 2024;10(2):100-110.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Smith A.B.", out)
+        self.assertIn("J Archit Res", out)
+
     def test_citation_reference_validator_is_source_type_aware(self):
         source = (
             "Introduction cites [1, 2, 3].\n"
@@ -173,8 +182,8 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
             "National Institutes of Health. Cancer treatment [Internet]. Bethesda (MD): NIH; 2022. Available from: https://www.cancer.gov\n"
         )
         out = self.editor.format_references_vancouver_numbered(source, {})
-        self.assertIn("[place missing]", out)
-        self.assertIn("[cited date missing]", out)
+        self.assertRegex(out, r"\[place missing\]\s*:\s*Academic Press;\s*2020")
+        self.assertRegex(out, r"2022\s*\[cited date missing\]\.\s*Available from:")
 
 
 class ProcessorRegressionTests(unittest.TestCase):
@@ -188,6 +197,19 @@ class ProcessorRegressionTests(unittest.TestCase):
         processor = DocumentProcessor()
         html = processor.build_foreign_annotated_html("Reference [page missing]")
         self.assertIn('<span class="missing-placeholder">[page missing]</span>', html)
+
+    def test_foreign_annotated_html_italics_known_foreign_terms(self):
+        processor = DocumentProcessor()
+        html = processor.build_foreign_annotated_html("Study was done in vitro and in vivo.")
+        self.assertIn('<em class="foreign-term">in vitro</em>', html)
+        self.assertIn('<em class="foreign-term">in vivo</em>', html)
+
+    def test_foreign_annotated_html_skips_url_and_email_literals(self):
+        processor = DocumentProcessor()
+        html = processor.build_foreign_annotated_html(
+            "Use ibid in text. URL https://example.com/ibid Email ibid@example.com"
+        )
+        self.assertEqual(html.count('<em class="foreign-term">ibid</em>'), 1)
 
     def test_process_text_rule_mode_sets_expected_note(self):
         processor = DocumentProcessor()

@@ -190,7 +190,7 @@ class ChicagoEditor:
         },
     }
     JOURNAL_PROFILE_ALIASES = {
-        'vancouver': 'vancouver_nlm',
+        'vancouver': 'vancouver_periods',
         'vancouver_nlm': 'vancouver_nlm',
         'vancouver_periods': 'vancouver_periods',
         'vancouver_full': 'vancouver_full',
@@ -315,12 +315,12 @@ class ChicagoEditor:
         requested = ""
         if isinstance(options, dict):
             requested = str(
-                options.get("journal_profile") or options.get("reference_profile") or "vancouver_nlm"
+                options.get("journal_profile") or options.get("reference_profile") or "vancouver_periods"
             ).strip().lower()
 
         profile_id = self.JOURNAL_PROFILE_ALIASES.get(requested, requested)
         if profile_id not in self.JOURNAL_PROFILES:
-            profile_id = "vancouver_nlm"
+            profile_id = "vancouver_periods"
 
         resolved = dict(self.JOURNAL_PROFILES[profile_id])
         resolved["id"] = profile_id
@@ -1161,7 +1161,7 @@ class ChicagoEditor:
 
             third_segment = ''
             if journal_norm and tail_norm:
-                third_segment = f'{journal_norm} {tail_norm}'.strip()
+                third_segment = f'{journal_norm.rstrip(".")}. {tail_norm}'.strip()
             elif journal_norm:
                 third_segment = journal_norm
             else:
@@ -1176,20 +1176,159 @@ class ChicagoEditor:
             if authors:
                 authors_norm = self._normalize_author_block(authors, profile)
                 if authors_norm and normalized.startswith(authors):
-                    normalized = authors_norm + normalized[len(authors):]
+                    remainder = normalized[len(authors):]
+                    if authors_norm.endswith('.') and remainder.startswith('.'):
+                        remainder = remainder[1:]
+                    normalized = (authors_norm + remainder).strip()
             normalized = re.sub(r'(?i)\[internet\]', '[Internet]', normalized)
             normalized = re.sub(r'(?i)available from:', 'Available from:', normalized)
             normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
 
         if normalized and not normalized.endswith('.'):
             normalized += '.'
-        placeholders = [
-            self._missing_placeholder(spec["label"])
-            for spec in self._reference_missing_specs(metadata)
-        ]
-        if placeholders:
-            normalized = (normalized + ' ' + ' '.join(placeholders)).strip()
-        return normalized
+        return self._inject_missing_placeholders_inline(normalized, metadata)
+
+    def _inject_missing_placeholders_inline(self, text: str, metadata: Dict[str, Any]) -> str:
+        """Insert missing-field placeholders near their expected field position."""
+        result = re.sub(r'\s+', ' ', text or '').strip()
+        if not result:
+            return result
+
+        for spec in self._reference_missing_specs(metadata):
+            label = str(spec.get("label") or "")
+            code = str(spec.get("code") or "")
+            placeholder = self._missing_placeholder(label)
+            if placeholder.lower() in result.lower():
+                continue
+            result = self._insert_missing_placeholder(result, code, placeholder)
+
+        result = re.sub(r'\s{2,}', ' ', result).strip()
+        result = re.sub(r'\s+([,;:.])', r'\1', result)
+        if result and not result.endswith('.'):
+            result += '.'
+        return result
+
+    def _insert_missing_placeholder(self, text: str, code: str, placeholder: str) -> str:
+        """Insert one placeholder for a specific missing-field code."""
+        working = text.strip()
+
+        if code == "reference_missing_author":
+            if re.match(r'^\s*\[[A-Za-z][A-Za-z ]* missing\]', working, flags=re.IGNORECASE):
+                return working
+            return f"{placeholder}. {working}".strip()
+
+        if code == "reference_missing_title":
+            first_sentence = re.match(r'^\s*([^\.]+\.)(?:\s*(.*))?$', working)
+            if first_sentence:
+                head = first_sentence.group(1).strip()
+                tail = (first_sentence.group(2) or '').strip()
+                if tail:
+                    return f"{head} {placeholder}. {tail}".strip()
+                return f"{head} {placeholder}.".strip()
+            return f"{placeholder}. {working}".strip()
+
+        if code == "reference_missing_journal":
+            year_match = re.search(r'\b(?:19|20)\d{2}\b', working)
+            if year_match:
+                left = working[:year_match.start()].rstrip().rstrip('.')
+                right = working[year_match.start():].lstrip()
+                return f"{left}. {placeholder}. {right}".strip()
+            return working.rstrip('. ') + f" {placeholder}."
+
+        if code == "reference_missing_year":
+            vol_match = re.search(r';\s*[A-Za-z]?\d+(?:\([^)]+\))?', working)
+            if vol_match:
+                return (working[:vol_match.start()] + f" {placeholder}" + working[vol_match.start():]).strip()
+            return re.sub(
+                r'(?i)\s*Available from:',
+                f" {placeholder}. Available from:",
+                working,
+                count=1,
+            ) if re.search(r'(?i)Available from:', working) else working.rstrip('. ') + f"; {placeholder}."
+
+        if code == "reference_missing_volume":
+            year_match = re.search(r'\b(?:19|20)\d{2}\b', working)
+            if year_match:
+                at = year_match.end()
+                return (working[:at] + f";{placeholder}" + working[at:]).strip()
+            return working.rstrip('. ') + f";{placeholder}."
+
+        if code == "reference_missing_pages":
+            vol_match = re.search(r';\s*[A-Za-z]?\d+(?:\([^)]+\))?', working)
+            if vol_match:
+                at = vol_match.end()
+                return (working[:at] + f":{placeholder}" + working[at:]).strip()
+            if re.search(r'(?i)\bIn:\s*', working):
+                return working.rstrip('. ') + f" p. {placeholder}."
+            return working.rstrip('. ') + f" {placeholder}."
+
+        if code == "reference_missing_place":
+            pub_year = re.search(
+                r'(?P<lead>\s*)(?P<publisher>[^.;\[\]]+?)\s*;\s*(?P<year>(?:19|20)\d{2})',
+                working,
+                flags=re.IGNORECASE,
+            )
+            if pub_year:
+                lead = ' ' if (pub_year.group('lead') or '') else ''
+                publisher = (pub_year.group('publisher') or '').strip()
+                year = (pub_year.group('year') or '').strip()
+                replacement = f"{lead}{placeholder}: {publisher}; {year}"
+                return (working[:pub_year.start()] + replacement + working[pub_year.end():]).strip()
+            return working.rstrip('. ') + f" {placeholder}."
+
+        if code == "reference_missing_publisher":
+            place_year = re.search(
+                r'(?P<lead>\s*)(?P<place>[^.;\[\]]+?)\s*;\s*(?P<year>(?:19|20)\d{2})',
+                working,
+                flags=re.IGNORECASE,
+            )
+            if place_year:
+                lead = ' ' if (place_year.group('lead') or '') else ''
+                place = (place_year.group('place') or '').strip()
+                year = (place_year.group('year') or '').strip()
+                replacement = f"{lead}{place}: {placeholder}; {year}"
+                return (working[:place_year.start()] + replacement + working[place_year.end():]).strip()
+            return working.rstrip('. ') + f" {placeholder}."
+
+        if code == "reference_missing_editor":
+            if re.search(r'(?i)\bIn:\s*', working):
+                return re.sub(r'(?i)\bIn:\s*', f'In: {placeholder}, editor. ', working, count=1).strip()
+            return working.rstrip('. ') + f" In: {placeholder}, editor."
+
+        if code == "reference_missing_cited_date":
+            if re.search(r'(?i)\[cited [^\]]+\]', working):
+                return working
+            if re.search(r'(?i)Available from:', working):
+                dotted = re.sub(
+                    r'(?i)\.\s*Available from:',
+                    f' {placeholder}. Available from:',
+                    working,
+                    count=1,
+                ).strip()
+                if dotted != working:
+                    return dotted
+                return re.sub(
+                    r'(?i)\s*Available from:',
+                    f' {placeholder}. Available from:',
+                    working,
+                    count=1,
+                ).strip()
+            year_match = re.search(r'\b(?:19|20)\d{2}\b', working)
+            if year_match:
+                at = year_match.end()
+                return (working[:at] + f" {placeholder}" + working[at:]).strip()
+            return working.rstrip('. ') + f" {placeholder}."
+
+        if code == "reference_missing_url":
+            if re.search(r'(?i)(https?://\S+|www\.\S+)', working):
+                return working
+            if re.search(r'(?i)Available from:\s*$', working):
+                return working + f" {placeholder}"
+            if re.search(r'(?i)Available from:\s*', working):
+                return re.sub(r'(?i)Available from:\s*', f'Available from: {placeholder} ', working, count=1).strip()
+            return working.rstrip('. ') + f". Available from: {placeholder}."
+
+        return working.rstrip('. ') + f" {placeholder}."
 
     def _extract_reference_entries(self, text: str) -> List[str]:
         """Extract normalized reference lines from references section."""
@@ -1314,7 +1453,7 @@ class ChicagoEditor:
         ]
 
         return {
-            "profile_id": str(profile.get("id", "vancouver_nlm")),
+            "profile_id": str(profile.get("id", "vancouver_periods")),
             "profile_label": str(profile.get("label", "Vancouver")),
             "rules": {
                 "initials": "with periods (A.B.)" if bool(profile.get("initials_with_periods")) else "without periods (AB)",

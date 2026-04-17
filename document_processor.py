@@ -1203,6 +1203,46 @@ Corrected manuscript:"""
         terms = getattr(self.editor, "FOREIGN_TERMS", set()) or set()
         return sorted({str(t).strip().lower() for t in terms if str(t).strip()}, key=len, reverse=True)
 
+    def _protected_literal_spans(self, text: str) -> List[Tuple[int, int]]:
+        """Return merged spans for literals that must never be foreign-term styled."""
+        source = text or ""
+        if not source:
+            return []
+
+        patterns = [
+            re.compile(r'(?i)\b(?:https?|ftp)://[^\s<>"\']+'),
+            re.compile(r'(?i)\bwww\.[^\s<>"\']+'),
+            re.compile(r'(?i)\bdoi:\s*10\.\d{4,9}/[^\s<>"\']+'),
+            re.compile(r'(?i)\b10\.\d{4,9}/[^\s<>"\']+'),
+            re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'),
+        ]
+
+        spans: List[Tuple[int, int]] = []
+        for pattern in patterns:
+            for match in pattern.finditer(source):
+                spans.append((match.start(), match.end()))
+
+        if not spans:
+            return []
+
+        spans.sort(key=lambda item: (item[0], item[1]))
+        merged: List[List[int]] = []
+        for start, end in spans:
+            if not merged or start > merged[-1][1]:
+                merged.append([start, end])
+                continue
+            merged[-1][1] = max(int(merged[-1][1]), int(end))
+        return [(int(start), int(end)) for start, end in merged]
+
+    def _span_overlaps(self, spans: List[Tuple[int, int]], start: int, end: int) -> bool:
+        """Return True when [start, end) overlaps any span in a sorted span list."""
+        for span_start, span_end in spans:
+            if end <= span_start:
+                break
+            if start < span_end and end > span_start:
+                return True
+        return False
+
     def _iter_foreign_segments(self, text: str):
         """Yield tuple (is_foreign, segment_text) by matching known foreign terms."""
         source = text or ""
@@ -1215,9 +1255,13 @@ Corrected manuscript:"""
         pattern = re.compile(
             r'(?i)(?<!\w)(' + '|'.join(re.escape(term) for term in terms) + r')(?!\w)'
         )
+        protected_spans = self._protected_literal_spans(source)
 
         last = 0
         for match in pattern.finditer(source):
+            start, end = match.span()
+            if self._span_overlaps(protected_spans, start, end):
+                continue
             if match.start() > last:
                 yield False, source[last:match.start()]
             yield True, match.group(0)
@@ -1247,7 +1291,7 @@ Corrected manuscript:"""
 
     def _append_docx_run(self, paragraph, text: str, *, segment_type: Optional[str] = None, is_foreign: bool = False, is_missing: bool = False):
         """Append a styled DOCX run for preview/export output."""
-        run = paragraph.add_run(text.lower() if is_foreign else text)
+        run = paragraph.add_run(text)
         if is_foreign:
             run.italic = True
         if segment_type == "delete":
@@ -1272,7 +1316,7 @@ Corrected manuscript:"""
                 for is_foreign, sub_segment in self._iter_foreign_segments(segment):
                     escaped = html.escape(sub_segment)
                     if is_foreign:
-                        parts.append(f'<em class="foreign-term">{escaped.lower()}</em>')
+                        parts.append(f'<em class="foreign-term">{escaped}</em>')
                     else:
                         parts.append(escaped)
             else:
@@ -1280,7 +1324,7 @@ Corrected manuscript:"""
         return "".join(parts)
 
     def build_foreign_annotated_html(self, text: str) -> str:
-        """Return HTML-safe text with foreign terms wrapped for italic lowercase rendering."""
+        """Return HTML-safe text with foreign terms wrapped for italic rendering."""
         lines = (text or "").split('\n')
         out_lines: List[str] = []
 
@@ -1309,13 +1353,13 @@ Corrected manuscript:"""
         """Return profile-aware reference formatting audit for last run."""
         if self._last_journal_profile_report:
             return self._last_journal_profile_report
-        return self.editor.build_reference_profile_report("", {"journal_profile": "vancouver_nlm"})
+        return self.editor.build_reference_profile_report("", {"journal_profile": "vancouver_periods"})
 
     def get_citation_reference_report(self) -> Dict:
         """Return citation/reference validator report for last run."""
         if self._last_citation_reference_report:
             return self._last_citation_reference_report
-        return self.editor.build_citation_reference_validator_report("", {"journal_profile": "vancouver_nlm"})
+        return self.editor.build_citation_reference_validator_report("", {"journal_profile": "vancouver_periods"})
 
     def build_noun_report(self, text: str) -> Dict:
         """Identify proper/common nouns, preferring spaCy and falling back to heuristics."""

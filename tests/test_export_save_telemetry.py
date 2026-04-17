@@ -109,6 +109,39 @@ class ExportSaveTelemetryTests(unittest.TestCase):
         finally:
             os.unlink(output_path)
 
+    def test_clean_docx_italics_foreign_terms(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
+            output_path = handle.name
+
+        try:
+            main.processor.generate_clean_docx("Method used in vitro and in vivo.", output_path)
+            doc = Document(output_path)
+            runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
+
+            in_vitro_run = next(run for run in runs if run.text == "in vitro")
+            in_vivo_run = next(run for run in runs if run.text == "in vivo")
+            self.assertTrue(in_vitro_run.italic)
+            self.assertTrue(in_vivo_run.italic)
+        finally:
+            os.unlink(output_path)
+
+    def test_clean_docx_does_not_italicize_foreign_terms_inside_url_or_email(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
+            output_path = handle.name
+
+        try:
+            main.processor.generate_clean_docx(
+                "Use ibid in text. URL https://example.com/ibid Email ibid@example.com",
+                output_path,
+            )
+            doc = Document(output_path)
+            runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
+
+            italic_ibid_runs = [run for run in runs if run.text == "ibid" and bool(run.italic)]
+            self.assertEqual(len(italic_ibid_runs), 1)
+        finally:
+            os.unlink(output_path)
+
     def test_save_without_corrected_text_returns_error_code(self):
         response = main.save_file("clean")
         self.assertFalse(response["success"])

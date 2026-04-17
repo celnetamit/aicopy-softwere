@@ -69,13 +69,7 @@ const CORRECTION_GROUP_LABEL = {
 };
 let isApplyingGroupDecisions = false;
 let pendingGroupDecisionApply = false;
-const JOURNAL_PROFILE_VALUES = new Set([
-    'vancouver_nlm',
-    'vancouver_periods',
-    'vancouver_full',
-    'vancouver_periods_full',
-    'vancouver_titlecase_nlm'
-]);
+const FIXED_JOURNAL_PROFILE = 'vancouver_periods';
 
 // File handling
 const dropZone = document.getElementById('drop-zone');
@@ -111,7 +105,6 @@ const customTermsInput = document.getElementById('custom-terms-input');
 const importCustomTermsBtn = document.getElementById('import-custom-terms-btn');
 const clearCustomTermsBtn = document.getElementById('clear-custom-terms-btn');
 const customTermsFileInput = document.getElementById('custom-terms-file-input');
-const referenceProfileSelect = document.getElementById('reference-profile');
 const pageControls = document.getElementById('page-controls');
 const pagePresetSelect = document.getElementById('page-preset');
 const pageFontSizeInput = document.getElementById('page-font-size');
@@ -187,14 +180,6 @@ function parseCustomTerms(raw) {
 
 function normalizeCustomTermsText(raw) {
     return parseCustomTerms(raw).join('\n');
-}
-
-function normalizeJournalProfile(raw) {
-    const value = String(raw || '').trim().toLowerCase();
-    if (JOURNAL_PROFILE_VALUES.has(value)) {
-        return value;
-    }
-    return 'vancouver_nlm';
 }
 
 function buildDefaultGroupDecisions() {
@@ -1090,8 +1075,8 @@ function saveAiSettings() {
         ai_advanced: aiAdvanced,
         domain_profile: domainProfileSelect.value || 'auto',
         custom_terms_text: normalizeCustomTermsText(customTermsInput.value),
-        journal_profile: normalizeJournalProfile(referenceProfileSelect.value),
-        reference_profile: normalizeJournalProfile(referenceProfileSelect.value),
+        journal_profile: FIXED_JOURNAL_PROFILE,
+        reference_profile: FIXED_JOURNAL_PROFILE,
         page_settings: pageSettings
     };
     try {
@@ -1186,8 +1171,6 @@ function loadAiSettings() {
     if (typeof parsed.custom_terms_text === 'string') {
         customTermsInput.value = normalizeCustomTermsText(parsed.custom_terms_text);
     }
-    const selectedJournalProfile = normalizeJournalProfile(parsed.journal_profile || parsed.reference_profile || 'vancouver_nlm');
-    referenceProfileSelect.value = selectedJournalProfile;
     if (parsed.page_settings && typeof parsed.page_settings === 'object') {
         pageSettings = sanitizePageSettings(parsed.page_settings);
         applyPageSettingsToInputs(pageSettings);
@@ -1471,8 +1454,7 @@ maybeShowSetupWizardOnFirstRun();
     aiSectionChunkLinesInput,
     aiGlobalConsistencyMaxCharsInput,
     domainProfileSelect,
-    customTermsInput,
-    referenceProfileSelect
+    customTermsInput
 ].forEach((el) => {
     el.addEventListener('change', saveAiSettings);
     el.addEventListener('input', saveAiSettings);
@@ -1663,8 +1645,8 @@ function process_document() {
         chicago_style: document.getElementById('opt-chicago').checked,
         domain_profile: domainProfileSelect.value || 'auto',
         custom_terms: parseCustomTerms(customTermsInput.value),
-        journal_profile: normalizeJournalProfile(referenceProfileSelect.value),
-        reference_profile: normalizeJournalProfile(referenceProfileSelect.value),
+        journal_profile: FIXED_JOURNAL_PROFILE,
+        reference_profile: FIXED_JOURNAL_PROFILE,
         ai: {
             enabled: aiEnabled.checked,
             provider: aiProvider.value,

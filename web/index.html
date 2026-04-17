@@ -62,15 +62,9 @@
                     </div>
                     <input type="file" id="custom-terms-file-input" accept=".txt,.csv" hidden>
                     <p class="hint-text">These terms are protected from unwanted rewrites/spelling changes.</p>
-                    <label class="field-label" for="reference-profile">Journal Profile</label>
-                    <select id="reference-profile" class="input-field">
-                        <option value="vancouver_nlm" selected>Vancouver (NLM, no initial periods)</option>
-                        <option value="vancouver_periods">Vancouver (Initial periods)</option>
-                        <option value="vancouver_full">Vancouver (Full journal names)</option>
-                        <option value="vancouver_periods_full">Vancouver (Initial periods + full journal names)</option>
-                        <option value="vancouver_titlecase_nlm">Vancouver (Title case titles + NLM journal abbreviations)</option>
-                    </select>
-                    <p class="hint-text">Profile controls initials punctuation, title case rules, and journal-name abbreviation style.</p>
+                    <label class="field-label" for="reference-profile-fixed">Journal Profile</label>
+                    <div id="reference-profile-fixed" class="input-field" aria-readonly="true">Vancouver (Initial periods)</div>
+                    <p class="hint-text">Journal profile is fixed to Vancouver (Initial periods).</p>
                 </section>
 
                 <section class="options-section">
