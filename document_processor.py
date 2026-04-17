@@ -1161,20 +1161,22 @@ Corrected manuscript:"""
         font.name = 'Times New Roman'
         font.size = Pt(12)
 
-        original_lines = original.split('\n')
-        corrected_lines = corrected.split('\n')
-        total_lines = max(len(original_lines), len(corrected_lines), 1)
-
-        for idx in range(total_lines):
+        def add_paragraph():
             paragraph = doc.add_paragraph()
             paragraph.paragraph_format.space_after = Pt(0)
             paragraph.paragraph_format.line_spacing = 1.5
+            return paragraph
 
-            original_line = original_lines[idx] if idx < len(original_lines) else ""
-            corrected_line = corrected_lines[idx] if idx < len(corrected_lines) else ""
+        paragraph = add_paragraph()
 
-            for segment_type, segment_text in self._iter_diff_segments(original_line, corrected_line):
-                for is_missing, outer_segment in self._iter_missing_placeholder_segments(segment_text):
+        for segment_type, segment_text in self._iter_diff_segments(original, corrected):
+            lines = segment_text.split('\n')
+            for line_idx, line_text in enumerate(lines):
+                if line_idx > 0:
+                    paragraph = add_paragraph()
+                if not line_text:
+                    continue
+                for is_missing, outer_segment in self._iter_missing_placeholder_segments(line_text):
                     if is_missing:
                         self._append_docx_run(paragraph, outer_segment, segment_type=segment_type, is_missing=True)
                         continue
