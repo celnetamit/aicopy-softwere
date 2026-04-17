@@ -7,6 +7,8 @@ from typing import List, Tuple, Dict, Optional, Any
 class ChicagoEditor:
     """Handles all Chicago Manual of Style corrections."""
 
+    MISSING_PLACEHOLDER_RE = re.compile(r'\[[A-Za-z][A-Za-z ]* missing\]', flags=re.IGNORECASE)
+
     # American vs British spelling preferences (Chicago prefers American)
     PREFERRED_SPELLINGS = {
         'analyze': 'analyze', 'analyse': 'analyze',
@@ -951,9 +953,162 @@ class ChicagoEditor:
         text = re.sub(r'\s{2,}', ' ', text).strip()
         return text
 
+    def _missing_placeholder(self, field_label: str) -> str:
+        """Return stable bracketed placeholder text for missing metadata."""
+        return f'[{field_label} missing]'
+
+    def _strip_missing_placeholders(self, text: str) -> str:
+        """Remove synthetic missing-field placeholders before reparsing text."""
+        cleaned = self.MISSING_PLACEHOLDER_RE.sub('', text or '')
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+        cleaned = re.sub(r'\s+([,;:.])', r'\1', cleaned)
+        return cleaned.strip()
+
+    def _detect_reference_source_type(self, entry: str, authors: str, title: str, journal: str, tail: str) -> str:
+        """Classify a reference into coarse NLM source types for validation."""
+        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
+        if re.search(r'(?i)\bIn:\s*', candidate):
+            return "chapter"
+        if re.search(r'(?i)\[Internet\]|Available from:|https?://|www\.', candidate):
+            return "website"
+        if re.search(r'\b(?:19|20)\d{2}\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?', candidate):
+            return "journal"
+        if re.search(r':\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?\b', candidate) and journal:
+            return "journal"
+        if re.search(r'(?i)\b(?:doi:\s*)?10\.\d{4,9}/[^\s<>"\']+', candidate):
+            return "journal"
+        if re.search(r'(?i)\b\d+(?:st|nd|rd|th)\s+ed\.?\b', candidate):
+            return "book"
+        if re.search(r'[^.;\[\]]+:\s*[^.;\[\]]+(?:\s*;\s*(?:19|20)\d{2})?', candidate):
+            return "book"
+        if journal and re.search(r'(?i)\b(?:j|journal|int|international|proc|proceedings|med|clin|res|rev|sci|test)\b', journal):
+            return "journal"
+        if tail and re.fullmatch(r'(?:19|20)\d{2}\.?', tail.strip()):
+            return "book"
+        if journal and tail:
+            return "journal"
+        if tail:
+            return "book"
+        if authors or title:
+            return "book"
+        return "generic"
+
+    def _analyze_reference_entry(self, entry: str) -> Dict[str, Any]:
+        """Return parsed reference metadata for source-type-aware validation."""
+        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
+        authors, title, journal, tail = self._split_reference_entry_parts(candidate)
+        source_type = self._detect_reference_source_type(candidate, authors, title, journal, tail)
+
+        if source_type == "chapter":
+            chapter_parts = re.split(r'(?i)\bIn:\s*', candidate, maxsplit=1)
+            prefix = chapter_parts[0].strip()
+            suffix = chapter_parts[1].strip() if len(chapter_parts) > 1 else ""
+            prefix_segments = [
+                part.strip().strip('.,;')
+                for part in re.split(r'\.\s+(?=[A-Za-z])', prefix)
+                if part.strip()
+            ]
+            authors = prefix_segments[0] if prefix_segments else ""
+            title = prefix_segments[1] if len(prefix_segments) > 1 else ""
+            journal = suffix
+
+        place_publisher_match = re.search(
+            r'(?P<place>[^.;\[\]]+?)\s*:\s*(?P<publisher>[^.;\[\]]+?)(?:\s*;\s*(?P<year>(?:19|20)\d{2}))?(?=(?:\s*\[cited|\s*Available from:|\.|$))',
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        publisher_year_match = re.search(
+            r'(?P<publisher>[^.;\[\]]+?)\s*;\s*(?P<year>(?:19|20)\d{2})(?=(?:\s*\[cited|\s*Available from:|\.|$))',
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        year_match = re.search(r'\b(?:19|20)\d{2}\b', candidate)
+        volume_match = re.search(r'\b(?:19|20)\d{2}\s*;\s*(?P<volume>[A-Za-z]?\d+(?:\([^)]+\))?)', candidate)
+        page_match = re.search(
+            r'(?::\s*(?P<pages>[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?))\b',
+            candidate,
+        ) or re.search(r'(?i)\bp(?:p)?\.?\s*(?P<pages>\d+(?:\s*[-–]\s*\d+)?)\b', candidate)
+        cited_match = re.search(r'(?i)\[cited [^\]]+\]', candidate)
+        url_match = re.search(r'(?i)(https?://\S+|www\.\S+)', candidate)
+        doi_match = re.search(r'(?i)\b(?:doi:\s*)?10\.\d{4,9}/[^\s<>"\']+', candidate)
+        has_editor = re.search(r'(?i)\b(?:ed\.|eds\.|editor|editors)\b', candidate) is not None
+
+        return {
+            "entry": candidate,
+            "source_type": source_type,
+            "authors": authors,
+            "title": title,
+            "journal": journal,
+            "tail": tail,
+            "has_author": bool(re.search(r'[A-Za-z]', authors or "")),
+            "has_title": bool(re.search(r'[A-Za-z]', title or "")),
+            "has_journal": bool(re.search(r'[A-Za-z]', journal or "")),
+            "has_year": year_match is not None,
+            "has_volume": volume_match is not None,
+            "has_pages": page_match is not None,
+            "has_doi": doi_match is not None,
+            "has_url": url_match is not None,
+            "has_cited_date": cited_match is not None,
+            "has_editor": has_editor,
+            "has_place": bool(place_publisher_match and re.search(r'[A-Za-z]', place_publisher_match.group('place') or "")),
+            "has_publisher": bool(
+                (place_publisher_match and re.search(r'[A-Za-z]', place_publisher_match.group('publisher') or ""))
+                or (publisher_year_match and re.search(r'[A-Za-z]', publisher_year_match.group('publisher') or ""))
+            ),
+        }
+
+    def _reference_missing_specs(self, metadata: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Return required-field rules for a reference based on detected source type."""
+        source_type = str(metadata.get("source_type") or "generic")
+        has_contributor = bool(metadata.get("has_author")) or bool(metadata.get("has_editor"))
+
+        if source_type == "journal":
+            checks = [
+                ("author", "reference_missing_author", "reference_missing_author_numbers", bool(metadata.get("has_author"))),
+                ("title", "reference_missing_title", "reference_missing_title_numbers", bool(metadata.get("has_title"))),
+                ("journal", "reference_missing_journal", "reference_missing_journal_numbers", bool(metadata.get("has_journal"))),
+                ("year", "reference_missing_year", "reference_missing_year_numbers", bool(metadata.get("has_year"))),
+                ("volume", "reference_missing_volume", "reference_missing_volume_numbers", bool(metadata.get("has_volume"))),
+                ("page", "reference_missing_pages", "reference_missing_pages_numbers", bool(metadata.get("has_pages"))),
+            ]
+        elif source_type == "website":
+            checks = [
+                ("author", "reference_missing_author", "reference_missing_author_numbers", has_contributor),
+                ("title", "reference_missing_title", "reference_missing_title_numbers", bool(metadata.get("has_title"))),
+                ("place", "reference_missing_place", "reference_missing_place_numbers", bool(metadata.get("has_place"))),
+                ("publisher", "reference_missing_publisher", "reference_missing_publisher_numbers", bool(metadata.get("has_publisher"))),
+                ("year", "reference_missing_year", "reference_missing_year_numbers", bool(metadata.get("has_year"))),
+                ("cited date", "reference_missing_cited_date", "reference_missing_cited_date_numbers", bool(metadata.get("has_cited_date"))),
+                ("url", "reference_missing_url", "reference_missing_url_numbers", bool(metadata.get("has_url"))),
+            ]
+        elif source_type == "chapter":
+            checks = [
+                ("author", "reference_missing_author", "reference_missing_author_numbers", bool(metadata.get("has_author"))),
+                ("title", "reference_missing_title", "reference_missing_title_numbers", bool(metadata.get("has_title"))),
+                ("editor", "reference_missing_editor", "reference_missing_editor_numbers", bool(metadata.get("has_editor"))),
+                ("place", "reference_missing_place", "reference_missing_place_numbers", bool(metadata.get("has_place"))),
+                ("publisher", "reference_missing_publisher", "reference_missing_publisher_numbers", bool(metadata.get("has_publisher"))),
+                ("year", "reference_missing_year", "reference_missing_year_numbers", bool(metadata.get("has_year"))),
+                ("page", "reference_missing_pages", "reference_missing_pages_numbers", bool(metadata.get("has_pages"))),
+            ]
+        else:
+            checks = [
+                ("author", "reference_missing_author", "reference_missing_author_numbers", has_contributor),
+                ("title", "reference_missing_title", "reference_missing_title_numbers", bool(metadata.get("has_title"))),
+                ("place", "reference_missing_place", "reference_missing_place_numbers", bool(metadata.get("has_place"))),
+                ("publisher", "reference_missing_publisher", "reference_missing_publisher_numbers", bool(metadata.get("has_publisher"))),
+                ("year", "reference_missing_year", "reference_missing_year_numbers", bool(metadata.get("has_year"))),
+            ]
+
+        return [
+            {"label": label, "code": code, "detail_key": detail_key}
+            for label, code, detail_key, present in checks
+            if not present
+        ]
+
     def _split_reference_entry_parts(self, entry: str) -> Tuple[str, str, str, str]:
         """Split one reference into (authors, title, journal, tail)."""
-        candidate = re.sub(r'\s+', ' ', entry or '').strip()
+        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
         if not candidate:
             return "", "", "", ""
 
@@ -991,32 +1146,49 @@ class ChicagoEditor:
 
     def _normalize_reference_entry(self, entry: str, profile: Dict[str, Any]) -> str:
         """Normalize a single reference entry to configured Vancouver style."""
-        candidate = re.sub(r'\s+', ' ', entry or '').strip()
+        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
         if not candidate:
             return candidate
 
+        metadata = self._analyze_reference_entry(candidate)
         authors, title, journal, tail = self._split_reference_entry_parts(candidate)
 
-        authors_norm = self._normalize_author_block(authors, profile)
-        title_norm = self._format_reference_title(title, profile) if title else ''
-        journal_norm = self._format_reference_journal(journal, profile) if journal else ''
-        tail_norm = self._normalize_reference_tail(tail)
+        if str(metadata.get("source_type") or "") == "journal":
+            authors_norm = self._normalize_author_block(authors, profile)
+            title_norm = self._format_reference_title(title, profile) if title else ''
+            journal_norm = self._format_reference_journal(journal, profile) if journal else ''
+            tail_norm = self._normalize_reference_tail(tail)
 
-        third_segment = ''
-        if journal_norm and tail_norm:
-            third_segment = f'{journal_norm} {tail_norm}'.strip()
-        elif journal_norm:
-            third_segment = journal_norm
+            third_segment = ''
+            if journal_norm and tail_norm:
+                third_segment = f'{journal_norm} {tail_norm}'.strip()
+            elif journal_norm:
+                third_segment = journal_norm
+            else:
+                third_segment = tail_norm
+
+            pieces = [p.rstrip('.') for p in [authors_norm, title_norm, third_segment] if p]
+            normalized = '. '.join(pieces).strip()
+            normalized = re.sub(r'\s+([,;:.])', r'\1', normalized)
+            normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
         else:
-            third_segment = tail_norm
-
-        pieces = [p.rstrip('.') for p in [authors_norm, title_norm, third_segment] if p]
-        normalized = '. '.join(pieces).strip()
-        normalized = re.sub(r'\s+([,;:.])', r'\1', normalized)
-        normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
+            normalized = candidate
+            if authors:
+                authors_norm = self._normalize_author_block(authors, profile)
+                if authors_norm and normalized.startswith(authors):
+                    normalized = authors_norm + normalized[len(authors):]
+            normalized = re.sub(r'(?i)\[internet\]', '[Internet]', normalized)
+            normalized = re.sub(r'(?i)available from:', 'Available from:', normalized)
+            normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
 
         if normalized and not normalized.endswith('.'):
             normalized += '.'
+        placeholders = [
+            self._missing_placeholder(spec["label"])
+            for spec in self._reference_missing_specs(metadata)
+        ]
+        if placeholders:
+            normalized = (normalized + ' ' + ' '.join(placeholders)).strip()
         return normalized
 
     def _extract_reference_entries(self, text: str) -> List[str]:
@@ -1083,7 +1255,10 @@ class ChicagoEditor:
             issues[code] = int(issues.get(code, 0)) + 1
 
         for entry in entries:
-            authors, title, journal, _tail = self._split_reference_entry_parts(entry)
+            metadata = self._analyze_reference_entry(entry)
+            authors = str(metadata.get("authors") or "")
+            title = str(metadata.get("title") or "")
+            journal = str(metadata.get("journal") or "")
             initials_with_periods = bool(profile.get("initials_with_periods"))
             if initials_with_periods:
                 if re.search(r'\b[A-Z]{2,}\b', authors):
@@ -1115,13 +1290,14 @@ class ChicagoEditor:
                 if non_small_lower >= 2:
                     bump("title_not_title_case")
 
-            journal_mode = str(profile.get("journal_abbrev", "nlm")).strip().lower()
-            if journal_mode == "nlm":
-                if re.search(r'\b(?:journal of|international|proceedings of)\b', journal, flags=re.IGNORECASE):
-                    bump("journal_not_abbreviated")
-            else:
-                if re.search(r'\b(?:J|Int|Archit|Res|Sci|Rev|Clin|Med|Technol|Environ|Assoc)\b', journal):
-                    bump("journal_looks_abbreviated")
+            if str(metadata.get("source_type") or "") == "journal":
+                journal_mode = str(profile.get("journal_abbrev", "nlm")).strip().lower()
+                if journal_mode == "nlm":
+                    if re.search(r'\b(?:journal of|international|proceedings of)\b', journal, flags=re.IGNORECASE):
+                        bump("journal_not_abbreviated")
+                else:
+                    if re.search(r'\b(?:J|Int|Archit|Res|Sci|Rev|Clin|Med|Technol|Environ|Assoc)\b', journal):
+                        bump("journal_looks_abbreviated")
 
         message_map = {
             "initials_missing_periods": "author initials should use periods (A.B.)",
@@ -1337,10 +1513,17 @@ class ChicagoEditor:
         details: Dict[str, Any] = {
             "citation_numbers_missing_references": [],
             "reference_numbers_uncited": [],
+            "reference_missing_author_numbers": [],
+            "reference_missing_title_numbers": [],
+            "reference_missing_journal_numbers": [],
             "reference_missing_year_numbers": [],
             "reference_missing_volume_numbers": [],
             "reference_missing_pages_numbers": [],
-            "reference_missing_doi_numbers": [],
+            "reference_missing_place_numbers": [],
+            "reference_missing_publisher_numbers": [],
+            "reference_missing_editor_numbers": [],
+            "reference_missing_cited_date_numbers": [],
+            "reference_missing_url_numbers": [],
         }
 
         def bump(code: str, amount: int = 1):
@@ -1401,44 +1584,47 @@ class ChicagoEditor:
             bump("reference_not_cited_in_text", len(uncited_refs))
             details["reference_numbers_uncited"] = uncited_refs
 
-        # Reference field completeness checks.
-        missing_year_numbers: List[int] = []
-        missing_volume_numbers: List[int] = []
-        missing_pages_numbers: List[int] = []
-        missing_doi_numbers: List[int] = []
+        # Reference field completeness checks by source type.
+        missing_by_code: Dict[str, List[int]] = {
+            "reference_missing_author": [],
+            "reference_missing_title": [],
+            "reference_missing_journal": [],
+            "reference_missing_year": [],
+            "reference_missing_volume": [],
+            "reference_missing_pages": [],
+            "reference_missing_place": [],
+            "reference_missing_publisher": [],
+            "reference_missing_editor": [],
+            "reference_missing_cited_date": [],
+            "reference_missing_url": [],
+        }
+        detail_key_by_code = {
+            "reference_missing_author": "reference_missing_author_numbers",
+            "reference_missing_title": "reference_missing_title_numbers",
+            "reference_missing_journal": "reference_missing_journal_numbers",
+            "reference_missing_year": "reference_missing_year_numbers",
+            "reference_missing_volume": "reference_missing_volume_numbers",
+            "reference_missing_pages": "reference_missing_pages_numbers",
+            "reference_missing_place": "reference_missing_place_numbers",
+            "reference_missing_publisher": "reference_missing_publisher_numbers",
+            "reference_missing_editor": "reference_missing_editor_numbers",
+            "reference_missing_cited_date": "reference_missing_cited_date_numbers",
+            "reference_missing_url": "reference_missing_url_numbers",
+        }
 
         for item in ref_entries:
             number = int(item.get("number") or 0)
             entry = str(item.get("entry") or "")
             if not entry.strip():
                 continue
+            metadata = self._analyze_reference_entry(entry)
+            for spec in self._reference_missing_specs(metadata):
+                missing_by_code[str(spec["code"])].append(number)
 
-            has_year = re.search(r'\b(?:19|20)\d{2}\b', entry) is not None
-            has_volume = re.search(r'\b(?:19|20)\d{2}\s*;\s*[A-Za-z]?\d+\b', entry) is not None
-            has_pages = re.search(r':\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?\b', entry) is not None
-            has_doi = re.search(r'(?i)\b(?:doi:\s*)?10\.\d{4,9}/[^\s<>"\']+', entry) is not None
-
-            if not has_year:
-                missing_year_numbers.append(number)
-            if not has_volume:
-                missing_volume_numbers.append(number)
-            if not has_pages:
-                missing_pages_numbers.append(number)
-            if not has_doi:
-                missing_doi_numbers.append(number)
-
-        if missing_year_numbers:
-            bump("reference_missing_year", len(missing_year_numbers))
-            details["reference_missing_year_numbers"] = missing_year_numbers
-        if missing_volume_numbers:
-            bump("reference_missing_volume", len(missing_volume_numbers))
-            details["reference_missing_volume_numbers"] = missing_volume_numbers
-        if missing_pages_numbers:
-            bump("reference_missing_pages", len(missing_pages_numbers))
-            details["reference_missing_pages_numbers"] = missing_pages_numbers
-        if missing_doi_numbers:
-            bump("reference_missing_doi", len(missing_doi_numbers))
-            details["reference_missing_doi_numbers"] = missing_doi_numbers
+        for code, numbers in missing_by_code.items():
+            if numbers:
+                bump(code, len(numbers))
+                details[detail_key_by_code[code]] = numbers
 
         message_map = {
             "malformed_bracket_unclosed": "unclosed '[' bracket(s) in body text",
@@ -1447,10 +1633,17 @@ class ChicagoEditor:
             "duplicate_citation_numbers_in_block": "citation block(s) contain duplicate numbers (for example [2, 2])",
             "citation_missing_reference": "citation number(s) have no matching reference entry",
             "reference_not_cited_in_text": "reference entry number(s) are not cited in body text",
+            "reference_missing_author": "reference entry/entries missing author or organization",
+            "reference_missing_title": "reference entry/entries missing title",
+            "reference_missing_journal": "journal article entry/entries missing journal name",
             "reference_missing_year": "reference entry/entries missing year pattern",
-            "reference_missing_volume": "reference entry/entries missing volume pattern",
-            "reference_missing_pages": "reference entry/entries missing pages pattern",
-            "reference_missing_doi": "reference entry/entries missing DOI pattern",
+            "reference_missing_volume": "journal article entry/entries missing volume pattern",
+            "reference_missing_pages": "reference entry/entries missing page range",
+            "reference_missing_place": "book/website entry/entries missing place of publication",
+            "reference_missing_publisher": "book/website entry/entries missing publisher",
+            "reference_missing_editor": "chapter entry/entries missing editor",
+            "reference_missing_cited_date": "website entry/entries missing cited date",
+            "reference_missing_url": "website entry/entries missing URL",
         }
         ordered_codes = sorted(issue_counts.keys(), key=lambda key: (-issue_counts[key], key))
         messages = [

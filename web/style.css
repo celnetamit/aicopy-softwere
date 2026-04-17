@@ -530,6 +530,14 @@ section h2 {
     text-decoration: underline;
 }
 
+.page-sheet .missing-placeholder {
+    color: #808080;
+}
+
+.missing-placeholder {
+    color: #808080;
+}
+
 .corrections-panel {
     white-space: normal;
     font-family: "Segoe UI", Ubuntu, sans-serif;

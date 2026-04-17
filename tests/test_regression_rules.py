@@ -122,14 +122,27 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertGreater(report.get("reference_count", 0), 0)
         self.assertTrue(any("period" in msg for msg in messages))
 
+    def test_citation_reference_validator_is_source_type_aware(self):
+        source = (
+            "Introduction cites [1, 2, 3].\n"
+            "References\n"
+            "[1] Smith AB, Johnson CD, Lee EF, et al. The role of nanoparticles in drug delivery. J Med Chem. 2021;64(2):123-131.\n"
+            "[2] Moore JC. Introduction to Biochemistry. 3rd ed. New York: Academic Press; 2020.\n"
+            "[3] National Institutes of Health. Cancer treatment [Internet]. Bethesda (MD): NIH; 2022 [cited 2023 Jan 15]. Available from: https://www.cancer.gov\n"
+        )
+        report = self.editor.build_citation_reference_validator_report(source, {})
+        self.assertEqual(report.get("summary", {}).get("total_issues"), 0)
+        self.assertEqual(report.get("messages"), [])
+
     def test_citation_reference_validator_catches_seeded_issues(self):
         source = (
             "Introduction cites [1, 1] and has malformed [2 text.\n"
-            "Another statement cites [4].\n"
+            "Another statement cites [6].\n"
             "References\n"
-            "[1] Alpha AB. Complete entry. J Test. 2024;10(2):100-110. doi:10.1000/alpha.\n"
-            "[2] Beta CD. Incomplete entry without required metadata.\n"
-            "[3] Gamma EF. Another incomplete entry. J Test.\n"
+            "[1] Alpha AB. Complete entry. J Test. 2024;10(2):100-110.\n"
+            "[2] Beta CD. Incomplete journal entry. J Test.\n"
+            "[3] Gamma EF. Another incomplete journal entry. J Test. 2024.\n"
+            "[4] Moore JC. Introduction to Biochemistry. Academic Press; 2020.\n"
         )
         report = self.editor.build_citation_reference_validator_report(source, {})
         counts = report.get("category_counts", {})
@@ -139,7 +152,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(int(counts.get("reference_missing_year", 0)), 1)
         self.assertGreaterEqual(int(counts.get("reference_missing_volume", 0)), 1)
         self.assertGreaterEqual(int(counts.get("reference_missing_pages", 0)), 1)
-        self.assertGreaterEqual(int(counts.get("reference_missing_doi", 0)), 1)
+        self.assertGreaterEqual(int(counts.get("reference_missing_place", 0)), 1)
 
     def test_citation_reference_validator_clean_sample_is_stable(self):
         source = (
@@ -153,6 +166,16 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(report.get("summary", {}).get("total_issues"), 0)
         self.assertEqual(report.get("messages"), [])
 
+    def test_source_type_missing_placeholders_are_injected(self):
+        source = (
+            "References\n"
+            "Moore JC. Introduction to Biochemistry. Academic Press; 2020.\n"
+            "National Institutes of Health. Cancer treatment [Internet]. Bethesda (MD): NIH; 2022. Available from: https://www.cancer.gov\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("[place missing]", out)
+        self.assertIn("[cited date missing]", out)
+
 
 class ProcessorRegressionTests(unittest.TestCase):
     def test_redline_highlights_only_changed_tokens(self):
@@ -160,6 +183,11 @@ class ProcessorRegressionTests(unittest.TestCase):
         html = processor.build_redline_html("Hello world.", "Hello brave world.")
         self.assertRegex(html, r'<span class="redline-add">\s*brave\s*</span>')
         self.assertNotIn('<span class="redline-del">Hello world.</span>', html)
+
+    def test_foreign_annotated_html_wraps_missing_placeholders(self):
+        processor = DocumentProcessor()
+        html = processor.build_foreign_annotated_html("Reference [page missing]")
+        self.assertIn('<span class="missing-placeholder">[page missing]</span>', html)
 
     def test_process_text_rule_mode_sets_expected_note(self):
         processor = DocumentProcessor()

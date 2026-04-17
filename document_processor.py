@@ -19,6 +19,8 @@ from chicago_editor import ChicagoEditor
 class DocumentProcessor:
     """Handles document loading, AI processing, and DOCX output."""
 
+    MISSING_PLACEHOLDER_COLOR = RGBColor(128, 128, 128)
+
     def __init__(self, ollama_host: str = "http://localhost:11434"):
         self.ollama_host = ollama_host
         self.editor = ChicagoEditor()
@@ -1132,10 +1134,12 @@ Corrected manuscript:"""
                 p = doc.add_paragraph()
                 p.paragraph_format.space_after = Pt(0)
                 p.paragraph_format.line_spacing = 1.5
-                for is_foreign, segment in self._iter_foreign_segments(paragraph):
-                    run = p.add_run(segment.lower() if is_foreign else segment)
-                    if is_foreign:
-                        run.italic = True
+                for is_missing, segment in self._iter_missing_placeholder_segments(paragraph):
+                    if is_missing:
+                        self._append_docx_run(p, segment, is_missing=True)
+                        continue
+                    for is_foreign, foreign_segment in self._iter_foreign_segments(segment):
+                        self._append_docx_run(p, foreign_segment, is_foreign=is_foreign)
 
         doc.save(output_path)
 
@@ -1170,16 +1174,12 @@ Corrected manuscript:"""
             corrected_line = corrected_lines[idx] if idx < len(corrected_lines) else ""
 
             for segment_type, segment_text in self._iter_diff_segments(original_line, corrected_line):
-                for is_foreign, sub_segment in self._iter_foreign_segments(segment_text):
-                    run = paragraph.add_run(sub_segment.lower() if is_foreign else sub_segment)
-                    if is_foreign:
-                        run.italic = True
-                    if segment_type == "delete":
-                        run.font.strike = True
-                        run.font.color.rgb = RGBColor(200, 0, 0)
-                    elif segment_type == "insert":
-                        run.font.underline = True
-                        run.font.color.rgb = RGBColor(200, 0, 0)
+                for is_missing, outer_segment in self._iter_missing_placeholder_segments(segment_text):
+                    if is_missing:
+                        self._append_docx_run(paragraph, outer_segment, segment_type=segment_type, is_missing=True)
+                        continue
+                    for is_foreign, sub_segment in self._iter_foreign_segments(outer_segment):
+                        self._append_docx_run(paragraph, sub_segment, segment_type=segment_type, is_foreign=is_foreign)
 
         doc.save(output_path)
 
@@ -1187,7 +1187,7 @@ Corrected manuscript:"""
         """Build redline HTML preview with Word-style red change markup."""
         chunks = []
         for segment_type, segment_text in self._iter_diff_segments(original, corrected):
-            escaped = html.escape(segment_text)
+            escaped = self._build_annotated_html(segment_text, include_foreign=False)
             if segment_type == "delete":
                 chunks.append(f'<span class="redline-del">{escaped}</span>')
             elif segment_type == "insert":
@@ -1224,20 +1224,66 @@ Corrected manuscript:"""
         if last < len(source):
             yield False, source[last:]
 
+    def _iter_missing_placeholder_segments(self, text: str):
+        """Yield tuple (is_missing_placeholder, segment_text)."""
+        source = text or ""
+        pattern = getattr(self.editor, "MISSING_PLACEHOLDER_RE", None)
+        if not source or pattern is None:
+            if source:
+                yield False, source
+            return
+
+        last = 0
+        for match in pattern.finditer(source):
+            if match.start() > last:
+                yield False, source[last:match.start()]
+            yield True, match.group(0)
+            last = match.end()
+
+        if last < len(source):
+            yield False, source[last:]
+
+    def _append_docx_run(self, paragraph, text: str, *, segment_type: Optional[str] = None, is_foreign: bool = False, is_missing: bool = False):
+        """Append a styled DOCX run for preview/export output."""
+        run = paragraph.add_run(text.lower() if is_foreign else text)
+        if is_foreign:
+            run.italic = True
+        if segment_type == "delete":
+            run.font.strike = True
+        elif segment_type == "insert":
+            run.font.underline = True
+
+        if is_missing:
+            run.font.color.rgb = self.MISSING_PLACEHOLDER_COLOR
+        elif segment_type in ("delete", "insert"):
+            run.font.color.rgb = RGBColor(200, 0, 0)
+        return run
+
+    def _build_annotated_html(self, text: str, include_foreign: bool = True) -> str:
+        """Return HTML-safe text with placeholders/foreign terms wrapped for display."""
+        parts: List[str] = []
+        for is_missing, segment in self._iter_missing_placeholder_segments(text):
+            if is_missing:
+                parts.append(f'<span class="missing-placeholder">{html.escape(segment)}</span>')
+                continue
+            if include_foreign:
+                for is_foreign, sub_segment in self._iter_foreign_segments(segment):
+                    escaped = html.escape(sub_segment)
+                    if is_foreign:
+                        parts.append(f'<em class="foreign-term">{escaped.lower()}</em>')
+                    else:
+                        parts.append(escaped)
+            else:
+                parts.append(html.escape(segment))
+        return "".join(parts)
+
     def build_foreign_annotated_html(self, text: str) -> str:
         """Return HTML-safe text with foreign terms wrapped for italic lowercase rendering."""
         lines = (text or "").split('\n')
         out_lines: List[str] = []
 
         for line in lines:
-            line_parts: List[str] = []
-            for is_foreign, segment in self._iter_foreign_segments(line):
-                escaped = html.escape(segment)
-                if is_foreign:
-                    line_parts.append(f'<em class="foreign-term">{escaped.lower()}</em>')
-                else:
-                    line_parts.append(escaped)
-            out_lines.append("".join(line_parts))
+            out_lines.append(self._build_annotated_html(line, include_foreign=True))
 
         return '\n'.join(out_lines)
 

@@ -115,10 +115,12 @@ Added:
 1. in-text citation validation:
    malformed bracket syntax, duplicate citation numbers inside a block, citations missing matching references
 2. reference list validation:
-   missing year, volume, pages, and DOI patterns
+   source-type-aware checks for journal articles, books, websites, and simple book chapters
 3. automatic Vancouver renumbering:
    citations and references are remapped to first appearance order, with uncited references appended after cited ones
-4. Corrections tab warning card:
+4. missing metadata placeholders:
+   unresolved fields can be surfaced inline as gray markers like `[place missing]` or `[cited date missing]`
+5. Corrections tab warning card:
    issue totals, category counts, and actionable validation messages
 
 ## Week 7: Pro Editing UX

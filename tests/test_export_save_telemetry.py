@@ -68,6 +68,20 @@ class ExportSaveTelemetryTests(unittest.TestCase):
         finally:
             os.unlink(output_path)
 
+    def test_clean_docx_renders_missing_placeholders_in_gray(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
+            output_path = handle.name
+
+        try:
+            main.processor.generate_clean_docx("Reference [place missing]", output_path)
+            doc = Document(output_path)
+            runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
+
+            placeholder_run = next(run for run in runs if run.text == "[place missing]")
+            self.assertEqual(str(placeholder_run.font.color.rgb), "808080")
+        finally:
+            os.unlink(output_path)
+
     def test_save_without_corrected_text_returns_error_code(self):
         response = main.save_file("clean")
         self.assertFalse(response["success"])
