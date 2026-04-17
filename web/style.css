@@ -511,20 +511,22 @@ section h2 {
 }
 
 .page-sheet .redline-del {
-    color: #b11226;
+    color: #c80000;
+    text-decoration: line-through;
 }
 
 .page-sheet .redline-add {
-    color: #007a34;
+    color: #c80000;
+    text-decoration: underline;
 }
 
 .redline-del {
-    color: #ff6b6b;
+    color: #c80000;
     text-decoration: line-through;
 }
 
 .redline-add {
-    color: #57d98d;
+    color: #c80000;
     text-decoration: underline;
 }
 

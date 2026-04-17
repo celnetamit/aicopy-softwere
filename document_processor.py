@@ -1184,7 +1184,7 @@ Corrected manuscript:"""
         doc.save(output_path)
 
     def build_redline_html(self, original: str, corrected: str) -> str:
-        """Build redline HTML preview with deleted text in red and added text in green."""
+        """Build redline HTML preview with Word-style red change markup."""
         chunks = []
         for segment_type, segment_text in self._iter_diff_segments(original, corrected):
             escaped = html.escape(segment_text)
