@@ -6,7 +6,6 @@ import tempfile
 import unittest
 
 from docx import Document
-from docx.enum.text import WD_COLOR_INDEX
 
 import main
 
@@ -64,8 +63,8 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             self.assertTrue(inserted_runs)
             self.assertEqual(str(deleted_runs[0].font.color.rgb), "C80000")
             self.assertEqual(str(inserted_runs[0].font.color.rgb), "C80000")
-            self.assertEqual(deleted_runs[0].font.highlight_color, WD_COLOR_INDEX.PINK)
-            self.assertEqual(inserted_runs[0].font.highlight_color, WD_COLOR_INDEX.YELLOW)
+            self.assertIsNone(deleted_runs[0].font.highlight_color)
+            self.assertIsNone(inserted_runs[0].font.highlight_color)
         finally:
             os.unlink(output_path)
 

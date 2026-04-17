@@ -11,7 +11,6 @@ from typing import Tuple, List, Dict, Optional, Set
 from collections import Counter
 from docx import Document
 from docx.shared import RGBColor, Pt, Inches
-from docx.enum.text import WD_COLOR_INDEX
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from chicago_editor import ChicagoEditor
@@ -1178,11 +1177,9 @@ Corrected manuscript:"""
                     if segment_type == "delete":
                         run.font.strike = True
                         run.font.color.rgb = RGBColor(200, 0, 0)
-                        run.font.highlight_color = WD_COLOR_INDEX.PINK
                     elif segment_type == "insert":
                         run.font.underline = True
                         run.font.color.rgb = RGBColor(200, 0, 0)
-                        run.font.highlight_color = WD_COLOR_INDEX.YELLOW
 
         doc.save(output_path)
 
