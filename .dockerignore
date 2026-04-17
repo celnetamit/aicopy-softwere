@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+dist_installer/
+dist_deb/
+.git/
+.github/
+tests/
+packaging/
+scripts/windows/
+scripts/linux/
+demo_clean.docx
+advance plan
+*.md

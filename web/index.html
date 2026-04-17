@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manuscript Editor</title>
+    <link rel="stylesheet" href="style.css?v=20260417r24">
+</head>
+<body>
+    <div class="app">
+        <header>
+            <h1>Manuscript Editor</h1>
+            <p>Professional Copy Editing</p>
+        </header>
+
+        <main>
+            <aside class="left-panel">
+                <section class="upload-section">
+                    <h2>Upload Manuscript</h2>
+                    <div class="upload-zone" id="drop-zone">
+                        <div class="upload-icon">📄</div>
+                        <p>Drop .txt or .docx file here<br>or click Browse</p>
+                        <input type="file" id="file-input" accept=".txt,.docx" hidden>
+                        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">
+                            Browse Files
+                        </button>
+                    </div>
+                    <p class="file-name" id="file-name">No file selected</p>
+                </section>
+
+                <section class="options-section">
+                    <h2>Editing Options</h2>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="opt-spelling" checked>
+                        <span>Spelling Corrections</span>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="opt-sentence" checked>
+                        <span>Sentence Case Fixes</span>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="opt-punctuation" checked>
+                        <span>Punctuation Refinements</span>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="opt-chicago" checked>
+                        <span>Chicago Style Formatting</span>
+                    </label>
+                    <label class="field-label" for="domain-profile">Domain Dictionary</label>
+                    <select id="domain-profile" class="input-field">
+                        <option value="auto" selected>Auto Detect</option>
+                        <option value="general">General</option>
+                        <option value="medical">Medical</option>
+                        <option value="engineering">Engineering</option>
+                        <option value="law">Law</option>
+                    </select>
+                    <label class="field-label" for="custom-terms-input">Custom Domain Terms</label>
+                    <textarea id="custom-terms-input" class="input-field terms-box" placeholder="Add one term per line (or comma-separated), e.g.&#10;myocardial infarction&#10;finite element analysis&#10;habeas corpus"></textarea>
+                    <div class="inline-row">
+                        <button class="btn-secondary btn-small" id="import-custom-terms-btn" type="button">Import Terms</button>
+                        <button class="btn-secondary btn-small" id="clear-custom-terms-btn" type="button">Clear Terms</button>
+                    </div>
+                    <input type="file" id="custom-terms-file-input" accept=".txt,.csv" hidden>
+                    <p class="hint-text">These terms are protected from unwanted rewrites/spelling changes.</p>
+                    <label class="field-label" for="reference-profile">Journal Profile</label>
+                    <select id="reference-profile" class="input-field">
+                        <option value="vancouver_nlm" selected>Vancouver (NLM, no initial periods)</option>
+                        <option value="vancouver_periods">Vancouver (Initial periods)</option>
+                        <option value="vancouver_full">Vancouver (Full journal names)</option>
+                        <option value="vancouver_periods_full">Vancouver (Initial periods + full journal names)</option>
+                        <option value="vancouver_titlecase_nlm">Vancouver (Title case titles + NLM journal abbreviations)</option>
+                    </select>
+                    <p class="hint-text">Profile controls initials punctuation, title case rules, and journal-name abbreviation style.</p>
+                </section>
+
+                <section class="options-section">
+                    <h2>AI Settings</h2>
+                    <button class="btn-secondary btn-small wizard-open-btn" id="open-setup-wizard-btn" type="button">
+                        Open First-Run Setup Wizard
+                    </button>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="opt-ai-enabled" checked>
+                        <span>Enable AI Enhancement</span>
+                    </label>
+
+                    <label class="field-label" for="ai-provider">Provider</label>
+                    <select id="ai-provider" class="input-field">
+                        <option value="ollama" selected>Ollama (Local)</option>
+                        <option value="gemini">Google Gemini</option>
+                        <option value="openrouter">OpenRouter (Cloud)</option>
+                        <option value="agent_router">Agent Router (Cloud)</option>
+                    </select>
+
+                    <div id="ollama-model-settings">
+                        <label class="field-label" for="ollama-model-select">Model</label>
+                        <div class="inline-row">
+                            <select id="ollama-model-select" class="input-field"></select>
+                            <button class="btn-secondary btn-small" id="refresh-models-btn" type="button">Refresh</button>
+                        </div>
+                        <p class="hint-text" id="ollama-model-hint">Loading Ollama models...</p>
+                    </div>
+
+                    <div id="gemini-model-settings" class="hidden">
+                        <label class="field-label" for="gemini-model-input">Model</label>
+                        <input id="gemini-model-input" class="input-field" type="text" value="gemini-1.5-flash" />
+                    </div>
+
+                    <div id="openrouter-model-settings" class="hidden">
+                        <label class="field-label" for="openrouter-model-input">Model</label>
+                        <input id="openrouter-model-input" class="input-field" type="text" value="openrouter/auto" list="openrouter-model-list" />
+                        <datalist id="openrouter-model-list">
+                            <option value="openrouter/auto">OpenRouter Auto Router</option>
+                            <option value="openai/gpt-5.4">OpenAI GPT-5.4 (via OpenRouter)</option>
+                            <option value="google/gemini-2.5-pro">Gemini 2.5 Pro (via OpenRouter)</option>
+                            <option value="anthropic/claude-sonnet-4">Claude Sonnet 4 (via OpenRouter)</option>
+                        </datalist>
+                        <p class="hint-text">Use <code>openrouter/auto</code> to auto-route to best model.</p>
+                    </div>
+
+                    <div id="agent-router-model-settings" class="hidden">
+                        <label class="field-label" for="agent-router-model-input">Agent Router Model</label>
+                        <input id="agent-router-model-input" class="input-field" type="text" value="openrouter/auto" />
+                        <p class="hint-text">Recommended: <code>openrouter/auto</code></p>
+                    </div>
+
+                    <div id="ollama-settings">
+                        <label class="field-label" for="ollama-host">Ollama Host</label>
+                        <input id="ollama-host" class="input-field" type="text" value="http://localhost:11434" />
+                        <div class="inline-row">
+                            <button class="btn-secondary btn-small" id="use-local-ollama-btn" type="button">Use This PC</button>
+                            <button class="btn-secondary btn-small" id="use-remote-ollama-btn" type="button">Use Remote Ollama</button>
+                        </div>
+                        <p class="hint-text">Remote example: 192.168.1.25 or http://192.168.1.25:11434</p>
+                    </div>
+
+                    <div id="gemini-settings" class="hidden">
+                        <label class="field-label" for="gemini-api-key">Gemini API Key</label>
+                        <input id="gemini-api-key" class="input-field" type="password" placeholder="Paste your Gemini API key" />
+                    </div>
+
+                    <div id="openrouter-settings" class="hidden">
+                        <label class="field-label" for="openrouter-api-key">OpenRouter API Key</label>
+                        <input id="openrouter-api-key" class="input-field" type="password" placeholder="Paste your OpenRouter API key" />
+                    </div>
+
+                    <details class="advanced-settings" open>
+                        <summary>Advanced AI (Long Manuscripts)</summary>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="ai-section-wise" checked>
+                            <span>Enable section-wise analysis for long manuscripts</span>
+                        </label>
+                        <div class="advanced-grid">
+                            <div>
+                                <label class="field-label" for="ai-section-threshold-chars">Start section mode at chars</label>
+                                <input id="ai-section-threshold-chars" class="input-field" type="number" min="4000" max="120000" step="500" value="12000" />
+                            </div>
+                            <div>
+                                <label class="field-label" for="ai-section-threshold-paragraphs">Start section mode at paragraphs</label>
+                                <input id="ai-section-threshold-paragraphs" class="input-field" type="number" min="20" max="1000" step="5" value="90" />
+                            </div>
+                            <div>
+                                <label class="field-label" for="ai-section-chunk-chars">Section chunk size (chars)</label>
+                                <input id="ai-section-chunk-chars" class="input-field" type="number" min="1800" max="30000" step="200" value="5500" />
+                            </div>
+                            <div>
+                                <label class="field-label" for="ai-section-chunk-lines">Section chunk size (lines)</label>
+                                <input id="ai-section-chunk-lines" class="input-field" type="number" min="8" max="200" step="1" value="28" />
+                            </div>
+                            <div>
+                                <label class="field-label" for="ai-global-consistency-max-chars">Global consistency max chars</label>
+                                <input id="ai-global-consistency-max-chars" class="input-field" type="number" min="6000" max="120000" step="1000" value="18000" />
+                            </div>
+                        </div>
+                        <p class="hint-text">Lower values improve long-document reliability but increase processing time.</p>
+                    </details>
+                </section>
+
+                <section class="actions-section">
+                    <button class="btn-primary" id="process-btn" onclick="process_document()">
+                        Process Document
+                    </button>
+                    <div class="save-buttons">
+                        <button class="btn-secondary" id="save-clean-btn" onclick="save_file('clean')" disabled>
+                            Save Clean Version
+                        </button>
+                        <button class="btn-secondary" id="save-highlight-btn" onclick="save_file('highlighted')" disabled>
+                            Save Highlighted
+                        </button>
+                    </div>
+                    <button class="btn-text" onclick="clear_all()">Clear</button>
+                </section>
+            </aside>
+
+            <section class="right-panel">
+                <div class="tabs-row">
+                    <div class="tabs">
+                        <button class="tab active" data-tab="original" onclick="switch_tab('original')">Original</button>
+                        <button class="tab" data-tab="corrected" onclick="switch_tab('corrected')">Corrected</button>
+                        <button class="tab" data-tab="redline" onclick="switch_tab('redline')">Redline</button>
+                        <button class="tab" data-tab="corrections" onclick="switch_tab('corrections')">Corrections</button>
+                    </div>
+                    <div class="view-mode">
+                        <button class="view-tab" data-view="compare" onclick="switch_view('compare')">Compare</button>
+                        <button class="view-tab active" data-view="rich" onclick="switch_view('rich')">Rich</button>
+                        <button class="view-tab" data-view="page" onclick="switch_view('page')">Page</button>
+                        <button class="view-tab" data-view="plain" onclick="switch_view('plain')">Plain</button>
+                    </div>
+                </div>
+                <div class="page-controls hidden" id="page-controls">
+                    <div class="pc-item pc-preset">
+                        <label class="field-label" for="page-preset">Template</label>
+                        <select id="page-preset" class="input-field">
+                            <option value="manuscript_default" selected>Manuscript Default</option>
+                            <option value="journal_compact">Journal Compact</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-font-size">Font (pt)</label>
+                        <input id="page-font-size" class="input-field" type="number" min="9" max="16" step="0.5" value="12" />
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-line-height">Line</label>
+                        <input id="page-line-height" class="input-field" type="number" min="1.1" max="2.2" step="0.05" value="1.5" />
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-paragraph-spacing">Para (pt)</label>
+                        <input id="page-paragraph-spacing" class="input-field" type="number" min="0" max="20" step="0.5" value="0" />
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-margin-top">Top (in)</label>
+                        <input id="page-margin-top" class="input-field" type="number" min="0.5" max="2.5" step="0.05" value="1" />
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-margin-bottom">Bottom (in)</label>
+                        <input id="page-margin-bottom" class="input-field" type="number" min="0.5" max="2.5" step="0.05" value="1" />
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-margin-left">Left (in)</label>
+                        <input id="page-margin-left" class="input-field" type="number" min="0.5" max="2.5" step="0.05" value="1.25" />
+                    </div>
+                    <div class="pc-item">
+                        <label class="field-label" for="page-margin-right">Right (in)</label>
+                        <input id="page-margin-right" class="input-field" type="number" min="0.5" max="2.5" step="0.05" value="1.25" />
+                    </div>
+                </div>
+                <div class="preview-container">
+                    <div class="preview" id="preview-text"></div>
+                </div>
+                <div class="status-bar">
+                    <span id="word-count">Words: 0</span>
+                    <span id="status">Ready</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <span id="footer-status">Ready to edit</span>
+            <span>v1.0.0</span>
+        </footer>
+    </div>
+
+    <div class="setup-wizard-backdrop hidden" id="setup-wizard-backdrop" role="dialog" aria-modal="true" aria-labelledby="setup-wizard-title">
+        <div class="setup-wizard-card">
+            <h2 id="setup-wizard-title">First-Run Setup Wizard</h2>
+            <p class="setup-wizard-subtitle">
+                Quick setup for AI provider, API key, and Ollama host. This is saved on your current browser only.
+            </p>
+
+            <div class="setup-wizard-grid">
+                <div>
+                    <label class="field-label" for="wizard-provider">AI Provider</label>
+                    <select id="wizard-provider" class="input-field">
+                        <option value="ollama" selected>Ollama (Local / Same Network)</option>
+                        <option value="gemini">Google Gemini</option>
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="agent_router">Agent Router</option>
+                    </select>
+                </div>
+
+                <div id="wizard-ollama-box">
+                    <label class="field-label" for="wizard-ollama-host">Ollama Host</label>
+                    <input id="wizard-ollama-host" class="input-field" type="text" value="http://localhost:11434" />
+                    <p class="hint-text">This PC: <code>http://localhost:11434</code> | Other PC: <code>http://192.168.1.25:11434</code></p>
+                </div>
+
+                <div id="wizard-gemini-box" class="hidden">
+                    <label class="field-label" for="wizard-gemini-key">Gemini API Key</label>
+                    <input id="wizard-gemini-key" class="input-field" type="password" placeholder="Paste Gemini API key" />
+                </div>
+
+                <div id="wizard-openrouter-box" class="hidden">
+                    <label class="field-label" for="wizard-openrouter-key">OpenRouter API Key</label>
+                    <input id="wizard-openrouter-key" class="input-field" type="password" placeholder="Paste OpenRouter API key" />
+                </div>
+            </div>
+
+            <div class="setup-wizard-help" id="setup-wizard-help">
+                Choose provider and fill required values, then click <strong>Save and Start</strong>.
+            </div>
+
+            <div class="setup-wizard-actions">
+                <button class="btn-text setup-wizard-skip" id="setup-wizard-skip-btn" type="button">Skip for now</button>
+                <button class="btn-secondary" id="setup-wizard-cancel-btn" type="button">Close</button>
+                <button class="btn-primary setup-wizard-save" id="setup-wizard-save-btn" type="button">Save and Start</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="/eel.js"></script>
+    <script src="app.js?v=20260417r24"></script>
+</body>
+</html>

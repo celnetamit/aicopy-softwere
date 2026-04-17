@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv-build/
+.codex
+build/
+dist/
+dist_installer/
+dist_deb/
+advance plan
