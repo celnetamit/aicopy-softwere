@@ -304,6 +304,16 @@ function applyRouteViewMode() {
     }
 }
 
+function syncAdminDashboardRouteState() {
+    if (!isAdminDashboardRoute()) {
+        return;
+    }
+    if (!currentUser || typeof currentUser !== 'object') {
+        return;
+    }
+    setAdminDashboardVisible(isAdminUser(currentUser));
+}
+
 function normalizeUserRole(roleValue) {
     return String(roleValue || 'USER').trim().toUpperCase();
 }
@@ -333,6 +343,9 @@ function applyCurrentUser(user) {
         if (managedSettingsNote) {
             managedSettingsNote.classList.remove('hidden');
         }
+        if (isAdminDashboardRoute()) {
+            setAdminDashboardVisible(false);
+        }
         return;
     }
     currentUser = user;
@@ -354,6 +367,9 @@ function applyCurrentUser(user) {
     }
     if (managedSettingsNote) {
         managedSettingsNote.classList.remove('hidden');
+    }
+    if (isAdminDashboardRoute()) {
+        setAdminDashboardVisible(role === 'ADMIN');
     }
 }
 
@@ -2864,3 +2880,8 @@ function clear_all() {
 
 applyRouteViewMode();
 checkAuthenticatedUser();
+
+window.addEventListener('pageshow', () => {
+    applyRouteViewMode();
+    syncAdminDashboardRouteState();
+});

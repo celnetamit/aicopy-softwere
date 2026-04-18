@@ -1002,7 +1002,15 @@ def _render_index_html(admin_dashboard: bool = False) -> HTTPResponse:
             1,
         )
 
-    return HTTPResponse(body=html, status=200, headers={"Content-Type": "text/html; charset=utf-8"})
+    return HTTPResponse(
+        body=html,
+        status=200,
+        headers={
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store, max-age=0, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/")
