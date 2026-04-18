@@ -33,8 +33,8 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT_DIR, "web")
 REQUIRED_WEB_ASSETS = ("index.html", "style.css", "app.js", "eel_web_bridge.js")
 
-SESSION_COOKIE_NAME = "manuscript_editor_sid_v2"
-SESSION_COOKIE_NAME_LEGACY = "manuscript_editor_sid"
+SESSION_COOKIE_NAME = "manuscript_editor_sid"
+SESSION_COOKIE_ALT_NAME = "manuscript_editor_sid_v2"
 SESSION_COOKIE_ENV_KEY = "manuscript_editor.session_id"
 SESSION_HEADER_NAME = "HTTP_X_MANUSCRIPT_SESSION"
 
@@ -166,12 +166,10 @@ def _json_response(payload: Dict, status: int = 200, session_id: str = "", clear
             secure=_is_https_request(),
             max_age=SESSION_TTL_HOURS * 3600,
         )
-        # Best-effort cleanup: remove legacy cookie key so only one session cookie is sent.
-        http_response.delete_cookie(SESSION_COOKIE_NAME_LEGACY, path="/")
 
     if clear_session:
         http_response.delete_cookie(SESSION_COOKIE_NAME, path="/")
-        http_response.delete_cookie(SESSION_COOKIE_NAME_LEGACY, path="/")
+        http_response.delete_cookie(SESSION_COOKIE_ALT_NAME, path="/")
 
     return http_response
 
@@ -198,12 +196,35 @@ def _get_user_agent() -> str:
     return str(request.get_header("User-Agent", "") or "").strip()[:512]
 
 
+def _read_cookie_value_from_header(cookie_name: str) -> str:
+    raw_cookie = str(request.environ.get("HTTP_COOKIE", "") or "")
+    if not raw_cookie:
+        return ""
+    target = str(cookie_name or "").strip()
+    if not target:
+        return ""
+    last_value = ""
+    for piece in raw_cookie.split(";"):
+        token = piece.strip()
+        if not token or "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        if key.strip() == target:
+            last_value = value.strip()
+    return _normalize_session_id(last_value)
+
+
 def _get_session_id_from_request() -> str:
     header_sid = _normalize_session_id(request.environ.get(SESSION_HEADER_NAME, ""))
-    cookie_sid = _normalize_session_id(request.get_cookie(SESSION_COOKIE_NAME) or "")
-    legacy_cookie_sid = _normalize_session_id(request.get_cookie(SESSION_COOKIE_NAME_LEGACY) or "")
-    # Prefer current cookie, then legacy cookie, then header fallback.
-    return cookie_sid or legacy_cookie_sid or header_sid
+    # Prefer raw Cookie header parsing so duplicate-cookie edge cases pick the most recent value.
+    cookie_sid = _read_cookie_value_from_header(SESSION_COOKIE_NAME) or _normalize_session_id(
+        request.get_cookie(SESSION_COOKIE_NAME) or ""
+    )
+    alt_cookie_sid = _read_cookie_value_from_header(SESSION_COOKIE_ALT_NAME) or _normalize_session_id(
+        request.get_cookie(SESSION_COOKIE_ALT_NAME) or ""
+    )
+    # Prefer canonical cookie, then alternate cookie, then header fallback.
+    return cookie_sid or alt_cookie_sid or header_sid
 
 
 def _auth_context_from_request() -> Optional[SessionContext]:
