@@ -1,12 +1,16 @@
 """WSGI tests for authenticated Manuscript Editor web app."""
 
+import base64
 import io
 import json
 import math
 import os
+import tempfile
 import unittest
 from urllib.parse import urlencode
 from wsgiref.util import setup_testing_defaults
+
+from docx import Document
 
 
 os.environ.setdefault("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "1")
@@ -231,6 +235,59 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertGreaterEqual(len(payload.get("tasks", [])), 1)
+
+    def test_legacy_export_file_uses_docx_template_when_base64_source_is_supplied(self):
+        self._login("writer@conwiz.in")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
+            source_path = source_handle.name
+
+        try:
+            doc = Document()
+            doc.add_paragraph("Intro paragraph")
+            table = doc.add_table(rows=1, cols=2)
+            table.cell(0, 0).text = "A1"
+            table.cell(0, 1).text = "B1"
+            doc.add_paragraph("Closing paragraph")
+            doc.save(source_path)
+
+            with open(source_path, "rb") as infile:
+                source_docx_base64 = base64.b64encode(infile.read()).decode("ascii")
+
+            status, payload = self.client.request(
+                "POST",
+                "/api/export-file",
+                {
+                    "task_id": "",
+                    "source_type": "docx",
+                    "source_docx_base64": source_docx_base64,
+                    "file_type": "clean",
+                    "original_text": "Intro paragraph\nA1\tB1\nClosing paragraph",
+                    "corrected_text": "Updated intro\nR1C1\tR1C2\nUpdated closing",
+                    "file_name": "sample.docx",
+                },
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(payload.get("success"))
+            self.assertIn("base64_data", payload)
+
+            exported_bytes = base64.b64decode(payload["base64_data"])
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+                output_path = output_handle.name
+
+            try:
+                with open(output_path, "wb") as outfile:
+                    outfile.write(exported_bytes)
+                out_doc = Document(output_path)
+                self.assertEqual(out_doc.paragraphs[0].text, "Updated intro")
+                self.assertEqual(len(out_doc.tables), 1)
+                self.assertEqual(out_doc.tables[0].cell(0, 0).text, "R1C1")
+                self.assertEqual(out_doc.tables[0].cell(0, 1).text, "R1C2")
+                self.assertEqual(out_doc.paragraphs[-1].text, "Updated closing")
+            finally:
+                os.unlink(output_path)
+        finally:
+            os.unlink(source_path)
 
     def test_upload_succeeds_when_bridge_header_is_present(self):
         self._login("bridge@conwiz.in")

@@ -14,6 +14,7 @@ from document_processor import DocumentProcessor
 
 processor = DocumentProcessor()
 current_file = None
+current_source_docx_path = ""
 original_text = ""
 corrected_text = ""
 full_corrected_text = ""
@@ -84,18 +85,20 @@ def reset_runtime_telemetry():
 @eel.expose
 def reset_session():
     """Clear the currently loaded document and derived outputs."""
-    global current_file, original_text, corrected_text, full_corrected_text
+    global current_file, current_source_docx_path, original_text, corrected_text, full_corrected_text
     current_file = None
+    current_source_docx_path = ""
     original_text = ""
     corrected_text = ""
     full_corrected_text = ""
     return {"success": True}
 
 
-def _load_text_to_state(file_name: str, text: str):
+def _load_text_to_state(file_name: str, text: str, source_docx_path: str = ""):
     """Store loaded text in global app state and return payload."""
-    global original_text, corrected_text, full_corrected_text, current_file
+    global original_text, corrected_text, full_corrected_text, current_file, current_source_docx_path
     current_file = file_name
+    current_source_docx_path = source_docx_path if str(source_docx_path or "").lower().endswith(".docx") else ""
     original_text = text
     corrected_text = ""
     full_corrected_text = ""
@@ -160,7 +163,8 @@ def load_file(file_path):
     """Load a .txt or .docx file from a local filesystem path."""
     try:
         text, _ = processor.load_document(file_path)
-        return _load_text_to_state(os.path.basename(file_path), text)
+        source_docx_path = file_path if str(file_path or "").lower().endswith(".docx") else ""
+        return _load_text_to_state(os.path.basename(file_path), text, source_docx_path=source_docx_path)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -185,7 +189,7 @@ def load_docx_content(file_name, base64_data):
 
         try:
             text, _ = processor.load_document(temp_path)
-            return _load_text_to_state(file_name, text)
+            return _load_text_to_state(file_name, text, source_docx_path="")
         finally:
             os.unlink(temp_path)
     except Exception as e:
@@ -271,9 +275,14 @@ def export_file(file_type):
             temp_path = handle.name
 
         if file_type == "clean":
-            processor.generate_clean_docx(corrected_text, temp_path)
+            processor.generate_clean_docx(corrected_text, temp_path, source_docx_path=current_source_docx_path)
         elif file_type in ("highlighted", "redline"):
-            processor.generate_highlighted_docx(original_text, corrected_text, temp_path)
+            processor.generate_highlighted_docx(
+                original_text,
+                corrected_text,
+                temp_path,
+                source_docx_path=current_source_docx_path,
+            )
         else:
             runtime_telemetry["export_failures"] += 1
             return _error_payload("EXPORT_UNSUPPORTED_TYPE", "Unsupported file type", file_type=str(file_type))
@@ -344,9 +353,14 @@ def save_file(file_type):
             runtime_telemetry["save_fallback_used"] += 1
 
         if file_type == "clean":
-            processor.generate_clean_docx(corrected_text, path)
+            processor.generate_clean_docx(corrected_text, path, source_docx_path=current_source_docx_path)
         elif file_type in ("highlighted", "redline"):
-            processor.generate_highlighted_docx(original_text, corrected_text, path)
+            processor.generate_highlighted_docx(
+                original_text,
+                corrected_text,
+                path,
+                source_docx_path=current_source_docx_path,
+            )
         else:
             runtime_telemetry["save_failures"] += 1
             return _error_payload("SAVE_UNSUPPORTED_TYPE", "Unsupported file type", file_type=str(file_type))

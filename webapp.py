@@ -660,12 +660,23 @@ def _store_task_export_files(task_row: Dict, original_text: str, corrected_text:
     file_name = str(task_row.get("file_name") or "manuscript.docx")
     task_dir = _task_dir(task_id)
     processor = DocumentProcessor()
+    source_docx_path = ""
+    if str(task_row.get("source_type") or "").lower() == "docx":
+        try:
+            source_docx_path = _resolve_storage_path(str(task_row.get("source_path") or ""))
+        except Exception:
+            source_docx_path = ""
 
     clean_abs = os.path.join(task_dir, "clean.docx")
     highlighted_abs = os.path.join(task_dir, "highlighted.docx")
 
-    processor.generate_clean_docx(corrected_text, clean_abs)
-    processor.generate_highlighted_docx(original_text, corrected_text, highlighted_abs)
+    processor.generate_clean_docx(corrected_text, clean_abs, source_docx_path=source_docx_path)
+    processor.generate_highlighted_docx(
+        original_text,
+        corrected_text,
+        highlighted_abs,
+        source_docx_path=source_docx_path,
+    )
 
     expires_at = int(time.time()) + FILE_RETENTION_DAYS * 24 * 3600
 
@@ -1543,6 +1554,8 @@ def export_file_legacy():
         original_text = str(payload.get("original_text", "") or "")
         corrected_text = str(payload.get("corrected_text", "") or "")
         file_name = str(payload.get("file_name", "manuscript.docx") or "manuscript.docx")
+        source_type = str(payload.get("source_type", "text") or "text").strip().lower()
+        source_docx_base64 = str(payload.get("source_docx_base64", "") or "").strip()
         normalized_type = "clean" if file_type == "clean" else "highlighted"
 
         if not corrected_text.strip():
@@ -1555,14 +1568,29 @@ def export_file_legacy():
 
         processor = DocumentProcessor()
         temp_path = None
+        source_docx_temp_path = None
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
             temp_path = handle.name
 
         try:
+            if source_type == "docx" and source_docx_base64:
+                try:
+                    source_docx_bytes = base64.b64decode(source_docx_base64.encode("ascii"), validate=True)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
+                        source_handle.write(source_docx_bytes)
+                        source_docx_temp_path = source_handle.name
+                except Exception:
+                    source_docx_temp_path = None
+
             if normalized_type == "clean":
-                processor.generate_clean_docx(corrected_text, temp_path)
+                processor.generate_clean_docx(corrected_text, temp_path, source_docx_path=source_docx_temp_path or "")
             else:
-                processor.generate_highlighted_docx(original_text, corrected_text, temp_path)
+                processor.generate_highlighted_docx(
+                    original_text,
+                    corrected_text,
+                    temp_path,
+                    source_docx_path=source_docx_temp_path or "",
+                )
 
             with open(temp_path, "rb") as infile:
                 encoded = base64.b64encode(infile.read()).decode("ascii")
@@ -1578,6 +1606,8 @@ def export_file_legacy():
                 session_id=context.session_id,
             )
         finally:
+            if source_docx_temp_path and os.path.exists(source_docx_temp_path):
+                os.unlink(source_docx_temp_path)
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
     except Exception as exc:

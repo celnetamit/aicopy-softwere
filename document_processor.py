@@ -6,10 +6,16 @@ import json
 import difflib
 import html
 import subprocess
+import tempfile
+import zipfile
 import requests
 from typing import Tuple, List, Dict, Optional, Set
 from collections import Counter
+from xml.etree import ElementTree as ET
 from docx import Document
+from docx.document import Document as DocxDocument
+from docx.table import Table, _Cell
+from docx.text.paragraph import Paragraph
 from docx.shared import RGBColor, Pt, Inches
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -20,6 +26,12 @@ class DocumentProcessor:
     """Handles document loading, AI processing, and DOCX output."""
 
     MISSING_PLACEHOLDER_COLOR = RGBColor(128, 128, 128)
+    CELL_PARAGRAPH_MARKER = "[[CELL_PARA]]"
+    CELL_BLOCK_MARKER = "[[CELL_BLOCK]]"
+    CELL_TABLE_ROW_MARKER = "[[CELL_TABLE_ROW]]"
+    CELL_TABLE_CELL_MARKER = "[[CELL_TABLE_CELL]]"
+    TEXTBOX_MARKER = "[[TEXTBOX]]"
+    TEXTBOX_PARAGRAPH_MARKER = "[[TEXTBOX_PARA]]"
 
     def __init__(self, ollama_host: str = "http://localhost:11434"):
         self.ollama_host = ollama_host
@@ -35,6 +47,7 @@ class DocumentProcessor:
         self._last_processing_audit: Dict = {}
         self._last_journal_profile_report: Dict = {}
         self._last_citation_reference_report: Dict = {}
+        self._last_docx_package_report: Dict = {}
         self._nlp = None
 
     def _reset_processing_audit(self):
@@ -70,15 +83,16 @@ class DocumentProcessor:
         ext = os.path.splitext(path)[1].lower()
 
         if ext == '.txt':
+            self._last_docx_package_report = {}
             with open(path, 'r', encoding='utf-8', errors='replace') as f:
                 text = f.read()
             return text, 'txt'
 
         elif ext == '.docx':
             doc = Document(path)
-            text_parts = []
-            for para in doc.paragraphs:
-                text_parts.append(para.text)
+            text_parts = [block["text"] for block in self._extract_docx_blocks(doc) if block.get("consumes_text", True)]
+            self._last_docx_package_report = self._inspect_docx_package(path)
+            self._attach_docx_package_summary()
             text = '\n'.join(text_parts)
             return text, 'docx'
 
@@ -90,6 +104,7 @@ class DocumentProcessor:
         self._last_selection_note = ""
         self._last_ai_pipeline_note = ""
         self._reset_processing_audit()
+        self._attach_docx_package_summary()
 
         # First apply rule-based corrections
         rules_corrected = self.editor.correct_all(text, options)
@@ -206,6 +221,26 @@ class DocumentProcessor:
             summary = {}
             self._last_processing_audit["summary"] = summary
         summary["cmos_guardrails"] = guardrails
+
+    def _attach_docx_package_summary(self):
+        """Attach DOCX package preservation details to the processing audit summary."""
+        if not self._last_docx_package_report:
+            return
+        summary = self._last_processing_audit.setdefault("summary", {})
+        if not isinstance(summary, dict):
+            summary = {}
+            self._last_processing_audit["summary"] = summary
+        summary["docx_package_features"] = dict(self._last_docx_package_report)
+
+        present = []
+        for key in ("comments", "footnotes", "endnotes", "textboxes"):
+            count = int(self._last_docx_package_report.get(key, 0) or 0)
+            if count > 0:
+                present.append(f"{key}={count}")
+        if present:
+            note = "DOCX package contains " + ", ".join(present) + "; export preserves these structures, but editing remains body-text-first."
+            if note not in self._last_selection_note:
+                self._last_selection_note = f"{self._last_selection_note} {note}".strip()
 
     def _call_ai_editor(self, original: str, rules_corrected: str, options: Dict) -> Optional[str]:
         """Call the configured AI provider for enhanced editing."""
@@ -1194,8 +1229,599 @@ Corrected manuscript:"""
 
         return text
 
-    def generate_clean_docx(self, text: str, output_path: str):
+    def _iter_block_items(self, parent):
+        """Yield paragraphs and tables in document order."""
+        if isinstance(parent, DocxDocument):
+            parent_elm = parent.element.body
+        elif isinstance(parent, _Cell):
+            parent_elm = parent._tc
+        else:
+            return
+
+        for child in parent_elm.iterchildren():
+            tag = child.tag.rsplit('}', 1)[-1]
+            if tag == 'p':
+                yield Paragraph(child, parent)
+            elif tag == 'tbl':
+                yield Table(child, parent)
+
+    def _extract_docx_blocks(self, doc: DocxDocument) -> List[Dict]:
+        """Return ordered paragraph/table-row blocks from a DOCX document."""
+        blocks: List[Dict] = []
+        for block in self._iter_block_items(doc):
+            if isinstance(block, Paragraph):
+                text_value = self._paragraph_text_for_pipeline(block)
+                has_drawing = self._paragraph_has_drawing(block)
+                blocks.append({
+                    "type": "paragraph",
+                    "paragraph": block,
+                    "text": text_value,
+                    "has_drawing": has_drawing,
+                    "consumes_text": bool(text_value.strip()) or not has_drawing,
+                })
+                continue
+
+            if isinstance(block, Table):
+                for row in block.rows:
+                    cells = [self._cell_text_for_pipeline(cell) for cell in row.cells]
+                    blocks.append({
+                        "type": "table_row",
+                        "row": row,
+                        "cells": cells,
+                        "text": '\t'.join(cells),
+                        "consumes_text": True,
+                    })
+        return blocks
+
+    def _paragraph_has_drawing(self, paragraph: Paragraph) -> bool:
+        """Return True if paragraph contains drawing/picture elements."""
+        try:
+            matches = paragraph._p.xpath('.//*[local-name()="drawing" or local-name()="pict"]')
+        except Exception:
+            matches = []
+        return bool(matches)
+
+    def _iter_textbox_containers(self, paragraph: Paragraph) -> List:
+        """Return textbox content containers nested inside a paragraph's drawing XML."""
+        try:
+            return list(paragraph._p.xpath('.//*[local-name()="txbxContent"]'))
+        except Exception:
+            return []
+
+    def _inspect_docx_package(self, path: str) -> Dict:
+        """Inspect special DOCX package parts that require preservation-aware export."""
+        report = {
+            "comments": 0,
+            "footnotes": 0,
+            "endnotes": 0,
+            "textboxes": 0,
+            "preservation_mode": "template_copy_required",
+        }
+        if not path or not os.path.exists(path):
+            return report
+
+        namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+        def _count_xml_nodes(xml_bytes: bytes, xpath: str) -> int:
+            try:
+                root = ET.fromstring(xml_bytes)
+            except ET.ParseError:
+                return 0
+            return len(root.findall(xpath, namespace))
+
+        try:
+            with zipfile.ZipFile(path) as archive:
+                names = set(archive.namelist())
+                if "word/comments.xml" in names:
+                    report["comments"] = _count_xml_nodes(archive.read("word/comments.xml"), ".//w:comment")
+                if "word/footnotes.xml" in names:
+                    count = _count_xml_nodes(archive.read("word/footnotes.xml"), ".//w:footnote")
+                    report["footnotes"] = max(0, count - 2)
+                if "word/endnotes.xml" in names:
+                    count = _count_xml_nodes(archive.read("word/endnotes.xml"), ".//w:endnote")
+                    report["endnotes"] = max(0, count - 2)
+                if "word/document.xml" in names:
+                    report["textboxes"] = _count_xml_nodes(archive.read("word/document.xml"), './/w:txbxContent')
+        except Exception:
+            return report
+
+        return report
+
+    def _merge_content_types_override(self, root, part_name: str, content_type: str):
+        """Ensure a content-types Override exists for the given part."""
+        namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+        override_tag = f"{{{namespace}}}Override"
+        for node in root.findall(override_tag):
+            if node.attrib.get("PartName") == part_name:
+                return
+        ET.SubElement(root, override_tag, {"PartName": part_name, "ContentType": content_type})
+
+    def _merge_relationships_from_source(self, source_root, output_root, relationship_types: Set[str]):
+        """Merge document relationship entries from source into output."""
+        namespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+        rel_tag = f"{{{namespace}}}Relationship"
+        existing_targets = {
+            (node.attrib.get("Type"), node.attrib.get("Target"))
+            for node in output_root.findall(rel_tag)
+        }
+        next_id = 1
+        for node in output_root.findall(rel_tag):
+            raw_id = str(node.attrib.get("Id", "") or "")
+            if raw_id.startswith("rId"):
+                try:
+                    next_id = max(next_id, int(raw_id[3:]) + 1)
+                except ValueError:
+                    continue
+        for node in source_root.findall(rel_tag):
+            rel_type = node.attrib.get("Type")
+            target = node.attrib.get("Target")
+            if rel_type not in relationship_types or not target:
+                continue
+            key = (rel_type, target)
+            if key in existing_targets:
+                continue
+            attrs = dict(node.attrib)
+            attrs["Id"] = f"rId{next_id}"
+            next_id += 1
+            ET.SubElement(output_root, rel_tag, attrs)
+            existing_targets.add(key)
+
+    def _preserve_docx_special_parts(self, source_docx_path: str, output_path: str):
+        """Copy comments/footnotes/endnotes package parts from source to output."""
+        if not source_docx_path or not output_path:
+            return
+        if not (os.path.exists(source_docx_path) and os.path.exists(output_path)):
+            return
+
+        special_parts = {
+            "word/comments.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
+            "word/commentsExtended.xml": "application/vnd.ms-word.commentsExt+xml",
+            "word/commentsIds.xml": "application/vnd.ms-word.commentsIds+xml",
+            "word/people.xml": "application/vnd.openxmlformats-officedocument.officeDocument/2006/relationships/people",
+            "word/footnotes.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
+            "word/endnotes.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
+        }
+        relationship_types = {
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
+            "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
+            "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/people",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes",
+        }
+
+        with zipfile.ZipFile(source_docx_path, "r") as source_zip, zipfile.ZipFile(output_path, "r") as output_zip:
+            source_names = set(source_zip.namelist())
+            output_names = list(output_zip.namelist())
+            replacement_parts = {part_name for part_name in special_parts if part_name in source_names}
+            replacement_parts.update({"[Content_Types].xml", "word/_rels/document.xml.rels"})
+
+            rebuilt_entries: Dict[str, bytes] = {}
+            for name in output_names:
+                if name in rebuilt_entries:
+                    continue
+                if name in replacement_parts:
+                    continue
+                rebuilt_entries[name] = output_zip.read(name)
+
+            for part_name in special_parts:
+                if part_name in source_names:
+                    rebuilt_entries[part_name] = source_zip.read(part_name)
+
+            if "[Content_Types].xml" in source_names and "[Content_Types].xml" in output_names:
+                output_root = ET.fromstring(output_zip.read("[Content_Types].xml"))
+                for part_name, content_type in special_parts.items():
+                    if part_name in source_names:
+                        self._merge_content_types_override(output_root, "/" + part_name, content_type)
+                rebuilt_entries["[Content_Types].xml"] = ET.tostring(output_root, encoding="utf-8", xml_declaration=True)
+
+            rels_name = "word/_rels/document.xml.rels"
+            if rels_name in source_names and rels_name in output_names:
+                source_rels = ET.fromstring(source_zip.read(rels_name))
+                output_rels = ET.fromstring(output_zip.read(rels_name))
+                self._merge_relationships_from_source(source_rels, output_rels, relationship_types)
+                rebuilt_entries[rels_name] = ET.tostring(output_rels, encoding="utf-8", xml_declaration=True)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_zip_handle:
+            temp_zip_path = temp_zip_handle.name
+        try:
+            with zipfile.ZipFile(temp_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as rebuilt_zip:
+                for name, payload in rebuilt_entries.items():
+                    rebuilt_zip.writestr(name, payload)
+            os.replace(temp_zip_path, output_path)
+        finally:
+            if os.path.exists(temp_zip_path):
+                os.unlink(temp_zip_path)
+
+    def _textbox_container_text(self, container) -> str:
+        """Serialize textbox content into a plain-text pipeline string."""
+        values: List[str] = []
+        for child in list(container):
+            if child.tag.rsplit('}', 1)[-1] != 'p':
+                continue
+            paragraph = Paragraph(child, None)
+            values.append(paragraph.text or "")
+        if not values:
+            return ""
+        return self.TEXTBOX_PARAGRAPH_MARKER.join(values)
+
+    def _paragraph_textbox_texts(self, paragraph: Paragraph) -> List[str]:
+        """Return serialized text for each textbox found in a paragraph."""
+        return [self._textbox_container_text(container) for container in self._iter_textbox_containers(paragraph)]
+
+    def _paragraph_text_for_pipeline(self, paragraph: Paragraph) -> str:
+        """Serialize paragraph body text and textbox text for processing."""
+        body_text = paragraph.text or ""
+        textbox_texts = self._paragraph_textbox_texts(paragraph)
+        if not textbox_texts:
+            return body_text
+        if body_text.strip():
+            return self.TEXTBOX_MARKER.join([body_text] + textbox_texts)
+        if len(textbox_texts) == 1:
+            return textbox_texts[0]
+        return self.TEXTBOX_MARKER.join(textbox_texts)
+
+    def _clear_paragraph_content(self, paragraph: Paragraph, keep_drawings: bool = False):
+        """Remove paragraph content while optionally preserving image runs."""
+        p = paragraph._p
+        for child in list(p):
+            if child.tag.rsplit('}', 1)[-1] == 'pPr':
+                continue
+            if keep_drawings:
+                try:
+                    if child.xpath('.//*[local-name()="drawing" or local-name()="pict"]'):
+                        continue
+                except Exception:
+                    pass
+            p.remove(child)
+
+    def _remove_paragraph(self, paragraph: Paragraph):
+        """Delete paragraph from document tree."""
+        element = paragraph._element
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
+
+    def _remove_table(self, table: Table):
+        """Delete table from document tree."""
+        element = table._element
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
+
+    def _append_text_segments_to_paragraph(self, paragraph: Paragraph, text: str, segment_type: Optional[str] = None):
+        """Append styled text to an existing paragraph."""
+        if not text:
+            return
+        for is_missing, segment in self._iter_missing_placeholder_segments(text):
+            if is_missing:
+                self._append_docx_run(paragraph, segment, segment_type=segment_type, is_missing=True)
+                continue
+            for is_foreign, foreign_segment in self._iter_foreign_segments(segment):
+                self._append_docx_run(paragraph, foreign_segment, segment_type=segment_type, is_foreign=is_foreign)
+
+    def _split_textbox_paragraphs(self, text: str) -> List[str]:
+        """Deserialize textbox content into paragraph chunks."""
+        raw = str(text or "")
+        if self.TEXTBOX_PARAGRAPH_MARKER not in raw:
+            return [raw]
+        return raw.split(self.TEXTBOX_PARAGRAPH_MARKER)
+
+    def _split_paragraph_and_textboxes(self, paragraph: Paragraph, text: str) -> Tuple[str, List[str]]:
+        """Split serialized paragraph pipeline text into body and textbox segments."""
+        raw = str(text or "")
+        current_textboxes = self._paragraph_textbox_texts(paragraph)
+        if not current_textboxes:
+            return raw, []
+
+        if self.TEXTBOX_MARKER in raw:
+            parts = raw.split(self.TEXTBOX_MARKER)
+            if len(parts) >= len(current_textboxes) + 1:
+                body_text = parts[0]
+                textbox_texts = parts[1 : len(current_textboxes) + 1]
+                if len(textbox_texts) < len(current_textboxes):
+                    textbox_texts.extend(current_textboxes[len(textbox_texts) :])
+                return body_text, textbox_texts
+
+        if (paragraph.text or "").strip():
+            return raw, current_textboxes
+
+        if len(current_textboxes) == 1:
+            return "", [raw]
+
+        textbox_texts = [raw] + current_textboxes[1:]
+        return "", textbox_texts
+
+    def _sync_textbox_container(self, paragraph: Paragraph, container, text: str, original_text: str = "", highlighted: bool = False):
+        """Rewrite textbox XML paragraphs while preserving the shape container."""
+        desired_parts = self._split_textbox_paragraphs(text)
+        original_parts = self._split_textbox_paragraphs(original_text)
+        desired_count = max(len(desired_parts), 1)
+
+        paragraphs = [child for child in list(container) if child.tag.rsplit('}', 1)[-1] == 'p']
+        while len(paragraphs) < desired_count:
+            new_paragraph = OxmlElement('w:p')
+            container.append(new_paragraph)
+            paragraphs.append(new_paragraph)
+        while len(paragraphs) > desired_count:
+            container.remove(paragraphs.pop())
+
+        for idx, paragraph_elm in enumerate(paragraphs):
+            textbox_paragraph = Paragraph(paragraph_elm, paragraph._parent)
+            current_original = original_parts[idx] if idx < len(original_parts) else ""
+            current_desired = desired_parts[idx] if idx < len(desired_parts) else ""
+            self._clear_paragraph_content(textbox_paragraph)
+            if highlighted:
+                for segment_type, segment_text in self._iter_diff_segments(current_original, current_desired):
+                    self._append_text_segments_to_paragraph(textbox_paragraph, segment_text, segment_type=segment_type)
+            else:
+                self._append_text_segments_to_paragraph(textbox_paragraph, current_desired)
+
+    def _sync_textboxes(self, paragraph: Paragraph, text: str, original_text: str = "", highlighted: bool = False):
+        """Rewrite textbox contents referenced by a paragraph's drawing XML."""
+        containers = self._iter_textbox_containers(paragraph)
+        if not containers:
+            return
+
+        _, desired_textboxes = self._split_paragraph_and_textboxes(paragraph, text)
+        _, original_textboxes = self._split_paragraph_and_textboxes(paragraph, original_text)
+        if not desired_textboxes:
+            desired_textboxes = self._paragraph_textbox_texts(paragraph)
+        if not original_textboxes:
+            original_textboxes = self._paragraph_textbox_texts(paragraph)
+
+        for idx, container in enumerate(containers):
+            desired_value = desired_textboxes[idx] if idx < len(desired_textboxes) else ""
+            original_value = original_textboxes[idx] if idx < len(original_textboxes) else ""
+            self._sync_textbox_container(
+                paragraph,
+                container,
+                desired_value,
+                original_text=original_value,
+                highlighted=highlighted,
+            )
+
+    def _write_paragraph_text(self, paragraph: Paragraph, text: str):
+        """Replace paragraph text while preserving paragraph formatting and drawings."""
+        keep_drawings = self._paragraph_has_drawing(paragraph)
+        body_text, _ = self._split_paragraph_and_textboxes(paragraph, text)
+        self._clear_paragraph_content(paragraph, keep_drawings=keep_drawings)
+        self._append_text_segments_to_paragraph(paragraph, body_text)
+        self._sync_textboxes(paragraph, text, highlighted=False)
+
+    def _write_paragraph_diff(self, paragraph: Paragraph, original: str, corrected: str):
+        """Replace paragraph content with redline-style runs while preserving drawings."""
+        keep_drawings = self._paragraph_has_drawing(paragraph)
+        original_body, _ = self._split_paragraph_and_textboxes(paragraph, original)
+        corrected_body, _ = self._split_paragraph_and_textboxes(paragraph, corrected)
+        self._clear_paragraph_content(paragraph, keep_drawings=keep_drawings)
+        for segment_type, segment_text in self._iter_diff_segments(original_body, corrected_body):
+            self._append_text_segments_to_paragraph(paragraph, segment_text, segment_type=segment_type)
+        self._sync_textboxes(paragraph, corrected, original_text=original, highlighted=True)
+
+    def _split_table_line(self, line: str, cell_count: int) -> List[str]:
+        """Split a flat table-row line back into cell values."""
+        if cell_count <= 1:
+            return [line or ""]
+        values = (line or "").split('\t')
+        if len(values) < cell_count:
+            values.extend([""] * (cell_count - len(values)))
+        elif len(values) > cell_count:
+            values = values[: cell_count - 1] + ['\t'.join(values[cell_count - 1 :])]
+        return values
+
+    def _cell_text_for_pipeline(self, cell) -> str:
+        """Serialize cell text for the text-processing pipeline."""
+        blocks: List[str] = []
+        contains_nested_table = False
+        cell_blocks = list(self._iter_block_items(cell))
+
+        for index, block in enumerate(cell_blocks):
+            if isinstance(block, Paragraph):
+                has_neighboring_table = (
+                    (index > 0 and isinstance(cell_blocks[index - 1], Table))
+                    or (index + 1 < len(cell_blocks) and isinstance(cell_blocks[index + 1], Table))
+                )
+                if not (block.text or "").strip() and not self._paragraph_has_drawing(block) and has_neighboring_table:
+                    continue
+                blocks.append(f"P:{block.text or ''}")
+                continue
+
+            contains_nested_table = True
+            row_values: List[str] = []
+            for row in block.rows:
+                nested_cells = [self._cell_text_for_pipeline(nested_cell) for nested_cell in row.cells]
+                row_values.append(self.CELL_TABLE_CELL_MARKER.join(nested_cells))
+            blocks.append(f"T:{self.CELL_TABLE_ROW_MARKER.join(row_values)}")
+
+        if not blocks:
+            return ""
+
+        if not contains_nested_table:
+            paragraph_values = [block[2:] for block in blocks if block.startswith("P:")]
+            return self.CELL_PARAGRAPH_MARKER.join(paragraph_values)
+
+        return self.CELL_BLOCK_MARKER.join(blocks)
+
+    def _split_cell_paragraphs(self, text: str) -> List[str]:
+        """Deserialize pipeline cell text into paragraph chunks."""
+        raw = str(text or "")
+        if self.CELL_PARAGRAPH_MARKER not in raw:
+            return [raw]
+        return raw.split(self.CELL_PARAGRAPH_MARKER)
+
+    def _split_cell_blocks(self, text: str) -> List[Dict]:
+        """Deserialize pipeline cell text into paragraph/table blocks."""
+        raw = str(text or "")
+        if self.CELL_BLOCK_MARKER not in raw and not raw.startswith(("P:", "T:")):
+            return [{"type": "paragraph", "text": part} for part in self._split_cell_paragraphs(raw)]
+
+        segments = raw.split(self.CELL_BLOCK_MARKER)
+        blocks: List[Dict] = []
+        for segment in segments:
+            if segment.startswith("T:"):
+                payload = segment[2:]
+                rows = payload.split(self.CELL_TABLE_ROW_MARKER) if payload else []
+                parsed_rows: List[List[str]] = []
+                for row in rows:
+                    parsed_rows.append(row.split(self.CELL_TABLE_CELL_MARKER) if row else [""])
+                blocks.append({"type": "table", "rows": parsed_rows})
+                continue
+
+            payload = segment[2:] if segment.startswith("P:") else segment
+            for part in self._split_cell_paragraphs(payload):
+                blocks.append({"type": "paragraph", "text": part})
+        return blocks
+
+    def _rewrite_table(self, table: Table, rows: List[List[str]]):
+        """Rewrite a table and nested cell content using serialized row values."""
+        for row_index, row in enumerate(table.rows):
+            row_values = rows[row_index] if row_index < len(rows) else []
+            for cell_index, cell in enumerate(row.cells):
+                corrected_value = row_values[cell_index] if cell_index < len(row_values) else ""
+                self._rewrite_cell(cell, corrected_value)
+
+    def _rewrite_table_diff(self, table: Table, original_rows: List[List[str]], corrected_rows: List[List[str]]):
+        """Rewrite a table with diff styling using serialized row values."""
+        for row_index, row in enumerate(table.rows):
+            original_row = original_rows[row_index] if row_index < len(original_rows) else []
+            corrected_row = corrected_rows[row_index] if row_index < len(corrected_rows) else []
+            for cell_index, cell in enumerate(row.cells):
+                original_value = original_row[cell_index] if cell_index < len(original_row) else ""
+                corrected_value = corrected_row[cell_index] if cell_index < len(corrected_row) else ""
+                self._rewrite_cell_diff(cell, original_value, corrected_value)
+
+    def _rewrite_cell(self, cell, text: str):
+        """Replace all visible text inside a table cell."""
+        parsed_blocks = self._split_cell_blocks(text)
+        paragraph_blocks = [block for block in parsed_blocks if block["type"] == "paragraph"]
+        table_blocks = [block for block in parsed_blocks if block["type"] == "table"]
+
+        existing_blocks = list(self._iter_block_items(cell))
+        paragraph_index = 0
+        table_index = 0
+
+        for block_position, block in enumerate(existing_blocks):
+            if isinstance(block, Paragraph):
+                remaining_existing_paragraphs = sum(
+                    1 for later in existing_blocks[block_position:] if isinstance(later, Paragraph)
+                )
+                remaining_paragraphs = len(paragraph_blocks) - paragraph_index
+                if (
+                    not (block.text or "").strip()
+                    and not self._paragraph_has_drawing(block)
+                    and remaining_existing_paragraphs > remaining_paragraphs
+                ):
+                    self._remove_paragraph(block)
+                    continue
+                block_text = paragraph_blocks[paragraph_index]["text"] if paragraph_index < len(paragraph_blocks) else ""
+                paragraph_index += 1
+                self._clear_paragraph_content(block)
+                self._append_text_segments_to_paragraph(block, block_text)
+                continue
+
+            if table_index < len(table_blocks):
+                self._rewrite_table(block, table_blocks[table_index]["rows"])
+                table_index += 1
+
+        for extra_paragraph in paragraph_blocks[paragraph_index:]:
+            new_paragraph = cell.add_paragraph()
+            self._clear_paragraph_content(new_paragraph)
+            self._append_text_segments_to_paragraph(new_paragraph, extra_paragraph["text"])
+
+    def _rewrite_cell_diff(self, cell, original: str, corrected: str):
+        """Replace cell text with redline-style runs."""
+        original_blocks = self._split_cell_blocks(original)
+        corrected_blocks = self._split_cell_blocks(corrected)
+        original_paragraphs = [block for block in original_blocks if block["type"] == "paragraph"]
+        corrected_paragraphs = [block for block in corrected_blocks if block["type"] == "paragraph"]
+        original_tables = [block for block in original_blocks if block["type"] == "table"]
+        corrected_tables = [block for block in corrected_blocks if block["type"] == "table"]
+
+        existing_blocks = list(self._iter_block_items(cell))
+        paragraph_index = 0
+        table_index = 0
+
+        for block_position, block in enumerate(existing_blocks):
+            if isinstance(block, Paragraph):
+                remaining_existing_paragraphs = sum(
+                    1 for later in existing_blocks[block_position:] if isinstance(later, Paragraph)
+                )
+                remaining_paragraphs = max(len(original_paragraphs), len(corrected_paragraphs)) - paragraph_index
+                if (
+                    not (block.text or "").strip()
+                    and not self._paragraph_has_drawing(block)
+                    and remaining_existing_paragraphs > remaining_paragraphs
+                ):
+                    self._remove_paragraph(block)
+                    continue
+                original_text = original_paragraphs[paragraph_index]["text"] if paragraph_index < len(original_paragraphs) else ""
+                corrected_text = corrected_paragraphs[paragraph_index]["text"] if paragraph_index < len(corrected_paragraphs) else ""
+                paragraph_index += 1
+                self._clear_paragraph_content(block)
+                for segment_type, segment_text in self._iter_diff_segments(original_text, corrected_text):
+                    self._append_text_segments_to_paragraph(block, segment_text, segment_type=segment_type)
+                continue
+
+            original_rows = original_tables[table_index]["rows"] if table_index < len(original_tables) else []
+            corrected_rows = corrected_tables[table_index]["rows"] if table_index < len(corrected_tables) else []
+            table_index += 1
+            self._rewrite_table_diff(block, original_rows, corrected_rows)
+
+        pair_count = max(len(original_paragraphs), len(corrected_paragraphs))
+        for idx in range(paragraph_index, pair_count):
+            target_paragraph = cell.add_paragraph()
+            self._clear_paragraph_content(target_paragraph)
+            original_text = original_paragraphs[idx]["text"] if idx < len(original_paragraphs) else ""
+            corrected_text = corrected_paragraphs[idx]["text"] if idx < len(corrected_paragraphs) else ""
+            for segment_type, segment_text in self._iter_diff_segments(original_text, corrected_text):
+                self._append_text_segments_to_paragraph(target_paragraph, segment_text, segment_type=segment_type)
+
+    def _apply_text_to_template_docx(self, source_docx_path: str, text: str, output_path: str, highlighted: bool = False):
+        """Project corrected text back into the original DOCX structure."""
+        doc = Document(source_docx_path)
+        blocks = self._extract_docx_blocks(doc)
+        corrected_lines = (text or "").split('\n')
+        corrected_index = 0
+
+        for block in blocks:
+            if block.get("consumes_text", True):
+                corrected_line = corrected_lines[corrected_index] if corrected_index < len(corrected_lines) else ""
+                corrected_index += 1
+            else:
+                corrected_line = block.get("text", "")
+            if block["type"] == "paragraph":
+                if highlighted:
+                    self._write_paragraph_diff(block["paragraph"], block["text"], corrected_line)
+                else:
+                    self._write_paragraph_text(block["paragraph"], corrected_line)
+                continue
+
+            cell_values = self._split_table_line(corrected_line, len(block["cells"]))
+            for cell, original_value, corrected_value in zip(block["row"].cells, block["cells"], cell_values):
+                if highlighted:
+                    self._rewrite_cell_diff(cell, original_value, corrected_value)
+                else:
+                    self._rewrite_cell(cell, corrected_value)
+
+        for extra_line in corrected_lines[corrected_index:]:
+            paragraph = doc.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(0)
+            paragraph.paragraph_format.line_spacing = 1.5
+            if highlighted:
+                self._write_paragraph_diff(paragraph, "", extra_line)
+            else:
+                self._write_paragraph_text(paragraph, extra_line)
+
+        doc.save(output_path)
+        self._preserve_docx_special_parts(source_docx_path, output_path)
+
+    def generate_clean_docx(self, text: str, output_path: str, source_docx_path: str = ""):
         """Generate a clean DOCX with all corrections applied."""
+        if source_docx_path and os.path.exists(source_docx_path):
+            self._apply_text_to_template_docx(source_docx_path, text, output_path, highlighted=False)
+            return
+
         doc = Document()
 
         # Set document margins
@@ -1227,8 +1853,12 @@ Corrected manuscript:"""
 
         doc.save(output_path)
 
-    def generate_highlighted_docx(self, original: str, corrected: str, output_path: str):
+    def generate_highlighted_docx(self, original: str, corrected: str, output_path: str, source_docx_path: str = ""):
         """Generate a DOCX with track changes showing corrections."""
+        if source_docx_path and os.path.exists(source_docx_path):
+            self._apply_text_to_template_docx(source_docx_path, corrected, output_path, highlighted=True)
+            return
+
         doc = Document()
 
         # Set document margins
@@ -1431,6 +2061,7 @@ Corrected manuscript:"""
         """Return last processing audit details (chunk decisions, scores, summary)."""
         if not self._last_processing_audit:
             return {"mode": "unknown", "sections": [], "summary": {}}
+        self._attach_docx_package_summary()
         return self._last_processing_audit
 
     def get_journal_profile_report(self) -> Dict:

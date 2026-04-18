@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manuscript Editor</title>
-    <link rel="stylesheet" href="style.css?v=20260418r40">
+    <link rel="stylesheet" href="style.css?v=20260418r42">
 </head>
 <body>
     <div class="login-view" id="login-view">
@@ -219,7 +219,7 @@
                             Save Clean Version
                         </button>
                         <button class="btn-secondary" id="save-highlight-btn" type="button" disabled>
-                            Save Highlighted
+                            Save Redline Version
                         </button>
                     </div>
                     <button class="btn-text" id="clear-btn" type="button">Clear</button>
@@ -345,7 +345,8 @@
         </div>
     </div>
 
-    <div class="setup-wizard-backdrop hidden" id="admin-panel-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-panel-title">
+    <div class="setup-wizard-backdrop hidden" id="admin-panel-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-panel-title" style="position: absolute;
+  top: 98px;  width: 75rem;">
         <div class="setup-wizard-card admin-panel-card">
             <h2 id="admin-panel-title">Admin Dashboard</h2>
             <p class="setup-wizard-subtitle">Monitor users and activity events in real time.</p>
@@ -485,12 +486,19 @@
                         </table>
                     </div>
                 </section>
+
+                <section class="admin-block">
+                    <h3>Loaded Task Structure</h3>
+                    <div id="admin-docx-structure-summary">
+                        <p class="hint-text">Select a task from the editor history to inspect its DOCX structure summary here.</p>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="text/javascript" src="/eel.js?v=20260418r40" data-cfasync="false"></script>
-    <script src="app.js?v=20260418r40" data-cfasync="false"></script>
+    <script type="text/javascript" src="/eel.js?v=20260418r42" data-cfasync="false"></script>
+    <script src="app.js?v=20260418r42" data-cfasync="false"></script>
 </body>
 </html>

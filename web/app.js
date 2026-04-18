@@ -2,6 +2,8 @@ let currentTab = 'original';
 let currentViewMode = 'rich';
 let fileContent = {
     taskId: '',
+    sourceType: 'text',
+    sourceDocxBase64: '',
     original: '',
     fileName: '',
     corrected: '',
@@ -96,6 +98,7 @@ const adminRefreshUsersBtn = document.getElementById('admin-refresh-users-btn');
 const adminRefreshAuditBtn = document.getElementById('admin-refresh-audit-btn');
 const adminUsersBody = document.getElementById('admin-users-body');
 const adminAuditBody = document.getElementById('admin-audit-body');
+const adminDocxStructureSummary = document.getElementById('admin-docx-structure-summary');
 const adminAiProviderSelect = document.getElementById('admin-ai-provider');
 const adminAiModelInput = document.getElementById('admin-ai-model');
 const adminAiModelList = document.getElementById('admin-ai-model-list');
@@ -409,8 +412,10 @@ function renderTaskHistory() {
         const activeClass = taskId && taskId === fileContent.taskId ? ' active' : '';
         const status = escapeHtml(String(task.status || 'UPLOADED'));
         const words = Number(task.word_count || 0);
+        const sourceType = String(task.source_type || 'text').toUpperCase();
         html += `<div class=\"task-history-item${activeClass}\" data-task-id=\"${escapeHtml(taskId)}\">`;
         html += `<div class=\"task-history-title\">${escapeHtml(String(task.file_name || 'Untitled manuscript'))}</div>`;
+        html += `<div class="task-history-badges"><span class="task-history-badge">${escapeHtml(sourceType)}</span><span class="task-history-badge task-history-badge-status">${status}</span></div>`;
         html += `<div class=\"task-history-meta\">${status} • ${words} words • ${escapeHtml(formatUnixTimestamp(task.updated_at))}</div>`;
         html += '</div>';
     });
@@ -528,6 +533,8 @@ function applyTaskDetailsToState(task) {
         return;
     }
     fileContent.taskId = String(task.id || '');
+    fileContent.sourceType = String(task.source_type || 'text');
+    fileContent.sourceDocxBase64 = '';
     fileContent.fileName = String(task.file_name || '');
     fileContent.original = String(task.original_text || '');
     fileContent.corrected = String(task.corrected_text || '');
@@ -563,6 +570,7 @@ function applyTaskDetailsToState(task) {
 
     switch_tab(processed ? 'corrected' : 'original');
     renderTaskHistory();
+    renderAdminDocxStructureSummary();
 }
 
 function loadTaskIntoEditor(taskId) {
@@ -775,6 +783,78 @@ function renderAdminAudit() {
         html += '</tr>';
     });
     adminAuditBody.innerHTML = html;
+}
+
+function renderDocxStructureSummary(docxPackageFeatures, options) {
+    const settings = options && typeof options === 'object' ? options : {};
+    const cardClass = settings.cardClass || 'docx-card';
+    const titleClass = settings.titleClass || 'docx-title';
+    const summaryClass = settings.summaryClass || 'docx-summary';
+    const gridClass = settings.gridClass || 'docx-grid';
+    const itemClass = settings.itemClass || 'docx-item';
+    const noteClass = settings.noteClass || 'docx-note';
+    const okClass = settings.okClass || 'docx-ok';
+    const emptyMessage = settings.emptyMessage || 'No DOCX structure summary is available for this task yet.';
+    const title = settings.title || 'DOCX Structure';
+    const sourceLabel = settings.sourceLabel ? `<div class="${summaryClass}">${escapeHtml(settings.sourceLabel)}</div>` : '';
+    const safe = docxPackageFeatures && typeof docxPackageFeatures === 'object' ? docxPackageFeatures : null;
+
+    if (!safe) {
+        return `<section class="${cardClass}"><div class="${titleClass}">${escapeHtml(title)}</div><div class="${okClass}">${escapeHtml(emptyMessage)}</div></section>`;
+    }
+
+    const comments = Number(safe.comments || 0);
+    const footnotes = Number(safe.footnotes || 0);
+    const endnotes = Number(safe.endnotes || 0);
+    const textboxes = Number(safe.textboxes || 0);
+    const preservationMode = String(safe.preservation_mode || 'template_copy_required');
+    const featureItems = [
+        ['Comments', comments],
+        ['Footnotes', footnotes],
+        ['Endnotes', endnotes],
+        ['Textboxes', textboxes]
+    ];
+    const presentFeatures = featureItems.filter(([, count]) => Number(count || 0) > 0);
+
+    let html = `<section class="${cardClass}">`;
+    html += `<div class="${titleClass}">${escapeHtml(title)}</div>`;
+    html += sourceLabel;
+    html += `<div class="${summaryClass}">Preservation mode: <strong>${escapeHtml(preservationMode.replaceAll('_', ' '))}</strong></div>`;
+    html += `<div class="${gridClass}">`;
+    featureItems.forEach(([label, count]) => {
+        html += `<div class="${itemClass}"><span>${escapeHtml(label)}</span><strong>${Number(count || 0)}</strong></div>`;
+    });
+    html += '</div>';
+    if (presentFeatures.length > 0) {
+        html += `<div class="${noteClass}">This manuscript contains special DOCX structures. Export preserves them, but editing remains body-text-first for comments, footnotes, and endnotes.</div>`;
+    } else {
+        html += `<div class="${okClass}">No special DOCX structures detected in this manuscript.</div>`;
+    }
+    html += '</section>';
+    return html;
+}
+
+function renderAdminDocxStructureSummary() {
+    if (!adminDocxStructureSummary) {
+        return;
+    }
+    const safeAudit = fileContent.processingAudit && typeof fileContent.processingAudit === 'object'
+        ? fileContent.processingAudit
+        : null;
+    const summary = safeAudit && safeAudit.summary && typeof safeAudit.summary === 'object'
+        ? safeAudit.summary
+        : {};
+    const docxPackageFeatures = summary.docx_package_features && typeof summary.docx_package_features === 'object'
+        ? summary.docx_package_features
+        : null;
+    const sourceLabel = fileContent.fileName
+        ? `Loaded task: ${fileContent.fileName}${fileContent.sourceType ? ` • ${String(fileContent.sourceType).toUpperCase()}` : ''}`
+        : '';
+    adminDocxStructureSummary.innerHTML = renderDocxStructureSummary(docxPackageFeatures, {
+        title: 'DOCX Structure',
+        sourceLabel: sourceLabel,
+        emptyMessage: 'Select a processed task from the editor history to inspect its DOCX structure summary here.'
+    });
 }
 
 function uniqueNonEmpty(values) {
@@ -1153,6 +1233,7 @@ function openAdminPanel() {
     loadAdminGlobalSettings();
     refreshAdminUsers();
     refreshAdminAudit();
+    renderAdminDocxStructureSummary();
     resetAdminDashboardScroll();
 }
 
@@ -1642,6 +1723,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
     const auditSummary = safeAudit && safeAudit.summary && typeof safeAudit.summary === 'object'
         ? safeAudit.summary
         : {};
+    const docxPackageFeatures = auditSummary.docx_package_features && typeof auditSummary.docx_package_features === 'object'
+        ? auditSummary.docx_package_features
+        : null;
     const cmosGuardrails = auditSummary.cmos_guardrails && typeof auditSummary.cmos_guardrails === 'object'
         ? auditSummary.cmos_guardrails
         : null;
@@ -1682,6 +1766,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += '<div class="profile-ok">No CMOS guardrail concerns detected for this run.</div>';
         }
         html += '</section>';
+    }
+    if (docxPackageFeatures) {
+        html += renderDocxStructureSummary(docxPackageFeatures);
     }
     const safeValidator = citationReferenceReport && typeof citationReferenceReport === 'object'
         ? citationReferenceReport
@@ -2707,6 +2794,8 @@ function handleFile(file) {
             binary += String.fromCharCode(bytes[i]);
         }
         const base64 = btoa(binary);
+        fileContent.sourceType = 'docx';
+        fileContent.sourceDocxBase64 = base64;
         eel.load_docx_content(file.name, base64)(handleLoadResponse(file.name));
     };
     reader.onerror = function () {
@@ -2720,6 +2809,13 @@ function handleLoadResponse(displayName) {
     return function (response) {
         if (response.success) {
             fileContent.taskId = String(response.task_id || '');
+            if (!fileContent.sourceType) {
+                fileContent.sourceType = 'text';
+            }
+            if (String(displayName || '').toLowerCase().endsWith('.txt')) {
+                fileContent.sourceType = 'text';
+                fileContent.sourceDocxBase64 = '';
+            }
             fileContent.original = response.text;
             fileContent.fileName = displayName;
             fileContent.corrected = '';
@@ -2982,6 +3078,8 @@ function save_file(file_type) {
     setStatus('Preparing download...', 'warning');
     eel.export_file({
         task_id: fileContent.taskId || '',
+        source_type: fileContent.sourceType || 'text',
+        source_docx_base64: fileContent.sourceDocxBase64 || '',
         file_type: file_type,
         original_text: fileContent.original || '',
         corrected_text: fileContent.corrected || '',
@@ -3016,6 +3114,8 @@ function clear_all() {
 
     fileContent = {
         taskId: '',
+        sourceType: 'text',
+        sourceDocxBase64: '',
         original: '',
         fileName: '',
         corrected: '',
@@ -3031,6 +3131,7 @@ function clear_all() {
         processingAudit: null
     };
     window.fileContent = fileContent;
+    renderAdminDocxStructureSummary();
     document.getElementById('file-name').textContent = 'No file selected';
     document.getElementById('word-count').textContent = 'Words: 0';
     document.getElementById('save-clean-btn').disabled = true;
