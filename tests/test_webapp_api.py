@@ -20,7 +20,7 @@ class WsgiTestClient:
         self.app = app
         self.cookies = {}
 
-    def request(self, method, path, payload=None, query=None):
+    def request(self, method, path, payload=None, query=None, headers=None):
         body = b""
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
@@ -47,6 +47,18 @@ class WsgiTestClient:
 
         if self.cookies:
             environ["HTTP_COOKIE"] = "; ".join(f"{key}={value}" for key, value in self.cookies.items())
+
+        if headers:
+            for raw_name, raw_value in headers.items():
+                if raw_name is None or raw_value is None:
+                    continue
+                name = str(raw_name).strip()
+                if not name:
+                    continue
+                key = name.upper().replace("-", "_")
+                if key not in ("CONTENT_TYPE", "CONTENT_LENGTH") and not key.startswith("HTTP_"):
+                    key = "HTTP_" + key
+                environ[key] = str(raw_value)
 
         meta = {}
 
@@ -149,6 +161,18 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertGreaterEqual(len(payload.get("tasks", [])), 1)
+
+    def test_upload_succeeds_when_bridge_header_is_present(self):
+        self._login("bridge@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "Bridge header upload should work."},
+            headers={"X-Manuscript-Session": "browser-fallback-session-id"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertTrue(payload.get("task_id"))
 
     def test_task_access_isolated_between_users(self):
         owner = WsgiTestClient(webapp.app)

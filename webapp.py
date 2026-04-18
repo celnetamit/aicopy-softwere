@@ -197,7 +197,8 @@ def _get_user_agent() -> str:
 def _get_session_id_from_request() -> str:
     header_sid = _normalize_session_id(request.environ.get(SESSION_HEADER_NAME, ""))
     cookie_sid = _normalize_session_id(request.get_cookie(SESSION_COOKIE_NAME) or "")
-    return header_sid or cookie_sid
+    # Prefer server-issued auth cookie; bridge header is only a legacy fallback.
+    return cookie_sid or header_sid
 
 
 def _auth_context_from_request() -> Optional[SessionContext]:
