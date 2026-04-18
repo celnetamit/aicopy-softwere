@@ -33,7 +33,8 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT_DIR, "web")
 REQUIRED_WEB_ASSETS = ("index.html", "style.css", "app.js", "eel_web_bridge.js")
 
-SESSION_COOKIE_NAME = "manuscript_editor_sid"
+SESSION_COOKIE_NAME = "manuscript_editor_sid_v2"
+SESSION_COOKIE_NAME_LEGACY = "manuscript_editor_sid"
 SESSION_COOKIE_ENV_KEY = "manuscript_editor.session_id"
 SESSION_HEADER_NAME = "HTTP_X_MANUSCRIPT_SESSION"
 
@@ -165,9 +166,12 @@ def _json_response(payload: Dict, status: int = 200, session_id: str = "", clear
             secure=_is_https_request(),
             max_age=SESSION_TTL_HOURS * 3600,
         )
+        # Best-effort cleanup: remove legacy cookie key so only one session cookie is sent.
+        http_response.delete_cookie(SESSION_COOKIE_NAME_LEGACY, path="/")
 
     if clear_session:
         http_response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        http_response.delete_cookie(SESSION_COOKIE_NAME_LEGACY, path="/")
 
     return http_response
 
@@ -197,8 +201,9 @@ def _get_user_agent() -> str:
 def _get_session_id_from_request() -> str:
     header_sid = _normalize_session_id(request.environ.get(SESSION_HEADER_NAME, ""))
     cookie_sid = _normalize_session_id(request.get_cookie(SESSION_COOKIE_NAME) or "")
-    # Prefer server-issued auth cookie; bridge header is only a legacy fallback.
-    return cookie_sid or header_sid
+    legacy_cookie_sid = _normalize_session_id(request.get_cookie(SESSION_COOKIE_NAME_LEGACY) or "")
+    # Prefer current cookie, then legacy cookie, then header fallback.
+    return cookie_sid or legacy_cookie_sid or header_sid
 
 
 def _auth_context_from_request() -> Optional[SessionContext]:

@@ -27,42 +27,9 @@
         });
     }
 
-    var SESSION_STORAGE_KEY = 'manuscript_editor_web_session_id';
-    var fallbackSessionId = '';
-
-    function makeSessionId() {
-        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-            return window.crypto.randomUUID();
-        }
-        return 'sess_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    }
-
-    function getSessionId() {
-        if (fallbackSessionId) {
-            return fallbackSessionId;
-        }
-
-        try {
-            var current = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-            if (current) {
-                fallbackSessionId = current;
-                return current;
-            }
-            current = makeSessionId();
-            window.sessionStorage.setItem(SESSION_STORAGE_KEY, current);
-            fallbackSessionId = current;
-            return current;
-        } catch (err) {
-            fallbackSessionId = makeSessionId();
-            return fallbackSessionId;
-        }
-    }
-
     function requestJson(url, options) {
         var requestOptions = options || { credentials: 'same-origin' };
         requestOptions.credentials = requestOptions.credentials || 'same-origin';
-        requestOptions.headers = requestOptions.headers || {};
-        requestOptions.headers['X-Manuscript-Session'] = getSessionId();
 
         return fetch(url, requestOptions)
             .then(responseToJson)
