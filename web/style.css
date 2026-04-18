@@ -1233,6 +1233,13 @@ footer {
     font-size: 14px;
 }
 
+.admin-validation-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    align-items: center;
+}
+
 .admin-table-wrap {
     max-height: 260px;
     overflow: auto;

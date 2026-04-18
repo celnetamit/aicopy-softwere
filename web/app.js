@@ -92,6 +92,12 @@ const adminRefreshUsersBtn = document.getElementById('admin-refresh-users-btn');
 const adminRefreshAuditBtn = document.getElementById('admin-refresh-audit-btn');
 const adminUsersBody = document.getElementById('admin-users-body');
 const adminAuditBody = document.getElementById('admin-audit-body');
+const adminAiProviderSelect = document.getElementById('admin-ai-provider');
+const adminAiModelInput = document.getElementById('admin-ai-model');
+const adminAiKeyInput = document.getElementById('admin-ai-key');
+const adminAiOllamaHostInput = document.getElementById('admin-ai-ollama-host');
+const adminValidateAiBtn = document.getElementById('admin-validate-ai-btn');
+const adminAiValidationResult = document.getElementById('admin-ai-validation-result');
 
 // File handling
 const dropZone = document.getElementById('drop-zone');
@@ -580,11 +586,84 @@ function updateAdminUserStatus(userId, nextStatus) {
     });
 }
 
+function updateAdminAiValidationHint() {
+    if (!adminAiProviderSelect || !adminAiModelInput || !adminAiKeyInput || !adminAiOllamaHostInput) {
+        return;
+    }
+    const provider = String(adminAiProviderSelect.value || '').toLowerCase();
+    const usesRemoteKey = provider === 'openrouter' || provider === 'agent_router' || provider === 'gemini';
+    adminAiKeyInput.disabled = !usesRemoteKey;
+    adminAiOllamaHostInput.disabled = provider !== 'ollama';
+    if (provider === 'gemini') {
+        adminAiModelInput.placeholder = 'gemini-1.5-flash';
+    } else if (provider === 'ollama') {
+        adminAiModelInput.placeholder = 'llama3.1';
+    } else {
+        adminAiModelInput.placeholder = 'openrouter/auto';
+    }
+}
+
+function validateAdminAiProvider() {
+    if (!adminAiProviderSelect || !adminAiModelInput || !adminAiKeyInput || !adminAiOllamaHostInput) {
+        return;
+    }
+    if (typeof eel === 'undefined' || typeof eel.admin_validate_ai_provider !== 'function') {
+        return;
+    }
+    const provider = String(adminAiProviderSelect.value || '').trim();
+    const payload = {
+        provider: provider,
+        model: String(adminAiModelInput.value || '').trim(),
+        api_key: String(adminAiKeyInput.value || '').trim(),
+        ollama_host: String(adminAiOllamaHostInput.value || '').trim()
+    };
+    if (adminAiValidationResult) {
+        adminAiValidationResult.textContent = 'Checking provider...';
+        adminAiValidationResult.style.color = '#ffd58d';
+    }
+    if (adminValidateAiBtn) {
+        adminValidateAiBtn.disabled = true;
+    }
+
+    eel.admin_validate_ai_provider(payload)(function (response) {
+        if (adminValidateAiBtn) {
+            adminValidateAiBtn.disabled = false;
+        }
+        if (!adminAiValidationResult) {
+            return;
+        }
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Validation failed';
+            adminAiValidationResult.textContent = message;
+            adminAiValidationResult.style.color = '#ffb8c2';
+            return;
+        }
+        const ok = response.valid === true;
+        const message = String(response.message || (ok ? 'Provider is reachable.' : 'Provider check failed.'));
+        adminAiValidationResult.textContent = message;
+        adminAiValidationResult.style.color = ok ? '#a9f2d3' : '#ffb8c2';
+    });
+}
+
 function openAdminPanel() {
     if (!adminPanelBackdrop) {
         return;
     }
     adminPanelBackdrop.classList.remove('hidden');
+    if (adminAiProviderSelect && aiProvider) {
+        adminAiProviderSelect.value = String(aiProvider.value || 'openrouter');
+    }
+    if (adminAiModelInput) {
+        adminAiModelInput.value = getCurrentAiModel();
+    }
+    if (adminAiOllamaHostInput && ollamaHostInput) {
+        adminAiOllamaHostInput.value = String(ollamaHostInput.value || 'http://localhost:11434');
+    }
+    updateAdminAiValidationHint();
+    if (adminAiValidationResult) {
+        adminAiValidationResult.textContent = 'Run a provider check from server runtime.';
+        adminAiValidationResult.style.color = '#a8bddf';
+    }
     refreshAdminUsers();
     refreshAdminAudit();
 }
@@ -1991,6 +2070,18 @@ if (adminRefreshUsersBtn) {
 if (adminRefreshAuditBtn) {
     adminRefreshAuditBtn.addEventListener('click', () => {
         refreshAdminAudit();
+    });
+}
+
+if (adminAiProviderSelect) {
+    adminAiProviderSelect.addEventListener('change', () => {
+        updateAdminAiValidationHint();
+    });
+}
+
+if (adminValidateAiBtn) {
+    adminValidateAiBtn.addEventListener('click', () => {
+        validateAdminAiProvider();
     });
 }
 

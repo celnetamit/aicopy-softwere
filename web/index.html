@@ -348,6 +348,23 @@
 
             <div class="admin-grid">
                 <section class="admin-block">
+                    <h3>API Validation</h3>
+                    <div class="admin-validation-row">
+                        <select id="admin-ai-provider" class="input-field">
+                            <option value="openrouter" selected>OpenRouter</option>
+                            <option value="agent_router">Agent Router</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="ollama">Ollama</option>
+                        </select>
+                        <input id="admin-ai-model" class="input-field" type="text" value="openrouter/auto" placeholder="Model (optional)" />
+                        <input id="admin-ai-key" class="input-field" type="password" placeholder="API key (optional, uses server env if empty)" />
+                        <input id="admin-ai-ollama-host" class="input-field" type="text" value="http://localhost:11434" placeholder="Ollama host" />
+                        <button class="btn-secondary btn-small" id="admin-validate-ai-btn" type="button">Validate API</button>
+                    </div>
+                    <p class="hint-text" id="admin-ai-validation-result">Run a provider check from server runtime.</p>
+                </section>
+
+                <section class="admin-block">
                     <h3>Users</h3>
                     <div class="admin-table-wrap">
                         <table class="admin-table">
@@ -389,7 +406,7 @@
     </div>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script type="text/javascript" src="/eel.js?v=20260417r30" data-cfasync="false"></script>
-    <script src="app.js?v=20260417r29" data-cfasync="false"></script>
+    <script type="text/javascript" src="/eel.js?v=20260418r31" data-cfasync="false"></script>
+    <script src="app.js?v=20260418r31" data-cfasync="false"></script>
 </body>
 </html>

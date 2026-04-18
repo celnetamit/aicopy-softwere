@@ -248,6 +248,16 @@
             return getJson('/api/admin/audit-events' + suffix);
         }),
 
+        admin_validate_ai_provider: callbackWrapper(function (payload) {
+            var input = payload || {};
+            return postJson('/api/admin/validate-ai-provider', {
+                provider: input.provider || '',
+                model: input.model || '',
+                api_key: input.api_key || '',
+                ollama_host: input.ollama_host || ''
+            });
+        }),
+
         get_runtime_telemetry: callbackWrapper(function () {
             return getJson('/api/runtime-telemetry');
         }),

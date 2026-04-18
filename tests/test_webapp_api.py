@@ -220,6 +220,26 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         self.assertGreaterEqual(len(payload.get("users", [])), 1)
 
+    def test_admin_can_validate_ai_provider(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request(
+            "POST",
+            "/api/auth/google-login",
+            {"id_token": "test:amit@conwiz.in"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = admin_client.request(
+            "POST",
+            "/api/admin/validate-ai-provider",
+            {"provider": "unsupported-provider"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertFalse(payload.get("valid"))
+        self.assertIn("Unsupported provider", str(payload.get("message", "")))
+
     def test_deactivated_user_cannot_access_api(self):
         admin_client = WsgiTestClient(webapp.app)
         user_client = WsgiTestClient(webapp.app)

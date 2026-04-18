@@ -12,6 +12,7 @@ import threading
 import time
 import traceback
 import uuid
+import requests
 from functools import wraps
 from typing import Dict, Optional, Tuple
 
@@ -748,6 +749,84 @@ def _maybe_run_cleanup():
         pass
 
 
+def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollama_host: str) -> Tuple[bool, str]:
+    selected = str(provider or "").strip().lower()
+    selected_model = str(model or "").strip()
+    key = str(api_key or "").strip()
+    host = str(ollama_host or "http://localhost:11434").strip() or "http://localhost:11434"
+
+    if selected == "ollama":
+        try:
+            response = requests.get(f"{host}/api/tags", timeout=8)
+            if response.status_code == 200:
+                return True, f"Ollama reachable at {host}"
+            return False, f"Ollama check failed ({response.status_code}) at {host}"
+        except Exception as exc:
+            return False, f"Ollama check failed: {exc}"
+
+    if selected == "gemini":
+        if not key:
+            key = str(os.getenv("GEMINI_API_KEY", "") or "").strip()
+        if not key:
+            return False, "Gemini API key missing"
+        use_model = selected_model or "gemini-1.5-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{use_model}:generateContent?key={key}"
+        payload = {
+            "contents": [{"parts": [{"text": "Reply with OK only."}]}],
+            "generationConfig": {"temperature": 0},
+        }
+        try:
+            response = requests.post(url, json=payload, timeout=12)
+            if response.status_code == 200:
+                return True, f"Gemini reachable with model {use_model}"
+            if response.status_code in (401, 403):
+                return False, f"Gemini unauthorized/forbidden ({response.status_code})"
+            return False, f"Gemini check failed ({response.status_code})"
+        except Exception as exc:
+            return False, f"Gemini check failed: {exc}"
+
+    if selected in ("openrouter", "agent_router"):
+        if not key:
+            key = str(os.getenv("OPENROUTER_API_KEY", "") or "").strip()
+        if not key:
+            return False, "OpenRouter API key missing"
+        use_model = selected_model or "openrouter/auto"
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        referer = str(os.getenv("OPENROUTER_HTTP_REFERER", "") or "").strip()
+        title = str(os.getenv("OPENROUTER_APP_TITLE", "Manuscript Editor") or "").strip()
+        if referer:
+            headers["HTTP-Referer"] = referer
+        if title:
+            headers["X-Title"] = title
+        payload = {
+            "model": use_model,
+            "messages": [{"role": "user", "content": "Reply with OK only."}],
+            "temperature": 0,
+            "max_tokens": 8,
+        }
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=15,
+            )
+            if response.status_code == 200:
+                return True, f"OpenRouter reachable with model {use_model}"
+            if response.status_code in (401, 403):
+                return False, f"OpenRouter unauthorized/forbidden ({response.status_code})"
+            if response.status_code == 429:
+                return False, "OpenRouter rate-limited (429)"
+            return False, f"OpenRouter check failed ({response.status_code})"
+        except Exception as exc:
+            return False, f"OpenRouter check failed: {exc}"
+
+    return False, f"Unsupported provider: {selected or 'unknown'}"
+
+
 @app.get("/")
 def index():
     _ensure_web_assets()
@@ -1404,6 +1483,38 @@ def api_admin_audit_events():
 
     _record_audit(event_type="admin_audit_viewed", actor_user_id=context.user_id)
     return _json_response({"success": True, "events": events}, session_id=context.session_id)
+
+
+@app.post("/api/admin/validate-ai-provider")
+@require_admin
+def api_admin_validate_ai_provider():
+    context = _auth_context_from_request()
+    payload = _read_json_payload()
+    provider = str(payload.get("provider", "") or "").strip().lower()
+    model = str(payload.get("model", "") or "").strip()
+    api_key = str(payload.get("api_key", "") or "").strip()
+    ollama_host = str(payload.get("ollama_host", "") or "").strip()
+
+    ok, message = _validate_ai_provider_runtime(provider, model, api_key, ollama_host)
+    _record_audit(
+        event_type="admin_ai_provider_validated",
+        actor_user_id=context.user_id,
+        metadata={
+            "provider": provider,
+            "model": model,
+            "ok": bool(ok),
+        },
+    )
+    return _json_response(
+        {
+            "success": True,
+            "provider": provider,
+            "model": model,
+            "valid": bool(ok),
+            "message": str(message or ""),
+        },
+        session_id=context.session_id,
+    )
 
 
 @app.get("/<asset_path:path>")
