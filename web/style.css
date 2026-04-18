@@ -1312,6 +1312,10 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     align-items: center;
 }
 
+.admin-provider-grid > .hidden {
+    display: none;
+}
+
 .admin-advanced-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

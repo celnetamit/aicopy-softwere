@@ -300,6 +300,22 @@ function setAdminDashboardVisible(visible) {
     adminPanelBackdrop.classList.toggle('hidden', !showAdmin);
 }
 
+function resetAdminDashboardScroll() {
+    if (!isAdminDashboardRoute()) {
+        return;
+    }
+    window.scrollTo(0, 0);
+    if (adminPanelBackdrop) {
+        adminPanelBackdrop.scrollTop = 0;
+    }
+    if (document.documentElement) {
+        document.documentElement.scrollTop = 0;
+    }
+    if (document.body) {
+        document.body.scrollTop = 0;
+    }
+}
+
 function applyRouteViewMode() {
     const adminRoute = isAdminDashboardRoute();
     document.body.classList.toggle('admin-dashboard-route', adminRoute);
@@ -779,6 +795,13 @@ function uniqueNonEmpty(values) {
     return out;
 }
 
+function setElementVisible(el, visible) {
+    if (!el) {
+        return;
+    }
+    el.classList.toggle('hidden', visible === false);
+}
+
 function getModelSuggestionsForProvider(provider, ollamaModels) {
     const selected = String(provider || '').trim().toLowerCase();
     if (selected === 'gemini') {
@@ -837,6 +860,9 @@ function updateAdminGlobalAiProviderUI(forceDefaultModel) {
     if (adminSettingOllamaHost) {
         adminSettingOllamaHost.disabled = provider !== 'ollama';
     }
+    setElementVisible(adminSettingGeminiKey, usesGeminiKey);
+    setElementVisible(adminSettingOpenrouterKey, usesOpenrouterKey);
+    setElementVisible(adminSettingOllamaHost, provider === 'ollama');
 
     if (provider === 'gemini') {
         adminSettingAiModel.placeholder = 'gemini-1.5-flash';
@@ -857,6 +883,17 @@ function updateAdminGlobalAiProviderUI(forceDefaultModel) {
     if (forceDefaultModel || !String(adminSettingAiModel.value || '').trim()) {
         adminSettingAiModel.value = DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER.ollama;
     }
+}
+
+function getAdminProviderEndpoint(provider, fallbackHost) {
+    const selected = String(provider || '').trim().toLowerCase();
+    if (selected === 'ollama') {
+        return String(fallbackHost || '').trim() || 'http://localhost:11434';
+    }
+    if (selected === 'gemini') {
+        return 'https://generativelanguage.googleapis.com';
+    }
+    return 'https://openrouter.ai/api/v1/chat/completions';
 }
 
 function applyAdminGlobalSettingsForm(settings) {
@@ -1027,7 +1064,9 @@ function updateAdminAiValidationHint() {
     const provider = String(adminAiProviderSelect.value || '').toLowerCase();
     const usesRemoteKey = provider === 'openrouter' || provider === 'agent_router' || provider === 'gemini';
     adminAiKeyInput.disabled = !usesRemoteKey;
-    adminAiOllamaHostInput.disabled = provider !== 'ollama';
+    adminAiOllamaHostInput.readOnly = provider !== 'ollama';
+    adminAiOllamaHostInput.value = getAdminProviderEndpoint(provider, adminAiOllamaHostInput.value);
+    adminAiOllamaHostInput.placeholder = provider === 'ollama' ? 'Ollama host' : 'Provider endpoint';
     if (provider === 'gemini') {
         adminAiModelInput.placeholder = 'gemini-1.5-flash';
     } else if (provider === 'ollama') {
@@ -1114,6 +1153,7 @@ function openAdminPanel() {
     loadAdminGlobalSettings();
     refreshAdminUsers();
     refreshAdminAudit();
+    resetAdminDashboardScroll();
 }
 
 function closeAdminPanel() {
@@ -3009,4 +3049,5 @@ checkAuthenticatedUser();
 window.addEventListener('pageshow', () => {
     applyRouteViewMode();
     syncAdminDashboardRouteState();
+    resetAdminDashboardScroll();
 });
