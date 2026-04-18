@@ -106,6 +106,7 @@ class DocumentProcessor:
             )
             if self._last_ai_pipeline_note:
                 self._last_selection_note = f"{self._last_ai_pipeline_note} {self._last_selection_note}".strip()
+            self._attach_cmos_guardrails(original=text, corrected=selected, options=options)
             self._last_journal_profile_report = self.editor.build_reference_profile_report(selected, options)
             self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(selected, options)
             return selected
@@ -119,9 +120,92 @@ class DocumentProcessor:
         else:
             self._last_processing_audit["mode"] = "rule_only"
             self._last_processing_audit["summary"] = {"reason": "AI disabled or unavailable"}
+        self._attach_cmos_guardrails(original=text, corrected=rules_corrected, options=options)
         self._last_journal_profile_report = self.editor.build_reference_profile_report(rules_corrected, options)
         self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(rules_corrected, options)
         return rules_corrected
+
+    def _attach_cmos_guardrails(self, original: str, corrected: str, options: Dict):
+        """Attach CMOS workflow guardrails summary to processing audit."""
+        safe_options = options if isinstance(options, dict) else {}
+        domain_report = self.get_domain_report()
+        detected_domain = str(domain_report.get("profile", "general") or "general").strip().lower()
+        requested_domain = str(safe_options.get("domain_profile", "auto") or "auto").strip().lower()
+        protected_terms = int(domain_report.get("protected_terms", 0) or 0)
+        custom_terms = int(domain_report.get("custom_terms", 0) or 0)
+        chicago_enabled = bool(safe_options.get("chicago_style", True))
+        cmos_strict_mode = bool(safe_options.get("cmos_strict_mode", True))
+
+        ai_options = safe_options.get("ai", {}) if isinstance(safe_options.get("ai"), dict) else {}
+        ai_enabled = bool(ai_options.get("enabled", False))
+        ai_provider = str(ai_options.get("provider", "ollama") or "ollama").strip().lower()
+
+        warnings: List[str] = []
+        recommendations: List[str] = []
+
+        if not chicago_enabled:
+            warnings.append("Chicago style option is disabled, so CMOS compliance is limited.")
+
+        if requested_domain == "auto":
+            recommendations.append(
+                "Set an explicit domain profile (medical/law/engineering/general) for stricter term protection."
+            )
+            if cmos_strict_mode and detected_domain in ("medical", "law", "engineering"):
+                warnings.append(
+                    f"Detected domain is {detected_domain}; auto profile may be too loose for strict CMOS editing."
+                )
+
+        if cmos_strict_mode and detected_domain in ("medical", "law", "engineering"):
+            if custom_terms < 5:
+                warnings.append(
+                    f"Only {custom_terms} custom glossary terms configured for {detected_domain} text."
+                )
+                recommendations.append("Add key domain terms to Custom Terms to avoid unsafe rewrites.")
+            if protected_terms < 25:
+                warnings.append(
+                    f"Protected term coverage is low ({protected_terms}); increase dictionary/glossary coverage."
+                )
+
+        if cmos_strict_mode and len(str(original or "")) > 12000 and not ai_enabled:
+            recommendations.append("Enable AI section-wise mode for long manuscripts, then review audit fallback reasons.")
+
+        if ai_enabled and ai_provider in ("openrouter", "agent_router"):
+            recommendations.append("Validate OpenRouter key/model in Admin Dashboard before production runs.")
+
+        compliance_score = 100
+        compliance_score -= min(60, len(warnings) * 12)
+        compliance_score -= 8 if not chicago_enabled else 0
+        compliance_score -= 8 if requested_domain == "auto" and cmos_strict_mode else 0
+        compliance_score = max(0, min(100, compliance_score))
+
+        if compliance_score >= 85:
+            status = "strong"
+        elif compliance_score >= 65:
+            status = "needs_attention"
+        else:
+            status = "at_risk"
+
+        guardrails = {
+            "strict_mode": cmos_strict_mode,
+            "status": status,
+            "compliance_score": compliance_score,
+            "requested_domain": requested_domain,
+            "detected_domain": detected_domain,
+            "protected_terms": protected_terms,
+            "custom_terms": custom_terms,
+            "chicago_style_enabled": chicago_enabled,
+            "ai_enabled": ai_enabled,
+            "warnings": warnings,
+            "recommendations": recommendations,
+            "input_chars": len(str(original or "")),
+            "output_chars": len(str(corrected or "")),
+        }
+
+        summary = self._last_processing_audit.setdefault("summary", {})
+        if not isinstance(summary, dict):
+            summary = {}
+            self._last_processing_audit["summary"] = summary
+        summary["cmos_guardrails"] = guardrails
 
     def _call_ai_editor(self, original: str, rules_corrected: str, options: Dict) -> Optional[str]:
         """Call the configured AI provider for enhanced editing."""

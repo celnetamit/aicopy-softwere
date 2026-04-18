@@ -138,6 +138,7 @@ const customTermsInput = document.getElementById('custom-terms-input');
 const importCustomTermsBtn = document.getElementById('import-custom-terms-btn');
 const clearCustomTermsBtn = document.getElementById('clear-custom-terms-btn');
 const customTermsFileInput = document.getElementById('custom-terms-file-input');
+const cmosStrictInput = document.getElementById('opt-cmos-strict');
 const pageControls = document.getElementById('page-controls');
 const pagePresetSelect = document.getElementById('page-preset');
 const pageFontSizeInput = document.getElementById('page-font-size');
@@ -1149,6 +1150,51 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
     if (customTermsCount > 0) {
         html += `<div class="cor-summary">Custom glossary terms: <strong>${customTermsCount}</strong></div>`;
     }
+    const safeAudit = processingAudit && typeof processingAudit === 'object' ? processingAudit : null;
+    const auditSummary = safeAudit && safeAudit.summary && typeof safeAudit.summary === 'object'
+        ? safeAudit.summary
+        : {};
+    const cmosGuardrails = auditSummary.cmos_guardrails && typeof auditSummary.cmos_guardrails === 'object'
+        ? auditSummary.cmos_guardrails
+        : null;
+    if (cmosGuardrails) {
+        const score = Number(cmosGuardrails.compliance_score || 0);
+        const status = String(cmosGuardrails.status || 'needs_attention');
+        const statusLabel = status === 'strong'
+            ? 'Strong'
+            : (status === 'at_risk' ? 'At Risk' : 'Needs Attention');
+        const warnings = Array.isArray(cmosGuardrails.warnings) ? cmosGuardrails.warnings : [];
+        const recommendations = Array.isArray(cmosGuardrails.recommendations) ? cmosGuardrails.recommendations : [];
+        html += '<section class="profile-card">';
+        html += '<div class="profile-title">CMOS Workflow Guardrails</div>';
+        html += `<div class="profile-summary">Strict mode: <strong>${cmosGuardrails.strict_mode ? 'On' : 'Off'}</strong> | Compliance score: <strong>${Number.isFinite(score) ? score : 0}</strong> | Status: <strong>${escapeHtml(statusLabel)}</strong></div>`;
+        html += '<div class="profile-rules">';
+        html += `<span class="profile-chip">Requested domain: ${escapeHtml(String(cmosGuardrails.requested_domain || 'auto'))}</span>`;
+        html += `<span class="profile-chip">Detected domain: ${escapeHtml(String(cmosGuardrails.detected_domain || 'general'))}</span>`;
+        html += `<span class="profile-chip">Protected terms: ${Number(cmosGuardrails.protected_terms || 0)}</span>`;
+        html += `<span class="profile-chip">Custom terms: ${Number(cmosGuardrails.custom_terms || 0)}</span>`;
+        html += '</div>';
+        if (warnings.length > 0) {
+            html += '<div class="profile-validation">';
+            html += '<div class="profile-validation-title">Warnings</div><ul>';
+            warnings.forEach((message) => {
+                html += `<li>${escapeHtml(String(message || ''))}</li>`;
+            });
+            html += '</ul></div>';
+        }
+        if (recommendations.length > 0) {
+            html += '<div class="profile-validation">';
+            html += '<div class="profile-validation-title">Recommended Actions</div><ul>';
+            recommendations.forEach((message) => {
+                html += `<li>${escapeHtml(String(message || ''))}</li>`;
+            });
+            html += '</ul></div>';
+        }
+        if (warnings.length === 0 && recommendations.length === 0) {
+            html += '<div class="profile-ok">No CMOS guardrail concerns detected for this run.</div>';
+        }
+        html += '</section>';
+    }
     const safeValidator = citationReferenceReport && typeof citationReferenceReport === 'object'
         ? citationReferenceReport
         : null;
@@ -1240,7 +1286,6 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
         html += '</section>';
     }
 
-    const safeAudit = processingAudit && typeof processingAudit === 'object' ? processingAudit : null;
     if (safeAudit && safeAudit.mode === 'sectioned') {
         const summary = safeAudit.summary && typeof safeAudit.summary === 'object' ? safeAudit.summary : {};
         const consistency = summary.consistency && typeof summary.consistency === 'object' ? summary.consistency : {};
@@ -1594,6 +1639,7 @@ function saveAiSettings() {
         openrouter_api_key: openrouterApiKeyInput.value,
         ai_advanced: aiAdvanced,
         domain_profile: domainProfileSelect.value || 'auto',
+        cmos_strict_mode: cmosStrictInput ? cmosStrictInput.checked : true,
         custom_terms_text: normalizeCustomTermsText(customTermsInput.value),
         journal_profile: FIXED_JOURNAL_PROFILE,
         reference_profile: FIXED_JOURNAL_PROFILE,
@@ -1687,6 +1733,11 @@ function loadAiSettings() {
         domainProfileSelect.value = parsed.domain_profile;
     } else {
         domainProfileSelect.value = 'auto';
+    }
+    if (typeof parsed.cmos_strict_mode === 'boolean' && cmosStrictInput) {
+        cmosStrictInput.checked = parsed.cmos_strict_mode;
+    } else if (cmosStrictInput) {
+        cmosStrictInput.checked = true;
     }
     if (typeof parsed.custom_terms_text === 'string') {
         customTermsInput.value = normalizeCustomTermsText(parsed.custom_terms_text);
@@ -1977,8 +2028,12 @@ updateAiProviderUI();
     aiSectionChunkLinesInput,
     aiGlobalConsistencyMaxCharsInput,
     domainProfileSelect,
-    customTermsInput
+    customTermsInput,
+    cmosStrictInput
 ].forEach((el) => {
+    if (!el) {
+        return;
+    }
     el.addEventListener('change', saveAiSettings);
     el.addEventListener('input', saveAiSettings);
 });
@@ -2273,6 +2328,7 @@ function process_document() {
         sentence_case: document.getElementById('opt-sentence').checked,
         punctuation: document.getElementById('opt-punctuation').checked,
         chicago_style: document.getElementById('opt-chicago').checked,
+        cmos_strict_mode: cmosStrictInput ? cmosStrictInput.checked : true,
         domain_profile: domainProfileSelect.value || 'auto',
         custom_terms: parseCustomTerms(customTermsInput.value),
         journal_profile: FIXED_JOURNAL_PROFILE,

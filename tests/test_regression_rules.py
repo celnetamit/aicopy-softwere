@@ -263,6 +263,30 @@ class ProcessorRegressionTests(unittest.TestCase):
         self.assertGreater(report.get("summary", {}).get("total_issues", 0), 0)
         self.assertGreater(int(report.get("category_counts", {}).get("citation_missing_reference", 0)), 0)
 
+    def test_cmos_guardrails_added_to_processing_audit_summary(self):
+        processor = DocumentProcessor()
+        _ = processor.process_text(
+            "This legal contract shall be interpreted as follows.\nReferences\n[1] Example AB. sample title. J Test. 2024;10(2):100-110.\n",
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+                "cmos_strict_mode": True,
+                "domain_profile": "auto",
+                "custom_terms": [],
+                "ai": {"enabled": False},
+            },
+        )
+        audit = processor.get_processing_audit()
+        summary = audit.get("summary", {})
+        guardrails = summary.get("cmos_guardrails", {})
+        self.assertTrue(guardrails.get("strict_mode"))
+        self.assertIn("status", guardrails)
+        self.assertIn("warnings", guardrails)
+        self.assertIn("recommendations", guardrails)
+        self.assertEqual(guardrails.get("requested_domain"), "auto")
+
     def test_apply_group_decisions_accepts_and_rejects_by_group(self):
         processor = DocumentProcessor()
         original = "\n".join([
