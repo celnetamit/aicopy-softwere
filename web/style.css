@@ -1225,6 +1225,10 @@ body.admin-dashboard-route #admin-panel-backdrop .setup-wizard-card {
     box-shadow: none;
 }
 
+body.admin-dashboard-route #admin-panel-backdrop.hidden {
+    display: flex;
+}
+
 .setup-wizard-card {
     width: min(760px, 100%);
     background: #141e38;

@@ -300,6 +300,14 @@ function applyRouteViewMode() {
     }
 }
 
+function normalizeUserRole(roleValue) {
+    return String(roleValue || 'USER').trim().toUpperCase();
+}
+
+function isAdminUser(user) {
+    return normalizeUserRole(user && user.role) === 'ADMIN';
+}
+
 function applyCurrentUser(user) {
     if (!user || typeof user !== 'object') {
         currentUser = null;
@@ -327,7 +335,7 @@ function applyCurrentUser(user) {
     if (userNameEl) {
         userNameEl.textContent = String(user.display_name || user.email || 'User');
     }
-    const role = String(user.role || 'USER').toUpperCase();
+    const role = normalizeUserRole(user.role);
     if (userRoleEl) {
         userRoleEl.textContent = role;
     }
@@ -603,7 +611,7 @@ function onGoogleCredentialResponse(response) {
         applyCurrentUser(user);
         showAppView();
         setStatus('Authenticated', 'success');
-        if (isAdminDashboardRoute() && String(currentUser && currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        if (isAdminDashboardRoute() && !isAdminUser(currentUser)) {
             navigateToEditor();
             return;
         }
@@ -611,7 +619,7 @@ function onGoogleCredentialResponse(response) {
         refreshRuntimeSettings();
         maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
-        if (currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN') {
+        if (isAdminUser(currentUser)) {
             if (isAdminDashboardRoute()) {
                 openAdminPanel();
             } else {
@@ -637,7 +645,7 @@ function checkAuthenticatedUser() {
         }
         applyCurrentUser(response.user);
         showAppView();
-        if (isAdminDashboardRoute() && String(currentUser && currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        if (isAdminDashboardRoute() && !isAdminUser(currentUser)) {
             navigateToEditor();
             return;
         }
@@ -645,7 +653,7 @@ function checkAuthenticatedUser() {
         refreshRuntimeSettings();
         maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
-        if (String(currentUser.role || '').toUpperCase() === 'ADMIN') {
+        if (isAdminUser(currentUser)) {
             if (isAdminDashboardRoute()) {
                 openAdminPanel();
             } else {
