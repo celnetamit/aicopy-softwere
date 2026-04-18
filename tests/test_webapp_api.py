@@ -2,6 +2,7 @@
 
 import io
 import json
+import math
 import os
 import unittest
 from urllib.parse import urlencode
@@ -184,6 +185,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('admin-dashboard-active', html)
         self.assertIn('class="setup-wizard-backdrop" id="admin-panel-backdrop"', html)
         self.assertNotIn('class="setup-wizard-backdrop hidden" id="admin-panel-backdrop"', html)
+
+    def test_json_response_sanitizes_non_finite_numbers(self):
+        response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})
+        payload = json.loads(response.body)
+        self.assertIsNone(payload["value"])
+        self.assertIsNone(payload["nested"]["score"])
 
     def test_upload_process_and_download_round_trip(self):
         self._login("writer@conwiz.in")

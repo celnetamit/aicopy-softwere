@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import math
 import json
 import os
 import re
@@ -153,9 +154,10 @@ def _is_https_request() -> bool:
 
 
 def _json_response(payload: Dict, status: int = 200, session_id: str = "", clear_session: bool = False) -> HTTPResponse:
+    safe_payload = _json_safe(payload)
     http_response = HTTPResponse(
         status=status,
-        body=json.dumps(payload),
+        body=json.dumps(safe_payload, ensure_ascii=False, allow_nan=False),
         headers={"Content-Type": "application/json"},
     )
 
@@ -175,6 +177,23 @@ def _json_response(payload: Dict, status: int = 200, session_id: str = "", clear
         http_response.delete_cookie(SESSION_COOKIE_ALT_NAME, path="/")
 
     return http_response
+
+
+def _json_safe(value):
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8", errors="replace")
+        except Exception:
+            return str(value)
+    return str(value)
 
 
 def _read_json_payload() -> Dict:

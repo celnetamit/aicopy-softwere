@@ -13,15 +13,29 @@
     function responseToJson(response) {
         return response.text().then(function (text) {
             if (!text) {
-                return { success: response.ok };
+                return { success: response.ok, http_status: response.status };
             }
             try {
-                return JSON.parse(text);
+                var payload = JSON.parse(text);
+                if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+                    payload.http_status = response.status;
+                }
+                return payload;
             } catch (err) {
+                var contentType = '';
+                try {
+                    contentType = response.headers.get('content-type') || '';
+                } catch (headerErr) {
+                    contentType = '';
+                }
+                var rawPreview = String(text || '').slice(0, 400);
                 return {
                     success: false,
                     error: 'Invalid JSON response from server',
-                    raw: text
+                    error_detail: 'The server returned a non-JSON response.',
+                    http_status: response.status,
+                    content_type: contentType,
+                    raw: rawPreview
                 };
             }
         });
