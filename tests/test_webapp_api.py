@@ -83,6 +83,61 @@ class WsgiTestClient:
         status_code = int(str(meta.get("status", "500")).split(" ", 1)[0])
         return status_code, data
 
+    def request_text(self, method, path, payload=None, query=None, headers=None):
+        body = b""
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+
+        environ = {}
+        setup_testing_defaults(environ)
+        environ["REQUEST_METHOD"] = method.upper()
+
+        path_info = path
+        query_string = ""
+        if "?" in path:
+            path_info, query_string = path.split("?", 1)
+        if query:
+            encoded = urlencode(query)
+            query_string = f"{query_string}&{encoded}" if query_string else encoded
+
+        environ["PATH_INFO"] = path_info
+        environ["QUERY_STRING"] = query_string
+        environ["CONTENT_LENGTH"] = str(len(body))
+        environ["wsgi.input"] = io.BytesIO(body)
+
+        if body:
+            environ["CONTENT_TYPE"] = "application/json"
+
+        if self.cookies:
+            environ["HTTP_COOKIE"] = "; ".join(f"{key}={value}" for key, value in self.cookies.items())
+
+        if headers:
+            for raw_name, raw_value in headers.items():
+                if raw_name is None or raw_value is None:
+                    continue
+                name = str(raw_name).strip()
+                if not name:
+                    continue
+                key = name.upper().replace("-", "_")
+                if key not in ("CONTENT_TYPE", "CONTENT_LENGTH") and not key.startswith("HTTP_"):
+                    key = "HTTP_" + key
+                environ[key] = str(raw_value)
+
+        meta = {}
+
+        def start_response(status, headers, exc_info=None):
+            meta["status"] = status
+            meta["headers"] = headers
+
+        result = self.app(environ, start_response)
+        response_body = b"".join(result)
+        if hasattr(result, "close"):
+            result.close()
+
+        status_code = int(str(meta.get("status", "500")).split(" ", 1)[0])
+        text = response_body.decode("utf-8") if response_body else ""
+        return status_code, text
+
 
 class AuthenticatedWebAppApiTests(unittest.TestCase):
     def setUp(self):
@@ -121,6 +176,14 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         self.assertEqual(payload["user"]["email"], "staff@conwiz.in")
         self.assertEqual(payload["user"]["role"], user["role"])
+
+    def test_admin_dashboard_route_renders_admin_shell(self):
+        status, html = self.client.request_text("GET", "/admin-dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn('id="admin-panel-backdrop"', html)
+        self.assertIn('admin-dashboard-active', html)
+        self.assertIn('class="setup-wizard-backdrop" id="admin-panel-backdrop"', html)
+        self.assertNotIn('class="setup-wizard-backdrop hidden" id="admin-panel-backdrop"', html)
 
     def test_upload_process_and_download_round_trip(self):
         self._login("writer@conwiz.in")

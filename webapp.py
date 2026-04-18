@@ -984,17 +984,36 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
     return False, f"Unsupported provider: {selected or 'unknown'}"
 
 
+def _render_index_html(admin_dashboard: bool = False) -> HTTPResponse:
+    _ensure_web_assets()
+    index_path = os.path.join(WEB_DIR, "index.html")
+    with open(index_path, "r", encoding="utf-8") as handle:
+        html = handle.read()
+
+    if admin_dashboard:
+        html = html.replace(
+            "<body>",
+            '<body class="admin-dashboard-route admin-dashboard-active">',
+            1,
+        )
+        html = html.replace(
+            'class="setup-wizard-backdrop hidden" id="admin-panel-backdrop"',
+            'class="setup-wizard-backdrop" id="admin-panel-backdrop"',
+            1,
+        )
+
+    return HTTPResponse(body=html, status=200, headers={"Content-Type": "text/html; charset=utf-8"})
+
+
 @app.get("/")
 def index():
-    _ensure_web_assets()
-    return static_file("index.html", root=WEB_DIR)
+    return _render_index_html(admin_dashboard=False)
 
 
 @app.get("/admin-dashboard")
 @app.get("/admin-dashboard/")
 def admin_dashboard_index():
-    _ensure_web_assets()
-    return static_file("index.html", root=WEB_DIR)
+    return _render_index_html(admin_dashboard=True)
 
 
 @app.get("/eel.js")
