@@ -990,6 +990,13 @@ def index():
     return static_file("index.html", root=WEB_DIR)
 
 
+@app.get("/admin-dashboard")
+@app.get("/admin-dashboard/")
+def admin_dashboard_index():
+    _ensure_web_assets()
+    return static_file("index.html", root=WEB_DIR)
+
+
 @app.get("/eel.js")
 def eel_bridge():
     _ensure_web_assets()

@@ -1194,6 +1194,37 @@ footer {
     display: none;
 }
 
+body.admin-dashboard-route {
+    min-height: 100vh;
+    height: auto;
+    overflow-y: auto;
+}
+
+body.admin-dashboard-route .app {
+    min-height: 100vh;
+    height: auto;
+}
+
+body.admin-dashboard-route main {
+    display: none;
+}
+
+body.admin-dashboard-route #admin-panel-backdrop {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    background: transparent;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 16px 24px 24px;
+}
+
+body.admin-dashboard-route #admin-panel-backdrop .setup-wizard-card {
+    width: 100%;
+    max-width: none;
+    box-shadow: none;
+}
+
 .setup-wizard-card {
     width: min(760px, 100%);
     background: #141e38;

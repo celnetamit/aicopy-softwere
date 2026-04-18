@@ -76,6 +76,7 @@ const CORRECTION_GROUP_LABEL = {
 let isApplyingGroupDecisions = false;
 let pendingGroupDecisionApply = false;
 const FIXED_JOURNAL_PROFILE = 'vancouver_periods';
+const ADMIN_DASHBOARD_PATH = '/admin-dashboard';
 
 const loginView = document.getElementById('login-view');
 const appShell = document.getElementById('app-shell');
@@ -259,6 +260,46 @@ function showAppView() {
     }
 }
 
+function normalizePathname(pathname) {
+    const raw = String(pathname || '/').trim();
+    if (!raw || raw === '/') {
+        return '/';
+    }
+    const withoutTrailing = raw.replace(/\/+$/g, '');
+    return withoutTrailing || '/';
+}
+
+function isAdminDashboardRoute() {
+    return normalizePathname(window.location.pathname) === ADMIN_DASHBOARD_PATH;
+}
+
+function navigateToAdminDashboard() {
+    if (isAdminDashboardRoute()) {
+        return;
+    }
+    window.location.assign(ADMIN_DASHBOARD_PATH);
+}
+
+function navigateToEditor() {
+    if (normalizePathname(window.location.pathname) === '/') {
+        return;
+    }
+    window.location.assign('/');
+}
+
+function applyRouteViewMode() {
+    const adminRoute = isAdminDashboardRoute();
+    document.body.classList.toggle('admin-dashboard-route', adminRoute);
+    if (!adminPanelBackdrop) {
+        return;
+    }
+    if (adminRoute) {
+        adminPanelBackdrop.classList.remove('hidden');
+    } else {
+        adminPanelBackdrop.classList.add('hidden');
+    }
+}
+
 function applyCurrentUser(user) {
     if (!user || typeof user !== 'object') {
         currentUser = null;
@@ -291,7 +332,7 @@ function applyCurrentUser(user) {
         userRoleEl.textContent = role;
     }
     if (openAdminPanelBtn) {
-        openAdminPanelBtn.classList.toggle('hidden', role !== 'ADMIN');
+        openAdminPanelBtn.classList.toggle('hidden', role !== 'ADMIN' || isAdminDashboardRoute());
     }
     if (editingOptionsSection) {
         editingOptionsSection.classList.add('hidden');
@@ -562,12 +603,21 @@ function onGoogleCredentialResponse(response) {
         applyCurrentUser(user);
         showAppView();
         setStatus('Authenticated', 'success');
+        if (isAdminDashboardRoute() && String(currentUser && currentUser.role || '').toUpperCase() !== 'ADMIN') {
+            navigateToEditor();
+            return;
+        }
+        applyRouteViewMode();
         refreshRuntimeSettings();
         maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
         if (currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN') {
-            refreshAdminUsers();
-            refreshAdminAudit();
+            if (isAdminDashboardRoute()) {
+                openAdminPanel();
+            } else {
+                refreshAdminUsers();
+                refreshAdminAudit();
+            }
         }
     });
 }
@@ -587,12 +637,21 @@ function checkAuthenticatedUser() {
         }
         applyCurrentUser(response.user);
         showAppView();
+        if (isAdminDashboardRoute() && String(currentUser && currentUser.role || '').toUpperCase() !== 'ADMIN') {
+            navigateToEditor();
+            return;
+        }
+        applyRouteViewMode();
         refreshRuntimeSettings();
         maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
         if (String(currentUser.role || '').toUpperCase() === 'ADMIN') {
-            refreshAdminUsers();
-            refreshAdminAudit();
+            if (isAdminDashboardRoute()) {
+                openAdminPanel();
+            } else {
+                refreshAdminUsers();
+                refreshAdminAudit();
+            }
         }
     });
 }
@@ -890,6 +949,11 @@ function validateAdminAiProvider() {
 }
 
 function openAdminPanel() {
+    if (!isAdminDashboardRoute()) {
+        navigateToAdminDashboard();
+        return;
+    }
+    applyRouteViewMode();
     if (!adminPanelBackdrop) {
         return;
     }
@@ -914,10 +978,13 @@ function openAdminPanel() {
 }
 
 function closeAdminPanel() {
-    if (!adminPanelBackdrop) {
+    if (isAdminDashboardRoute()) {
+        navigateToEditor();
         return;
     }
-    adminPanelBackdrop.classList.add('hidden');
+    if (adminPanelBackdrop) {
+        adminPanelBackdrop.classList.add('hidden');
+    }
 }
 
 function parseCustomTerms(raw) {
@@ -2398,7 +2465,7 @@ if (adminValidateAiBtn) {
 
 if (adminPanelBackdrop) {
     adminPanelBackdrop.addEventListener('click', (event) => {
-        if (event.target === adminPanelBackdrop) {
+        if (!isAdminDashboardRoute() && event.target === adminPanelBackdrop) {
             closeAdminPanel();
         }
     });
@@ -2785,4 +2852,5 @@ function clear_all() {
     setProgress(0);
 }
 
+applyRouteViewMode();
 checkAuthenticatedUser();
