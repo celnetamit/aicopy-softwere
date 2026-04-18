@@ -287,16 +287,20 @@ function navigateToEditor() {
     window.location.assign('/');
 }
 
-function applyRouteViewMode() {
-    const adminRoute = isAdminDashboardRoute();
-    document.body.classList.toggle('admin-dashboard-route', adminRoute);
+function setAdminDashboardVisible(visible) {
+    const showAdmin = visible === true;
+    document.body.classList.toggle('admin-dashboard-active', showAdmin);
     if (!adminPanelBackdrop) {
         return;
     }
-    if (adminRoute) {
-        adminPanelBackdrop.classList.remove('hidden');
-    } else {
-        adminPanelBackdrop.classList.add('hidden');
+    adminPanelBackdrop.classList.toggle('hidden', !showAdmin);
+}
+
+function applyRouteViewMode() {
+    const adminRoute = isAdminDashboardRoute();
+    document.body.classList.toggle('admin-dashboard-route', adminRoute);
+    if (!adminRoute) {
+        setAdminDashboardVisible(false);
     }
 }
 
@@ -962,10 +966,10 @@ function openAdminPanel() {
         return;
     }
     applyRouteViewMode();
+    setAdminDashboardVisible(true);
     if (!adminPanelBackdrop) {
         return;
     }
-    adminPanelBackdrop.classList.remove('hidden');
     if (adminAiProviderSelect && aiProvider) {
         adminAiProviderSelect.value = String(aiProvider.value || 'openrouter');
     }
@@ -990,9 +994,7 @@ function closeAdminPanel() {
         navigateToEditor();
         return;
     }
-    if (adminPanelBackdrop) {
-        adminPanelBackdrop.classList.add('hidden');
-    }
+    setAdminDashboardVisible(false);
 }
 
 function parseCustomTerms(raw) {

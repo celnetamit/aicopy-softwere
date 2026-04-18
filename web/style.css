@@ -1205,11 +1205,11 @@ body.admin-dashboard-route .app {
     height: auto;
 }
 
-body.admin-dashboard-route main {
+body.admin-dashboard-active main {
     display: none;
 }
 
-body.admin-dashboard-route #admin-panel-backdrop {
+body.admin-dashboard-active #admin-panel-backdrop {
     position: static;
     inset: auto;
     z-index: auto;
@@ -1219,13 +1219,13 @@ body.admin-dashboard-route #admin-panel-backdrop {
     padding: 16px 24px 24px;
 }
 
-body.admin-dashboard-route #admin-panel-backdrop .setup-wizard-card {
+body.admin-dashboard-active #admin-panel-backdrop .setup-wizard-card {
     width: 100%;
     max-width: none;
     box-shadow: none;
 }
 
-body.admin-dashboard-route #admin-panel-backdrop.hidden {
+body.admin-dashboard-active #admin-panel-backdrop.hidden {
     display: flex;
 }
 
