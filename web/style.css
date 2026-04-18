@@ -1275,6 +1275,80 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     align-items: center;
 }
 
+.admin-settings-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.admin-settings-row {
+    display: grid;
+    grid-template-columns: 210px 1fr;
+    gap: 8px 14px;
+    align-items: start;
+}
+
+.admin-row-label {
+    margin: 8px 0 0;
+}
+
+.admin-check-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, max-content));
+    gap: 8px 12px;
+    align-items: center;
+}
+
+.admin-check-grid .checkbox-item,
+.admin-provider-grid .checkbox-item,
+.admin-advanced-grid .checkbox-item {
+    margin-bottom: 0;
+}
+
+.admin-provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-advanced-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-action-row {
+    flex-wrap: wrap;
+}
+
+.admin-settings-actions .hint-text {
+    margin-top: 8px;
+}
+
+.admin-api-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-panel-card .btn-primary {
+    width: auto;
+}
+
+@media (max-width: 920px) {
+    .admin-settings-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .admin-row-label {
+        margin-top: 0;
+    }
+}
+
 .admin-table-wrap {
     max-height: 260px;
     overflow: auto;

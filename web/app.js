@@ -77,6 +77,8 @@ let isApplyingGroupDecisions = false;
 let pendingGroupDecisionApply = false;
 const FIXED_JOURNAL_PROFILE = 'vancouver_periods';
 const ADMIN_DASHBOARD_PATH = '/admin-dashboard';
+let adminGlobalOllamaModelCache = [];
+let adminGlobalOllamaModelHostCache = '';
 
 const loginView = document.getElementById('login-view');
 const appShell = document.getElementById('app-shell');
@@ -96,6 +98,7 @@ const adminUsersBody = document.getElementById('admin-users-body');
 const adminAuditBody = document.getElementById('admin-audit-body');
 const adminAiProviderSelect = document.getElementById('admin-ai-provider');
 const adminAiModelInput = document.getElementById('admin-ai-model');
+const adminAiModelList = document.getElementById('admin-ai-model-list');
 const adminAiKeyInput = document.getElementById('admin-ai-key');
 const adminAiOllamaHostInput = document.getElementById('admin-ai-ollama-host');
 const adminValidateAiBtn = document.getElementById('admin-validate-ai-btn');
@@ -116,6 +119,7 @@ const adminSettingCustomTerms = document.getElementById('admin-setting-custom-te
 const adminSettingAiEnabled = document.getElementById('admin-setting-ai-enabled');
 const adminSettingAiProvider = document.getElementById('admin-setting-ai-provider');
 const adminSettingAiModel = document.getElementById('admin-setting-ai-model');
+const adminSettingAiModelList = document.getElementById('admin-setting-ai-model-list');
 const adminSettingOllamaHost = document.getElementById('admin-setting-ollama-host');
 const adminSettingGeminiKey = document.getElementById('admin-setting-gemini-key');
 const adminSettingOpenrouterKey = document.getElementById('admin-setting-openrouter-key');
@@ -757,6 +761,104 @@ function renderAdminAudit() {
     adminAuditBody.innerHTML = html;
 }
 
+function uniqueNonEmpty(values) {
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(values) ? values : []).forEach((raw) => {
+        const value = String(raw || '').trim();
+        if (!value) {
+            return;
+        }
+        const key = value.toLowerCase();
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        out.push(value);
+    });
+    return out;
+}
+
+function getModelSuggestionsForProvider(provider, ollamaModels) {
+    const selected = String(provider || '').trim().toLowerCase();
+    if (selected === 'gemini') {
+        return ['gemini-1.5-flash', 'gemini-1.5-pro'];
+    }
+    if (selected === 'openrouter') {
+        return ['openrouter/auto', 'openai/gpt-5.4', 'google/gemini-2.5-pro', 'anthropic/claude-sonnet-4'];
+    }
+    if (selected === 'agent_router') {
+        return ['openrouter/auto', 'openai/gpt-5.4', 'google/gemini-2.5-pro'];
+    }
+    const fromHost = Array.isArray(ollamaModels) ? ollamaModels : [];
+    return fromHost.length > 0 ? fromHost : ['llama3.1', 'llama3.1:latest', 'qwen2.5:7b', 'mistral:7b'];
+}
+
+function applyDatalistOptions(datalistEl, values) {
+    if (!datalistEl) {
+        return;
+    }
+    const options = uniqueNonEmpty(values);
+    datalistEl.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}"></option>`).join('');
+}
+
+function loadAdminGlobalOllamaModels(forceRefresh) {
+    if (!adminSettingOllamaHost || typeof eel === 'undefined' || typeof eel.get_ollama_models !== 'function') {
+        return;
+    }
+    const host = String(adminSettingOllamaHost.value || '').trim();
+    if (!forceRefresh && host && host === adminGlobalOllamaModelHostCache && adminGlobalOllamaModelCache.length > 0) {
+        return;
+    }
+    eel.get_ollama_models(host)(function (response) {
+        if (!response || !response.success) {
+            return;
+        }
+        adminGlobalOllamaModelHostCache = host;
+        adminGlobalOllamaModelCache = uniqueNonEmpty(Array.isArray(response.models) ? response.models : []);
+        updateAdminGlobalAiProviderUI(false);
+        updateAdminAiValidationHint();
+    });
+}
+
+function updateAdminGlobalAiProviderUI(forceDefaultModel) {
+    if (!adminSettingAiProvider || !adminSettingAiModel) {
+        return;
+    }
+    const provider = String(adminSettingAiProvider.value || '').toLowerCase();
+    const usesOpenrouterKey = provider === 'openrouter' || provider === 'agent_router';
+    const usesGeminiKey = provider === 'gemini';
+    if (adminSettingGeminiKey) {
+        adminSettingGeminiKey.disabled = !usesGeminiKey;
+    }
+    if (adminSettingOpenrouterKey) {
+        adminSettingOpenrouterKey.disabled = !usesOpenrouterKey;
+    }
+    if (adminSettingOllamaHost) {
+        adminSettingOllamaHost.disabled = provider !== 'ollama';
+    }
+
+    if (provider === 'gemini') {
+        adminSettingAiModel.placeholder = 'gemini-1.5-flash';
+    } else if (provider === 'ollama') {
+        adminSettingAiModel.placeholder = 'llama3.1';
+    } else {
+        adminSettingAiModel.placeholder = 'openrouter/auto';
+    }
+
+    if (provider === 'ollama') {
+        loadAdminGlobalOllamaModels(false);
+    }
+    applyDatalistOptions(
+        adminSettingAiModelList,
+        getModelSuggestionsForProvider(provider, provider === 'ollama' ? adminGlobalOllamaModelCache : [])
+    );
+
+    if (forceDefaultModel || !String(adminSettingAiModel.value || '').trim()) {
+        adminSettingAiModel.value = DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER.ollama;
+    }
+}
+
 function applyAdminGlobalSettingsForm(settings) {
     const safe = settings && typeof settings === 'object' ? settings : {};
     const editing = safe.editing && typeof safe.editing === 'object' ? safe.editing : {};
@@ -783,6 +885,7 @@ function applyAdminGlobalSettingsForm(settings) {
     if (adminSettingSectionChunkChars) adminSettingSectionChunkChars.value = Number(ai.section_chunk_chars || 5500);
     if (adminSettingSectionChunkLines) adminSettingSectionChunkLines.value = Number(ai.section_chunk_lines || 28);
     if (adminSettingGlobalConsistencyMaxChars) adminSettingGlobalConsistencyMaxChars.value = Number(ai.global_consistency_max_chars || 18000);
+    updateAdminGlobalAiProviderUI(false);
 }
 
 function collectAdminGlobalSettingsForm() {
@@ -932,6 +1035,13 @@ function updateAdminAiValidationHint() {
     } else {
         adminAiModelInput.placeholder = 'openrouter/auto';
     }
+    applyDatalistOptions(
+        adminAiModelList,
+        getModelSuggestionsForProvider(provider, provider === 'ollama' ? adminGlobalOllamaModelCache : [])
+    );
+    if (!String(adminAiModelInput.value || '').trim()) {
+        adminAiModelInput.value = DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER.openrouter;
+    }
 }
 
 function validateAdminAiProvider() {
@@ -995,6 +1105,7 @@ function openAdminPanel() {
     if (adminAiOllamaHostInput && ollamaHostInput) {
         adminAiOllamaHostInput.value = String(ollamaHostInput.value || 'http://localhost:11434');
     }
+    updateAdminGlobalAiProviderUI(false);
     updateAdminAiValidationHint();
     if (adminAiValidationResult) {
         adminAiValidationResult.textContent = 'Run a provider check from server runtime.';
@@ -2477,6 +2588,18 @@ if (adminSaveGlobalSettingsBtn) {
     });
 }
 
+if (adminSettingAiProvider) {
+    adminSettingAiProvider.addEventListener('change', () => {
+        updateAdminGlobalAiProviderUI(true);
+    });
+}
+
+if (adminSettingOllamaHost) {
+    adminSettingOllamaHost.addEventListener('change', () => {
+        loadAdminGlobalOllamaModels(true);
+    });
+}
+
 if (adminAiProviderSelect) {
     adminAiProviderSelect.addEventListener('change', () => {
         updateAdminAiValidationHint();
@@ -2878,6 +3001,8 @@ function clear_all() {
     setProgress(0);
 }
 
+updateAdminGlobalAiProviderUI(false);
+updateAdminAiValidationHint();
 applyRouteViewMode();
 checkAuthenticatedUser();
 
