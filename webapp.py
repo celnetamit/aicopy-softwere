@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -53,6 +54,7 @@ DEFAULT_ADMIN_EMAILS = [
 ]
 
 MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+APP_SETTING_KEY_GLOBAL_RUNTIME = "global_runtime_settings"
 
 
 def _parse_csv_env(key: str, default_values):
@@ -271,6 +273,161 @@ def _error_payload(code: str, message: str, **extra) -> Dict:
     payload = {"success": False, "error": message, "error_code": code}
     payload.update(extra)
     return payload
+
+
+def _default_global_runtime_settings() -> Dict:
+    return {
+        "editing": {
+            "spelling": True,
+            "sentence_case": True,
+            "punctuation": True,
+            "chicago_style": True,
+            "cmos_strict_mode": True,
+            "domain_profile": "auto",
+            "custom_terms": [],
+        },
+        "ai": {
+            "enabled": True,
+            "provider": "ollama",
+            "model": "llama3.1",
+            "ollama_host": "http://localhost:11434",
+            "gemini_api_key": "",
+            "openrouter_api_key": "",
+            "section_wise": True,
+            "section_threshold_chars": 12000,
+            "section_threshold_paragraphs": 90,
+            "section_chunk_chars": 5500,
+            "section_chunk_lines": 28,
+            "global_consistency_max_chars": 18000,
+        },
+    }
+
+
+def _normalize_custom_terms(raw_value) -> list:
+    if isinstance(raw_value, str):
+        pieces = re.split(r"[\n,;]+", raw_value)
+    elif isinstance(raw_value, (list, tuple)):
+        pieces = list(raw_value)
+    else:
+        pieces = []
+    seen = set()
+    out = []
+    for piece in pieces:
+        token = str(piece or "").strip()
+        if not token:
+            continue
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(token[:120])
+        if len(out) >= 500:
+            break
+    return out
+
+
+def _normalize_global_runtime_settings(raw_value) -> Dict:
+    defaults = _default_global_runtime_settings()
+    raw = raw_value if isinstance(raw_value, dict) else {}
+    editing_in = raw.get("editing", {}) if isinstance(raw.get("editing"), dict) else {}
+    ai_in = raw.get("ai", {}) if isinstance(raw.get("ai"), dict) else {}
+
+    def _bool(src: Dict, key: str, fallback: bool) -> bool:
+        return bool(src.get(key, fallback))
+
+    def _int(src: Dict, key: str, fallback: int, min_value: int, max_value: int) -> int:
+        try:
+            parsed = int(src.get(key, fallback))
+        except Exception:
+            parsed = int(fallback)
+        return max(min_value, min(max_value, parsed))
+
+    domain = str(editing_in.get("domain_profile", defaults["editing"]["domain_profile"]) or "auto").strip().lower()
+    if domain not in ("auto", "general", "medical", "engineering", "law"):
+        domain = "auto"
+
+    provider = str(ai_in.get("provider", defaults["ai"]["provider"]) or "ollama").strip().lower()
+    if provider not in ("ollama", "gemini", "openrouter", "agent_router"):
+        provider = "ollama"
+
+    return {
+        "editing": {
+            "spelling": _bool(editing_in, "spelling", defaults["editing"]["spelling"]),
+            "sentence_case": _bool(editing_in, "sentence_case", defaults["editing"]["sentence_case"]),
+            "punctuation": _bool(editing_in, "punctuation", defaults["editing"]["punctuation"]),
+            "chicago_style": _bool(editing_in, "chicago_style", defaults["editing"]["chicago_style"]),
+            "cmos_strict_mode": _bool(editing_in, "cmos_strict_mode", defaults["editing"]["cmos_strict_mode"]),
+            "domain_profile": domain,
+            "custom_terms": _normalize_custom_terms(editing_in.get("custom_terms", defaults["editing"]["custom_terms"])),
+        },
+        "ai": {
+            "enabled": _bool(ai_in, "enabled", defaults["ai"]["enabled"]),
+            "provider": provider,
+            "model": str(ai_in.get("model", defaults["ai"]["model"]) or defaults["ai"]["model"]).strip()[:120],
+            "ollama_host": str(ai_in.get("ollama_host", defaults["ai"]["ollama_host"]) or defaults["ai"]["ollama_host"]).strip()[:300],
+            "gemini_api_key": str(ai_in.get("gemini_api_key", defaults["ai"]["gemini_api_key"]) or "").strip(),
+            "openrouter_api_key": str(ai_in.get("openrouter_api_key", defaults["ai"]["openrouter_api_key"]) or "").strip(),
+            "section_wise": _bool(ai_in, "section_wise", defaults["ai"]["section_wise"]),
+            "section_threshold_chars": _int(ai_in, "section_threshold_chars", defaults["ai"]["section_threshold_chars"], 4000, 120000),
+            "section_threshold_paragraphs": _int(ai_in, "section_threshold_paragraphs", defaults["ai"]["section_threshold_paragraphs"], 20, 1000),
+            "section_chunk_chars": _int(ai_in, "section_chunk_chars", defaults["ai"]["section_chunk_chars"], 1800, 30000),
+            "section_chunk_lines": _int(ai_in, "section_chunk_lines", defaults["ai"]["section_chunk_lines"], 8, 200),
+            "global_consistency_max_chars": _int(
+                ai_in,
+                "global_consistency_max_chars",
+                defaults["ai"]["global_consistency_max_chars"],
+                6000,
+                120000,
+            ),
+        },
+    }
+
+
+def _read_global_runtime_settings() -> Dict:
+    row = _STORE.get_app_setting(APP_SETTING_KEY_GLOBAL_RUNTIME)
+    if row and isinstance(row.get("value"), dict):
+        return _normalize_global_runtime_settings(row.get("value"))
+    return _default_global_runtime_settings()
+
+
+def _global_runtime_settings_for_user_payload(settings: Dict) -> Dict:
+    safe = _normalize_global_runtime_settings(settings)
+    # Do not expose server API keys to non-admin users.
+    safe["ai"]["gemini_api_key"] = ""
+    safe["ai"]["openrouter_api_key"] = ""
+    return safe
+
+
+def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict) -> Dict:
+    opts = dict(request_options or {})
+    settings = _normalize_global_runtime_settings(runtime_settings or {})
+    editing = settings.get("editing", {})
+    ai = settings.get("ai", {})
+    opts["spelling"] = bool(editing.get("spelling", True))
+    opts["sentence_case"] = bool(editing.get("sentence_case", True))
+    opts["punctuation"] = bool(editing.get("punctuation", True))
+    opts["chicago_style"] = bool(editing.get("chicago_style", True))
+    opts["cmos_strict_mode"] = bool(editing.get("cmos_strict_mode", True))
+    opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
+    opts["custom_terms"] = list(editing.get("custom_terms", []))
+    opts["journal_profile"] = "vancouver_periods"
+    opts["reference_profile"] = "vancouver_periods"
+    opts["ai"] = {
+        "enabled": bool(ai.get("enabled", True)),
+        "provider": str(ai.get("provider", "ollama")),
+        "model": str(ai.get("model", "")),
+        "ollama_host": str(ai.get("ollama_host", "")),
+        "api_key": str(ai.get("gemini_api_key", "")),
+        "gemini_api_key": str(ai.get("gemini_api_key", "")),
+        "openrouter_api_key": str(ai.get("openrouter_api_key", "")),
+        "section_wise": bool(ai.get("section_wise", True)),
+        "section_threshold_chars": int(ai.get("section_threshold_chars", 12000)),
+        "section_threshold_paragraphs": int(ai.get("section_threshold_paragraphs", 90)),
+        "section_chunk_chars": int(ai.get("section_chunk_chars", 5500)),
+        "section_chunk_lines": int(ai.get("section_chunk_lines", 28)),
+        "global_consistency_max_chars": int(ai.get("global_consistency_max_chars", 18000)),
+    }
+    return opts
 
 
 def _increment_runtime_counter(session_id: str, key: str, code: str = ""):
@@ -998,6 +1155,15 @@ def reset_session():
     return _json_response({"success": True})
 
 
+@app.get("/api/settings/runtime")
+@require_auth
+def api_runtime_settings():
+    context = _auth_context_from_request()
+    settings = _read_global_runtime_settings()
+    payload_settings = settings if context.role == ROLE_ADMIN else _global_runtime_settings_for_user_payload(settings)
+    return _json_response({"success": True, "settings": payload_settings}, session_id=context.session_id)
+
+
 @app.post("/api/tasks/upload-text")
 @require_auth
 def api_tasks_upload_text():
@@ -1116,6 +1282,7 @@ def api_tasks_process(task_id: str):
     options = payload.get("options", {})
     if not isinstance(options, dict):
         options = {}
+    options = _apply_global_runtime_settings(options, _read_global_runtime_settings())
 
     task, error = _get_owned_task_or_error(context, task_id)
     if error is not None:
@@ -1200,6 +1367,7 @@ def process_document_legacy():
     options = payload.get("options", {})
     if not isinstance(options, dict):
         options = {}
+    options = _apply_global_runtime_settings(options, _read_global_runtime_settings())
 
     task_id = str(payload.get("task_id", "") or "").strip()
     source_text = str(payload.get("source_text", "") or "")
@@ -1483,6 +1651,41 @@ def api_admin_audit_events():
 
     _record_audit(event_type="admin_audit_viewed", actor_user_id=context.user_id)
     return _json_response({"success": True, "events": events}, session_id=context.session_id)
+
+
+@app.get("/api/admin/global-settings")
+@require_admin
+def api_admin_get_global_settings():
+    context = _auth_context_from_request()
+    settings = _read_global_runtime_settings()
+    _record_audit(event_type="admin_global_settings_viewed", actor_user_id=context.user_id)
+    return _json_response({"success": True, "settings": settings}, session_id=context.session_id)
+
+
+@app.post("/api/admin/global-settings")
+@require_admin
+def api_admin_update_global_settings():
+    context = _auth_context_from_request()
+    payload = _read_json_payload()
+    incoming = payload.get("settings", payload)
+    if not isinstance(incoming, dict):
+        incoming = {}
+    normalized = _normalize_global_runtime_settings(incoming)
+    _STORE.upsert_app_setting(
+        key=APP_SETTING_KEY_GLOBAL_RUNTIME,
+        value=normalized,
+        updated_by_user_id=context.user_id,
+    )
+    _record_audit(
+        event_type="admin_global_settings_updated",
+        actor_user_id=context.user_id,
+        metadata={
+            "ai_provider": normalized.get("ai", {}).get("provider"),
+            "ai_enabled": normalized.get("ai", {}).get("enabled"),
+            "domain_profile": normalized.get("editing", {}).get("domain_profile"),
+        },
+    )
+    return _json_response({"success": True, "settings": normalized}, session_id=context.session_id)
 
 
 @app.post("/api/admin/validate-ai-provider")

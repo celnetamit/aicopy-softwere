@@ -21,6 +21,7 @@ let currentUser = null;
 let taskHistory = [];
 let adminUsers = [];
 let adminEvents = [];
+let runtimeManagedSettings = null;
 const SETTINGS_STORAGE_KEY = 'manuscript_editor_ai_settings_v1';
 const FIRST_RUN_SETUP_KEY = 'manuscript_editor_first_run_setup_v1';
 const FIRST_RUN_SETUP_VERSION = '20260417r2';
@@ -98,6 +99,31 @@ const adminAiKeyInput = document.getElementById('admin-ai-key');
 const adminAiOllamaHostInput = document.getElementById('admin-ai-ollama-host');
 const adminValidateAiBtn = document.getElementById('admin-validate-ai-btn');
 const adminAiValidationResult = document.getElementById('admin-ai-validation-result');
+const editingOptionsSection = document.getElementById('editing-options-section');
+const aiSettingsSection = document.getElementById('ai-settings-section');
+const managedSettingsNote = document.getElementById('managed-settings-note');
+const adminLoadGlobalSettingsBtn = document.getElementById('admin-load-global-settings-btn');
+const adminSaveGlobalSettingsBtn = document.getElementById('admin-save-global-settings-btn');
+const adminGlobalSettingsStatus = document.getElementById('admin-global-settings-status');
+const adminSettingSpelling = document.getElementById('admin-setting-spelling');
+const adminSettingSentenceCase = document.getElementById('admin-setting-sentence-case');
+const adminSettingPunctuation = document.getElementById('admin-setting-punctuation');
+const adminSettingChicagoStyle = document.getElementById('admin-setting-chicago-style');
+const adminSettingCmosStrict = document.getElementById('admin-setting-cmos-strict');
+const adminSettingDomainProfile = document.getElementById('admin-setting-domain-profile');
+const adminSettingCustomTerms = document.getElementById('admin-setting-custom-terms');
+const adminSettingAiEnabled = document.getElementById('admin-setting-ai-enabled');
+const adminSettingAiProvider = document.getElementById('admin-setting-ai-provider');
+const adminSettingAiModel = document.getElementById('admin-setting-ai-model');
+const adminSettingOllamaHost = document.getElementById('admin-setting-ollama-host');
+const adminSettingGeminiKey = document.getElementById('admin-setting-gemini-key');
+const adminSettingOpenrouterKey = document.getElementById('admin-setting-openrouter-key');
+const adminSettingSectionWise = document.getElementById('admin-setting-section-wise');
+const adminSettingSectionThresholdChars = document.getElementById('admin-setting-section-threshold-chars');
+const adminSettingSectionThresholdParagraphs = document.getElementById('admin-setting-section-threshold-paragraphs');
+const adminSettingSectionChunkChars = document.getElementById('admin-setting-section-chunk-chars');
+const adminSettingSectionChunkLines = document.getElementById('admin-setting-section-chunk-lines');
+const adminSettingGlobalConsistencyMaxChars = document.getElementById('admin-setting-global-consistency-max-chars');
 
 // File handling
 const dropZone = document.getElementById('drop-zone');
@@ -245,6 +271,15 @@ function applyCurrentUser(user) {
         if (openAdminPanelBtn) {
             openAdminPanelBtn.classList.add('hidden');
         }
+        if (editingOptionsSection) {
+            editingOptionsSection.classList.add('hidden');
+        }
+        if (aiSettingsSection) {
+            aiSettingsSection.classList.add('hidden');
+        }
+        if (managedSettingsNote) {
+            managedSettingsNote.classList.remove('hidden');
+        }
         return;
     }
     currentUser = user;
@@ -257,6 +292,15 @@ function applyCurrentUser(user) {
     }
     if (openAdminPanelBtn) {
         openAdminPanelBtn.classList.toggle('hidden', role !== 'ADMIN');
+    }
+    if (editingOptionsSection) {
+        editingOptionsSection.classList.add('hidden');
+    }
+    if (aiSettingsSection) {
+        aiSettingsSection.classList.add('hidden');
+    }
+    if (managedSettingsNote) {
+        managedSettingsNote.classList.remove('hidden');
     }
 }
 
@@ -304,6 +348,90 @@ function refreshTaskHistory() {
         taskHistory = Array.isArray(response.tasks) ? response.tasks : [];
         renderTaskHistory();
     });
+}
+
+function refreshRuntimeSettings(callback) {
+    if (typeof eel === 'undefined' || typeof eel.get_runtime_settings !== 'function') {
+        runtimeManagedSettings = null;
+        if (typeof callback === 'function') {
+            callback(null);
+        }
+        return;
+    }
+    eel.get_runtime_settings()(function (response) {
+        if (response && response.success && response.settings && typeof response.settings === 'object') {
+            runtimeManagedSettings = response.settings;
+            if (typeof callback === 'function') {
+                callback(runtimeManagedSettings);
+            }
+            return;
+        }
+        runtimeManagedSettings = null;
+        if (typeof callback === 'function') {
+            callback(null);
+        }
+    });
+}
+
+function buildProcessingOptionsFromRuntimeSettings() {
+    const defaults = {
+        spelling: true,
+        sentence_case: true,
+        punctuation: true,
+        chicago_style: true,
+        cmos_strict_mode: true,
+        domain_profile: 'auto',
+        custom_terms: [],
+        journal_profile: FIXED_JOURNAL_PROFILE,
+        reference_profile: FIXED_JOURNAL_PROFILE,
+        ai: {
+            enabled: true,
+            provider: 'ollama',
+            model: DEFAULT_MODEL_BY_PROVIDER.ollama,
+            ollama_host: 'http://localhost:11434',
+            api_key: '',
+            gemini_api_key: '',
+            openrouter_api_key: '',
+            section_wise: true,
+            section_threshold_chars: 12000,
+            section_threshold_paragraphs: 90,
+            section_chunk_chars: 5500,
+            section_chunk_lines: 28,
+            global_consistency_max_chars: 18000
+        }
+    };
+    const settings = runtimeManagedSettings && typeof runtimeManagedSettings === 'object' ? runtimeManagedSettings : null;
+    if (!settings) {
+        return defaults;
+    }
+    const editing = settings.editing && typeof settings.editing === 'object' ? settings.editing : {};
+    const ai = settings.ai && typeof settings.ai === 'object' ? settings.ai : {};
+    return {
+        spelling: editing.spelling !== false,
+        sentence_case: editing.sentence_case !== false,
+        punctuation: editing.punctuation !== false,
+        chicago_style: editing.chicago_style !== false,
+        cmos_strict_mode: editing.cmos_strict_mode !== false,
+        domain_profile: String(editing.domain_profile || 'auto'),
+        custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
+        journal_profile: FIXED_JOURNAL_PROFILE,
+        reference_profile: FIXED_JOURNAL_PROFILE,
+        ai: {
+            enabled: ai.enabled !== false,
+            provider: String(ai.provider || 'ollama'),
+            model: String(ai.model || ''),
+            ollama_host: String(ai.ollama_host || ''),
+            api_key: String(ai.gemini_api_key || ''),
+            gemini_api_key: String(ai.gemini_api_key || ''),
+            openrouter_api_key: String(ai.openrouter_api_key || ''),
+            section_wise: ai.section_wise !== false,
+            section_threshold_chars: Number(ai.section_threshold_chars || 12000),
+            section_threshold_paragraphs: Number(ai.section_threshold_paragraphs || 90),
+            section_chunk_chars: Number(ai.section_chunk_chars || 5500),
+            section_chunk_lines: Number(ai.section_chunk_lines || 28),
+            global_consistency_max_chars: Number(ai.global_consistency_max_chars || 18000)
+        }
+    };
 }
 
 function applyTaskDetailsToState(task) {
@@ -434,6 +562,7 @@ function onGoogleCredentialResponse(response) {
         applyCurrentUser(user);
         showAppView();
         setStatus('Authenticated', 'success');
+        refreshRuntimeSettings();
         maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
         if (currentUser && String(currentUser.role || '').toUpperCase() === 'ADMIN') {
@@ -458,6 +587,7 @@ function checkAuthenticatedUser() {
         }
         applyCurrentUser(response.user);
         showAppView();
+        refreshRuntimeSettings();
         maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
         if (String(currentUser.role || '').toUpperCase() === 'ADMIN') {
@@ -538,6 +668,119 @@ function renderAdminAudit() {
         html += '</tr>';
     });
     adminAuditBody.innerHTML = html;
+}
+
+function applyAdminGlobalSettingsForm(settings) {
+    const safe = settings && typeof settings === 'object' ? settings : {};
+    const editing = safe.editing && typeof safe.editing === 'object' ? safe.editing : {};
+    const ai = safe.ai && typeof safe.ai === 'object' ? safe.ai : {};
+    if (adminSettingSpelling) adminSettingSpelling.checked = editing.spelling !== false;
+    if (adminSettingSentenceCase) adminSettingSentenceCase.checked = editing.sentence_case !== false;
+    if (adminSettingPunctuation) adminSettingPunctuation.checked = editing.punctuation !== false;
+    if (adminSettingChicagoStyle) adminSettingChicagoStyle.checked = editing.chicago_style !== false;
+    if (adminSettingCmosStrict) adminSettingCmosStrict.checked = editing.cmos_strict_mode !== false;
+    if (adminSettingDomainProfile) adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
+    if (adminSettingCustomTerms) {
+        const terms = Array.isArray(editing.custom_terms) ? editing.custom_terms : [];
+        adminSettingCustomTerms.value = normalizeCustomTermsText(terms.join('\n'));
+    }
+    if (adminSettingAiEnabled) adminSettingAiEnabled.checked = ai.enabled !== false;
+    if (adminSettingAiProvider) adminSettingAiProvider.value = String(ai.provider || 'ollama');
+    if (adminSettingAiModel) adminSettingAiModel.value = String(ai.model || '');
+    if (adminSettingOllamaHost) adminSettingOllamaHost.value = String(ai.ollama_host || 'http://localhost:11434');
+    if (adminSettingGeminiKey) adminSettingGeminiKey.value = String(ai.gemini_api_key || '');
+    if (adminSettingOpenrouterKey) adminSettingOpenrouterKey.value = String(ai.openrouter_api_key || '');
+    if (adminSettingSectionWise) adminSettingSectionWise.checked = ai.section_wise !== false;
+    if (adminSettingSectionThresholdChars) adminSettingSectionThresholdChars.value = Number(ai.section_threshold_chars || 12000);
+    if (adminSettingSectionThresholdParagraphs) adminSettingSectionThresholdParagraphs.value = Number(ai.section_threshold_paragraphs || 90);
+    if (adminSettingSectionChunkChars) adminSettingSectionChunkChars.value = Number(ai.section_chunk_chars || 5500);
+    if (adminSettingSectionChunkLines) adminSettingSectionChunkLines.value = Number(ai.section_chunk_lines || 28);
+    if (adminSettingGlobalConsistencyMaxChars) adminSettingGlobalConsistencyMaxChars.value = Number(ai.global_consistency_max_chars || 18000);
+}
+
+function collectAdminGlobalSettingsForm() {
+    return {
+        editing: {
+            spelling: adminSettingSpelling ? adminSettingSpelling.checked : true,
+            sentence_case: adminSettingSentenceCase ? adminSettingSentenceCase.checked : true,
+            punctuation: adminSettingPunctuation ? adminSettingPunctuation.checked : true,
+            chicago_style: adminSettingChicagoStyle ? adminSettingChicagoStyle.checked : true,
+            cmos_strict_mode: adminSettingCmosStrict ? adminSettingCmosStrict.checked : true,
+            domain_profile: adminSettingDomainProfile ? String(adminSettingDomainProfile.value || 'auto') : 'auto',
+            custom_terms: adminSettingCustomTerms ? parseCustomTerms(adminSettingCustomTerms.value) : []
+        },
+        ai: {
+            enabled: adminSettingAiEnabled ? adminSettingAiEnabled.checked : true,
+            provider: adminSettingAiProvider ? String(adminSettingAiProvider.value || 'ollama') : 'ollama',
+            model: adminSettingAiModel ? String(adminSettingAiModel.value || '').trim() : '',
+            ollama_host: adminSettingOllamaHost ? String(adminSettingOllamaHost.value || '').trim() : '',
+            gemini_api_key: adminSettingGeminiKey ? String(adminSettingGeminiKey.value || '').trim() : '',
+            openrouter_api_key: adminSettingOpenrouterKey ? String(adminSettingOpenrouterKey.value || '').trim() : '',
+            section_wise: adminSettingSectionWise ? adminSettingSectionWise.checked : true,
+            section_threshold_chars: clampInt(adminSettingSectionThresholdChars ? adminSettingSectionThresholdChars.value : 12000, 4000, 120000, 12000),
+            section_threshold_paragraphs: clampInt(adminSettingSectionThresholdParagraphs ? adminSettingSectionThresholdParagraphs.value : 90, 20, 1000, 90),
+            section_chunk_chars: clampInt(adminSettingSectionChunkChars ? adminSettingSectionChunkChars.value : 5500, 1800, 30000, 5500),
+            section_chunk_lines: clampInt(adminSettingSectionChunkLines ? adminSettingSectionChunkLines.value : 28, 8, 200, 28),
+            global_consistency_max_chars: clampInt(adminSettingGlobalConsistencyMaxChars ? adminSettingGlobalConsistencyMaxChars.value : 18000, 6000, 120000, 18000)
+        }
+    };
+}
+
+function loadAdminGlobalSettings() {
+    if (typeof eel === 'undefined' || typeof eel.admin_get_global_settings !== 'function') {
+        return;
+    }
+    if (adminGlobalSettingsStatus) {
+        adminGlobalSettingsStatus.textContent = 'Loading global settings...';
+        adminGlobalSettingsStatus.style.color = '#ffd58d';
+    }
+    eel.admin_get_global_settings()(function (response) {
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Could not load global settings';
+            if (adminGlobalSettingsStatus) {
+                adminGlobalSettingsStatus.textContent = message;
+                adminGlobalSettingsStatus.style.color = '#ffb8c2';
+            }
+            return;
+        }
+        applyAdminGlobalSettingsForm(response.settings || {});
+        if (adminGlobalSettingsStatus) {
+            adminGlobalSettingsStatus.textContent = 'Global settings loaded.';
+            adminGlobalSettingsStatus.style.color = '#a9f2d3';
+        }
+    });
+}
+
+function saveAdminGlobalSettings() {
+    if (typeof eel === 'undefined' || typeof eel.admin_update_global_settings !== 'function') {
+        return;
+    }
+    const settings = collectAdminGlobalSettingsForm();
+    if (adminGlobalSettingsStatus) {
+        adminGlobalSettingsStatus.textContent = 'Saving global settings...';
+        adminGlobalSettingsStatus.style.color = '#ffd58d';
+    }
+    if (adminSaveGlobalSettingsBtn) {
+        adminSaveGlobalSettingsBtn.disabled = true;
+    }
+    eel.admin_update_global_settings(settings)(function (response) {
+        if (adminSaveGlobalSettingsBtn) {
+            adminSaveGlobalSettingsBtn.disabled = false;
+        }
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Could not save global settings';
+            if (adminGlobalSettingsStatus) {
+                adminGlobalSettingsStatus.textContent = message;
+                adminGlobalSettingsStatus.style.color = '#ffb8c2';
+            }
+            return;
+        }
+        runtimeManagedSettings = response.settings || runtimeManagedSettings;
+        if (adminGlobalSettingsStatus) {
+            adminGlobalSettingsStatus.textContent = 'Global settings saved. New processing jobs now use this config.';
+            adminGlobalSettingsStatus.style.color = '#a9f2d3';
+        }
+    });
 }
 
 function refreshAdminUsers() {
@@ -665,6 +908,7 @@ function openAdminPanel() {
         adminAiValidationResult.textContent = 'Run a provider check from server runtime.';
         adminAiValidationResult.style.color = '#a8bddf';
     }
+    loadAdminGlobalSettings();
     refreshAdminUsers();
     refreshAdminAudit();
 }
@@ -2128,6 +2372,18 @@ if (adminRefreshAuditBtn) {
     });
 }
 
+if (adminLoadGlobalSettingsBtn) {
+    adminLoadGlobalSettingsBtn.addEventListener('click', () => {
+        loadAdminGlobalSettings();
+    });
+}
+
+if (adminSaveGlobalSettingsBtn) {
+    adminSaveGlobalSettingsBtn.addEventListener('click', () => {
+        saveAdminGlobalSettings();
+    });
+}
+
 if (adminAiProviderSelect) {
     adminAiProviderSelect.addEventListener('change', () => {
         updateAdminAiValidationHint();
@@ -2321,34 +2577,7 @@ function process_document() {
     setStatus('Processing...', 'warning');
     setProgress(30);
     document.getElementById('process-btn').disabled = true;
-    const aiAdvanced = readAiAdvancedSettingsFromInputs();
-
-    const options = {
-        spelling: document.getElementById('opt-spelling').checked,
-        sentence_case: document.getElementById('opt-sentence').checked,
-        punctuation: document.getElementById('opt-punctuation').checked,
-        chicago_style: document.getElementById('opt-chicago').checked,
-        cmos_strict_mode: cmosStrictInput ? cmosStrictInput.checked : true,
-        domain_profile: domainProfileSelect.value || 'auto',
-        custom_terms: parseCustomTerms(customTermsInput.value),
-        journal_profile: FIXED_JOURNAL_PROFILE,
-        reference_profile: FIXED_JOURNAL_PROFILE,
-        ai: {
-            enabled: aiEnabled.checked,
-            provider: aiProvider.value,
-            model: getCurrentAiModel(),
-            ollama_host: ollamaHostInput.value.trim(),
-            api_key: geminiApiKeyInput.value.trim(),
-            gemini_api_key: geminiApiKeyInput.value.trim(),
-            openrouter_api_key: openrouterApiKeyInput.value.trim(),
-            section_wise: aiAdvanced.section_wise,
-            section_threshold_chars: aiAdvanced.section_threshold_chars,
-            section_threshold_paragraphs: aiAdvanced.section_threshold_paragraphs,
-            section_chunk_chars: aiAdvanced.section_chunk_chars,
-            section_chunk_lines: aiAdvanced.section_chunk_lines,
-            global_consistency_max_chars: aiAdvanced.global_consistency_max_chars
-        }
-    };
+    const options = buildProcessingOptionsFromRuntimeSettings();
     saveAiSettings();
 
     eel.process_document(options, fileContent.taskId || '')(function(response) {

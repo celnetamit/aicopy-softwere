@@ -240,6 +240,58 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(payload.get("valid"))
         self.assertIn("Unsupported provider", str(payload.get("message", "")))
 
+    def test_admin_global_settings_round_trip(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = admin_client.request("GET", "/api/admin/global-settings")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertIn("settings", payload)
+
+        updated = {
+            "editing": {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+                "cmos_strict_mode": True,
+                "domain_profile": "medical",
+                "custom_terms": ["myocardial infarction", "HbA1c"],
+            },
+            "ai": {
+                "enabled": True,
+                "provider": "openrouter",
+                "model": "openrouter/auto",
+                "ollama_host": "http://localhost:11434",
+                "gemini_api_key": "gem-key",
+                "openrouter_api_key": "or-key",
+                "section_wise": True,
+                "section_threshold_chars": 14000,
+                "section_threshold_paragraphs": 100,
+                "section_chunk_chars": 6000,
+                "section_chunk_lines": 32,
+                "global_consistency_max_chars": 19000,
+            },
+        }
+        status, payload = admin_client.request("POST", "/api/admin/global-settings", {"settings": updated})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("settings", {}).get("editing", {}).get("domain_profile"), "medical")
+
+        user_client = WsgiTestClient(webapp.app)
+        status, payload = user_client.request("POST", "/api/auth/google-login", {"id_token": "test:user@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        status, payload = user_client.request("GET", "/api/settings/runtime")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        user_settings = payload.get("settings", {})
+        self.assertEqual(user_settings.get("editing", {}).get("domain_profile"), "medical")
+        self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
+
     def test_deactivated_user_cannot_access_api(self):
         admin_client = WsgiTestClient(webapp.app)
         user_client = WsgiTestClient(webapp.app)

@@ -238,6 +238,16 @@ class AppStore:
             )
             """
         )
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_by_user_id TEXT,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
 
         self._execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at)")
@@ -246,6 +256,7 @@ class AppStore:
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_type ON audit_events(event_type, created_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_app_settings_updated_at ON app_settings(updated_at)")
 
     @staticmethod
     def _now_ts() -> int:
@@ -915,6 +926,44 @@ class AppStore:
             (now,),
         )
 
+    def get_app_setting(self, key: str) -> Optional[Dict[str, Any]]:
+        row = self._query_one(
+            "SELECT * FROM app_settings WHERE key = ?" if self.backend == "sqlite" else "SELECT * FROM app_settings WHERE key = %s",
+            (str(key or "").strip(),),
+        )
+        if row is None:
+            return None
+        item = dict(row)
+        item["value"] = self._safe_json_load(item.get("value_json"))
+        return item
+
+    def upsert_app_setting(self, *, key: str, value: Dict[str, Any], updated_by_user_id: str = ""):
+        safe_key = str(key or "").strip()
+        if not safe_key:
+            return
+        now = self._now_ts()
+        exists = self._query_one(
+            "SELECT key FROM app_settings WHERE key = ?" if self.backend == "sqlite" else "SELECT key FROM app_settings WHERE key = %s",
+            (safe_key,),
+        )
+        payload_json = self._safe_json_dump(value or {})
+        if exists:
+            self._execute(
+                "UPDATE app_settings SET value_json = ?, updated_by_user_id = ?, updated_at = ? WHERE key = ?"
+                if self.backend == "sqlite"
+                else
+                "UPDATE app_settings SET value_json = %s, updated_by_user_id = %s, updated_at = %s WHERE key = %s",
+                (payload_json, updated_by_user_id or None, now, safe_key),
+            )
+            return
+        self._execute(
+            "INSERT INTO app_settings (key, value_json, updated_by_user_id, updated_at) VALUES (?, ?, ?, ?)"
+            if self.backend == "sqlite"
+            else
+            "INSERT INTO app_settings (key, value_json, updated_by_user_id, updated_at) VALUES (%s, %s, %s, %s)",
+            (safe_key, payload_json, updated_by_user_id or None, now),
+        )
+
     def _normalize_task_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if row is None:
             return None
@@ -929,4 +978,5 @@ class AppStore:
         self._execute("DELETE FROM tasks")
         self._execute("DELETE FROM user_sessions")
         self._execute("DELETE FROM audit_events")
+        self._execute("DELETE FROM app_settings")
         self._execute("DELETE FROM users")

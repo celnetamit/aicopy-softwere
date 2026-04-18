@@ -108,6 +108,10 @@
             return postJson('/api/auth/logout', {});
         }),
 
+        get_runtime_settings: callbackWrapper(function () {
+            return getJson('/api/settings/runtime');
+        }),
+
         load_text_content: callbackWrapper(function (fileName, content) {
             return postJson('/api/tasks/upload-text', {
                 file_name: fileName,
@@ -218,6 +222,16 @@
             }
             safeLimit = Math.min(500, Math.max(1, Math.floor(safeLimit)));
             return getJson('/api/admin/users?limit=' + encodeURIComponent(String(safeLimit)));
+        }),
+
+        admin_get_global_settings: callbackWrapper(function () {
+            return getJson('/api/admin/global-settings');
+        }),
+
+        admin_update_global_settings: callbackWrapper(function (settings) {
+            return postJson('/api/admin/global-settings', {
+                settings: settings || {}
+            });
         }),
 
         admin_set_user_status: callbackWrapper(function (userId, status) {
