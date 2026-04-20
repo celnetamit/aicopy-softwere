@@ -149,6 +149,40 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("Nooreldeen R., Bach H.", out)
         self.assertIn("Int J Mol Sci. 2021 ;22(16):8661. doi: 10.3390/ijms22168661.", out)
 
+    def test_apa_style_journal_reference_is_parsed_without_false_missing_placeholders(self):
+        source = (
+            "References\n"
+            "Kaplan S. (1995). The restorative benefits of nature: Toward an integrative framework. Journal of Environmental Psychology, 15(3), 169–182.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Kaplan S.", out)
+        self.assertIn("The restorative benefits of nature: toward an integrative framework.", out)
+        self.assertIn("J Environ Psychol. 1995 ;15(3):169–182.", out)
+        self.assertNotIn("[title missing]", out)
+        self.assertNotIn("[volume missing]", out)
+        self.assertNotIn("[page missing]", out)
+
+    def test_author_year_website_reference_keeps_title_and_url_without_false_place_publisher_missing(self):
+        source = (
+            "References\n"
+            "Kellert S. R., & Calabrese, E. F. 2015; The practice of biophilic design. www.biophilic-design.com\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("The practice of biophilic design", out)
+        self.assertIn("www.biophilic-design.com", out)
+        self.assertNotIn("[title missing]", out)
+        self.assertNotIn("[place missing]", out)
+        self.assertNotIn("[publisher missing]", out)
+
+    def test_in_chapter_reference_is_not_misclassified_as_journal_volume_missing(self):
+        source = (
+            "References\n"
+            "Wilson E.O. Biophilia and the conservation ethic. In Evolutionary Perspectives Environ Problems. 2017;(pp. 250-258). Routledge.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Biophilia and the conservation ethic", out)
+        self.assertNotIn("[volume missing]", out)
+
     def test_citation_reference_validator_is_source_type_aware(self):
         source = (
             "Introduction cites [1, 2, 3].\n"

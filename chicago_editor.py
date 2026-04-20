@@ -982,10 +982,15 @@ class ChicagoEditor:
     def _detect_reference_source_type(self, entry: str, authors: str, title: str, journal: str, tail: str) -> str:
         """Classify a reference into coarse NLM source types for validation."""
         candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
-        if re.search(r'(?i)\bIn:\s*', candidate):
+        if re.search(r'(?i)(?:^|[.])\s*In:?\s+', candidate):
             return "chapter"
         if re.search(r'(?i)\[Internet\]|Available from:|https?://|www\.', candidate):
             return "website"
+        if re.search(
+            r'\)\.\s*[^.]+\.\s*[^,]+,\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*,\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?',
+            candidate
+        ):
+            return "journal"
         if re.search(r'\b(?:19|20)\d{2}(?:\s+[A-Za-z]{3,9}(?:\s+\d{1,2})?)?\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?', candidate):
             return "journal"
         if re.search(r':\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?\b', candidate) and journal:
@@ -1041,9 +1046,15 @@ class ChicagoEditor:
         volume_match = re.search(
             r'\b(?:19|20)\d{2}(?:\s+[A-Za-z]{3,9}(?:\s+\d{1,2})?)?\s*;\s*(?P<volume>[A-Za-z]?\d+(?:\([^)]+\))?)',
             candidate
+        ) or re.search(
+            r'\)\.\s*[^.]+\.\s*[^,]+,\s*(?P<volume>[A-Za-z]?\d+(?:\([^)]+\))?)\s*,\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?',
+            candidate
         )
         page_match = re.search(
             r'(?::\s*(?P<pages>[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?))\b',
+            candidate,
+        ) or re.search(
+            r',\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*,\s*(?P<pages>[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?)\b',
             candidate,
         ) or re.search(r'(?i)\bp(?:p)?\.?\s*(?P<pages>\d+(?:\s*[-–]\s*\d+)?)\b', candidate)
         cited_match = re.search(r'(?i)\[cited [^\]]+\]', candidate)
@@ -1093,8 +1104,6 @@ class ChicagoEditor:
             checks = [
                 ("author", "reference_missing_author", "reference_missing_author_numbers", has_contributor),
                 ("title", "reference_missing_title", "reference_missing_title_numbers", bool(metadata.get("has_title"))),
-                ("place", "reference_missing_place", "reference_missing_place_numbers", bool(metadata.get("has_place"))),
-                ("publisher", "reference_missing_publisher", "reference_missing_publisher_numbers", bool(metadata.get("has_publisher"))),
                 ("year", "reference_missing_year", "reference_missing_year_numbers", bool(metadata.get("has_year"))),
                 ("cited date", "reference_missing_cited_date", "reference_missing_cited_date_numbers", bool(metadata.get("has_cited_date"))),
                 ("url", "reference_missing_url", "reference_missing_url_numbers", bool(metadata.get("has_url"))),
@@ -1129,6 +1138,41 @@ class ChicagoEditor:
         candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
         if not candidate:
             return "", "", "", ""
+
+        apa_journal_match = re.match(
+            r'^(?P<authors>.+?)\s*\((?P<year>(?:19|20)\d{2})\)\.\s*'
+            r'(?P<title>.+?)\.\s*'
+            r'(?P<journal>.+?),\s*'
+            r'(?P<volume>[A-Za-z]?\d+(?:\([^)]+\))?)\s*,\s*'
+            r'(?P<pages>[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?)'
+            r'\.?\s*(?P<rest>.*)$',
+            candidate,
+        )
+        if apa_journal_match:
+            authors = apa_journal_match.group('authors').strip().strip('.,;')
+            title = apa_journal_match.group('title').strip().strip('.,;')
+            journal = apa_journal_match.group('journal').strip().strip('.,;')
+            tail = f"{apa_journal_match.group('year')} ;{apa_journal_match.group('volume')}:{apa_journal_match.group('pages')}"
+            rest = str(apa_journal_match.group('rest') or '').strip().strip('.,;')
+            if rest:
+                tail += f". {rest}"
+            return authors, title, journal, tail
+
+        author_year_title_url_match = re.match(
+            r'^(?P<authors>.+?)\s*(?:\((?P<year1>(?:19|20)\d{2})\)|(?P<year2>(?:19|20)\d{2}))'
+            r'[.;]?\s*(?P<title>.+?)\.\s*(?P<url>(?:https?://\S+|www\.\S+))\.?$',
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        if author_year_title_url_match:
+            authors = author_year_title_url_match.group('authors').strip().strip('.,;')
+            title = author_year_title_url_match.group('title').strip().strip('.,;')
+            year = str(author_year_title_url_match.group('year1') or author_year_title_url_match.group('year2') or '').strip()
+            url = str(author_year_title_url_match.group('url') or '').strip()
+            tail = year
+            if url:
+                tail = f"{tail}. Available from: {url}" if tail else f"Available from: {url}"
+            return authors, title, "", tail
 
         year_match = re.search(r'\b(?:19|20)\d{2}\b', candidate)
         if year_match:
