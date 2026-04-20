@@ -32,6 +32,10 @@ class DocumentProcessor:
     CELL_TABLE_CELL_MARKER = "[[CELL_TABLE_CELL]]"
     TEXTBOX_MARKER = "[[TEXTBOX]]"
     TEXTBOX_PARAGRAPH_MARKER = "[[TEXTBOX_PARA]]"
+    HEADING_LINE_RE = re.compile(r'^\s{0,3}(#{1,6})\s+(.*\S)\s*$')
+    BULLET_LINE_RE = re.compile(r'^\s*([-*•])\s+(.*\S)\s*$')
+    NUMBERED_LINE_RE = re.compile(r'^\s*((?:\d+|[A-Za-z])[.)])\s+(.*\S)\s*$')
+    PLAINTEXT_HEADING_RE = re.compile(r'^[A-Z][A-Za-z0-9/&,\- ]{0,79}:?$')
 
     def __init__(self, ollama_host: str = "http://localhost:11434"):
         self.ollama_host = ollama_host
@@ -1502,6 +1506,103 @@ Corrected manuscript:"""
             for is_foreign, foreign_segment in self._iter_foreign_segments(segment):
                 self._append_docx_run(paragraph, foreign_segment, segment_type=segment_type, is_foreign=is_foreign)
 
+    def _configure_docx_document_defaults(self, doc: DocxDocument):
+        """Apply base page and font defaults for generated DOCX documents."""
+        for section in doc.sections:
+            section.top_margin = Inches(1)
+            section.bottom_margin = Inches(1)
+            section.left_margin = Inches(1.25)
+            section.right_margin = Inches(1.25)
+
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Times New Roman'
+        font.size = Pt(12)
+
+    def _resolve_docx_style_name(self, doc: DocxDocument, preferred: str, fallback: str = "Normal") -> str:
+        """Return a valid style name present in the document."""
+        try:
+            doc.styles[preferred]
+            return preferred
+        except KeyError:
+            return fallback
+
+    def _classify_plaintext_line(self, line: str) -> Dict[str, str]:
+        """Infer a DOCX paragraph role from a plain-text line."""
+        raw = str(line or "")
+        stripped = raw.strip()
+        if not stripped:
+            return {"kind": "blank", "text": ""}
+
+        heading_match = self.HEADING_LINE_RE.match(raw)
+        if heading_match:
+            level = min(len(heading_match.group(1)), 3)
+            return {"kind": f"heading_{level}", "text": heading_match.group(2).strip()}
+
+        bullet_match = self.BULLET_LINE_RE.match(raw)
+        if bullet_match:
+            return {"kind": "bullet", "text": bullet_match.group(2).strip()}
+
+        numbered_match = self.NUMBERED_LINE_RE.match(raw)
+        if numbered_match:
+            return {"kind": "number", "text": numbered_match.group(2).strip()}
+
+        if (
+            self.PLAINTEXT_HEADING_RE.match(stripped)
+            and '\t' not in stripped
+            and len(stripped.split()) <= 8
+            and stripped[-1] not in '.!?'
+        ):
+            return {"kind": "heading_1", "text": stripped.rstrip(':')}
+
+        return {"kind": "body", "text": raw}
+
+    def _apply_fallback_paragraph_layout(self, paragraph: Paragraph, kind: str):
+        """Apply paragraph style/spacing for fallback DOCX generation."""
+        doc = paragraph.part.document
+        style_name = "Normal"
+        if kind == "bullet":
+            style_name = self._resolve_docx_style_name(doc, "List Bullet")
+        elif kind == "number":
+            style_name = self._resolve_docx_style_name(doc, "List Number")
+        elif kind.startswith("heading_"):
+            level = kind.rsplit('_', 1)[-1]
+            style_name = self._resolve_docx_style_name(doc, f"Heading {level}")
+
+        paragraph.style = doc.styles[style_name]
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.line_spacing = 1.5
+
+        if kind.startswith("heading_"):
+            paragraph.paragraph_format.space_before = Pt(12)
+            paragraph.paragraph_format.space_after = Pt(6)
+        elif kind == "blank":
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(0)
+
+    def _add_fallback_docx_paragraph(
+        self,
+        doc: DocxDocument,
+        text: str,
+        *,
+        highlighted: bool = False,
+        original_text: str = "",
+        structure_hint: Optional[str] = None,
+    ):
+        """Append one inferred paragraph to a generated fallback DOCX."""
+        classified = self._classify_plaintext_line(structure_hint if structure_hint is not None else text)
+        paragraph = doc.add_paragraph()
+        self._apply_fallback_paragraph_layout(paragraph, classified["kind"])
+
+        body_text = self._classify_plaintext_line(text)["text"]
+        if highlighted:
+            original_body_text = self._classify_plaintext_line(original_text)["text"]
+            for segment_type, segment_text in self._iter_diff_segments(original_body_text, body_text):
+                self._append_text_segments_to_paragraph(paragraph, segment_text, segment_type=segment_type)
+        else:
+            self._append_text_segments_to_paragraph(paragraph, body_text)
+        return paragraph
+
     def _split_textbox_paragraphs(self, text: str) -> List[str]:
         """Deserialize textbox content into paragraph chunks."""
         raw = str(text or "")
@@ -1825,33 +1926,10 @@ Corrected manuscript:"""
             return
 
         doc = Document()
+        self._configure_docx_document_defaults(doc)
 
-        # Set document margins
-        sections = doc.sections
-        for section in sections:
-            section.top_margin = Inches(1)
-            section.bottom_margin = Inches(1)
-            section.left_margin = Inches(1.25)
-            section.right_margin = Inches(1.25)
-
-        # Set default font
-        style = doc.styles['Normal']
-        font = style.font
-        font.name = 'Times New Roman'
-        font.size = Pt(12)
-
-        # Add paragraphs
-        for paragraph in text.split('\n'):
-            if paragraph.strip():
-                p = doc.add_paragraph()
-                p.paragraph_format.space_after = Pt(0)
-                p.paragraph_format.line_spacing = 1.5
-                for is_missing, segment in self._iter_missing_placeholder_segments(paragraph):
-                    if is_missing:
-                        self._append_docx_run(p, segment, is_missing=True)
-                        continue
-                    for is_foreign, foreign_segment in self._iter_foreign_segments(segment):
-                        self._append_docx_run(p, foreign_segment, is_foreign=is_foreign)
+        for paragraph_text in text.split('\n'):
+            self._add_fallback_docx_paragraph(doc, paragraph_text, highlighted=False)
 
         doc.save(output_path)
 
@@ -1862,42 +1940,53 @@ Corrected manuscript:"""
             return
 
         doc = Document()
+        self._configure_docx_document_defaults(doc)
 
-        # Set document margins
-        sections = doc.sections
-        for section in sections:
-            section.top_margin = Inches(1)
-            section.bottom_margin = Inches(1)
-            section.left_margin = Inches(1.25)
-            section.right_margin = Inches(1.25)
+        original_lines = (original or "").split('\n')
+        corrected_lines = (corrected or "").split('\n')
+        matcher = difflib.SequenceMatcher(a=original_lines, b=corrected_lines, autojunk=False)
 
-        # Set default font
-        style = doc.styles['Normal']
-        font = style.font
-        font.name = 'Times New Roman'
-        font.size = Pt(12)
+        for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+            if opcode == "equal":
+                for line in corrected_lines[j1:j2]:
+                    self._add_fallback_docx_paragraph(doc, line, highlighted=False)
+                continue
 
-        def add_paragraph():
-            paragraph = doc.add_paragraph()
-            paragraph.paragraph_format.space_after = Pt(0)
-            paragraph.paragraph_format.line_spacing = 1.5
-            return paragraph
+            if opcode == "insert":
+                for line in corrected_lines[j1:j2]:
+                    self._add_fallback_docx_paragraph(
+                        doc,
+                        line,
+                        highlighted=True,
+                        original_text="",
+                    )
+                continue
 
-        paragraph = add_paragraph()
+            if opcode == "delete":
+                for line in original_lines[i1:i2]:
+                    self._add_fallback_docx_paragraph(
+                        doc,
+                        "",
+                        highlighted=True,
+                        original_text=line,
+                        structure_hint=line,
+                    )
+                continue
 
-        for segment_type, segment_text in self._iter_diff_segments(original, corrected):
-            lines = segment_text.split('\n')
-            for line_idx, line_text in enumerate(lines):
-                if line_idx > 0:
-                    paragraph = add_paragraph()
-                if not line_text:
-                    continue
-                for is_missing, outer_segment in self._iter_missing_placeholder_segments(line_text):
-                    if is_missing:
-                        self._append_docx_run(paragraph, outer_segment, segment_type=segment_type, is_missing=True)
-                        continue
-                    for is_foreign, sub_segment in self._iter_foreign_segments(outer_segment):
-                        self._append_docx_run(paragraph, sub_segment, segment_type=segment_type, is_foreign=is_foreign)
+            left = original_lines[i1:i2]
+            right = corrected_lines[j1:j2]
+            pair_count = max(len(left), len(right))
+            for idx in range(pair_count):
+                original_line = left[idx] if idx < len(left) else ""
+                corrected_line = right[idx] if idx < len(right) else ""
+                structure_hint = corrected_line if corrected_line else original_line
+                self._add_fallback_docx_paragraph(
+                    doc,
+                    corrected_line,
+                    highlighted=True,
+                    original_text=original_line,
+                    structure_hint=structure_hint,
+                )
 
         doc.save(output_path)
 

@@ -538,6 +538,66 @@ class DocxStructurePreservationTests(unittest.TestCase):
             os.unlink(source_path)
             os.unlink(output_path)
 
+    def test_generate_clean_docx_fallback_preserves_blank_lines_and_structure_styles(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+
+        try:
+            corrected = "\n".join([
+                "# Executive Summary",
+                "",
+                "- First bullet",
+                "1. First numbered item",
+                "Body paragraph.",
+            ])
+
+            self.processor.generate_clean_docx(corrected, output_path)
+
+            out_doc = Document(output_path)
+            self.assertEqual(len(out_doc.paragraphs), 5)
+            self.assertEqual(out_doc.paragraphs[0].text, "Executive Summary")
+            self.assertEqual(out_doc.paragraphs[0].style.name, "Heading 1")
+            self.assertEqual(out_doc.paragraphs[1].text, "")
+            self.assertEqual(out_doc.paragraphs[2].text, "First bullet")
+            self.assertEqual(out_doc.paragraphs[2].style.name, "List Bullet")
+            self.assertEqual(out_doc.paragraphs[3].text, "First numbered item")
+            self.assertEqual(out_doc.paragraphs[3].style.name, "List Number")
+            self.assertEqual(out_doc.paragraphs[4].text, "Body paragraph.")
+        finally:
+            os.unlink(output_path)
+
+    def test_generate_highlighted_docx_fallback_uses_structured_paragraph_styles(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+
+        try:
+            original = "\n".join([
+                "# Executive Summary",
+                "",
+                "- Old bullet",
+                "Body paragraph.",
+            ])
+            corrected = "\n".join([
+                "# Executive Summary",
+                "",
+                "- New bullet",
+                "Body paragraph updated.",
+            ])
+
+            self.processor.generate_highlighted_docx(original, corrected, output_path)
+
+            out_doc = Document(output_path)
+            self.assertEqual(out_doc.paragraphs[0].style.name, "Heading 1")
+            self.assertEqual(out_doc.paragraphs[0].text, "Executive Summary")
+            self.assertEqual(out_doc.paragraphs[1].text, "")
+            self.assertEqual(out_doc.paragraphs[2].style.name, "List Bullet")
+            self.assertIn("Old", out_doc.paragraphs[2].text)
+            self.assertIn("New bullet", out_doc.paragraphs[2].text)
+            self.assertIn("Body paragraph", out_doc.paragraphs[3].text)
+            self.assertIn("updated", out_doc.paragraphs[3].text)
+        finally:
+            os.unlink(output_path)
+
 
 if __name__ == "__main__":
     unittest.main()
