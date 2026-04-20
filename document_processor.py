@@ -1379,17 +1379,11 @@ Corrected manuscript:"""
 
         special_parts = {
             "word/comments.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
-            "word/commentsExtended.xml": "application/vnd.ms-word.commentsExt+xml",
-            "word/commentsIds.xml": "application/vnd.ms-word.commentsIds+xml",
-            "word/people.xml": "application/vnd.openxmlformats-officedocument.officeDocument/2006/relationships/people",
             "word/footnotes.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
             "word/endnotes.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
         }
         relationship_types = {
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
-            "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
-            "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
-            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/people",
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes",
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes",
         }
