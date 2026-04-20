@@ -89,6 +89,7 @@ class ChicagoEditor:
         'materials': 'Mater',
         'medicine': 'Med',
         'methods': 'Methods',
+        'molecular': 'Mol',
         'modern': 'Mod',
         'national': 'Natl',
         'planning': 'Plan',
@@ -818,7 +819,7 @@ class ChicagoEditor:
             return source
 
         if len(normalized) > 6 and not any(p.lower() == 'et al' for p in normalized):
-            normalized = normalized[:6] + ['et al']
+            normalized = normalized[:1] + ['et al']
 
         return ', '.join(normalized)
 
@@ -939,19 +940,33 @@ class ChicagoEditor:
         return ' '.join(result).strip()
 
     def _normalize_reference_tail(self, tail: str) -> str:
-        """Normalize trailing citation metadata (year/volume/pages/doi/url)."""
+        """Normalize trailing citation metadata to house journal style."""
         text = re.sub(r'\s+', ' ', tail or '').strip()
         if not text:
             return text
 
-        text = re.sub(r'\bdoi\s*:\s*', 'doi:', text, flags=re.IGNORECASE)
-        text = re.sub(r'\s+([,;:.])', r'\1', text)
-        text = re.sub(r'([,;:])(?!\s)', r'\1 ', text)
-        text = re.sub(r'(\b(?:19|20)\d{2})\s*;\s*(\d)', r'\1;\2', text)
-        text = re.sub(r'(\))\s*:\s*(\d)', r'\1:\2', text)
-        text = re.sub(r'(\d)\s*:\s*(\d)', r'\1:\2', text)
-        text = re.sub(r'\s{2,}', ' ', text).strip()
-        return text
+        doi_match = re.search(r'(?i)\b(?:doi:\s*)?(10\.\d{4,9}/[^\s<>"\']+)', text)
+        doi_value = doi_match.group(1).rstrip('.,;') if doi_match else ''
+        text_without_doi = text[:doi_match.start()].strip() if doi_match else text
+        text_without_doi = text_without_doi.rstrip('.,; ')
+
+        year_match = re.search(r'\b((?:19|20)\d{2})\b', text_without_doi)
+        if not year_match:
+            fallback = re.sub(r'\bdoi\s*:\s*', 'doi: ', text, flags=re.IGNORECASE)
+            fallback = re.sub(r'\s{2,}', ' ', fallback).strip()
+            return fallback
+
+        year = year_match.group(1)
+        remainder = text_without_doi[year_match.end():].strip()
+        remainder = re.sub(r'^[A-Za-z]{3,9}\b(?:\s+\d{1,2})?,?\s*', '', remainder)
+        remainder = re.sub(r'^\s*;\s*', '', remainder)
+        remainder = re.sub(r'\s+', ' ', remainder).strip().rstrip('.')
+        remainder = re.sub(r'\s*:\s*', ':', remainder)
+
+        pieces = [f'{year} ;{remainder}' if remainder else year]
+        if doi_value:
+            pieces.append(f'doi: {doi_value}')
+        return '. '.join(piece.rstrip('.').strip() for piece in pieces if piece).strip()
 
     def _missing_placeholder(self, field_label: str) -> str:
         """Return stable bracketed placeholder text for missing metadata."""
@@ -971,7 +986,7 @@ class ChicagoEditor:
             return "chapter"
         if re.search(r'(?i)\[Internet\]|Available from:|https?://|www\.', candidate):
             return "website"
-        if re.search(r'\b(?:19|20)\d{2}\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?', candidate):
+        if re.search(r'\b(?:19|20)\d{2}(?:\s+[A-Za-z]{3,9}(?:\s+\d{1,2})?)?\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?', candidate):
             return "journal"
         if re.search(r':\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?\b', candidate) and journal:
             return "journal"
@@ -1023,7 +1038,10 @@ class ChicagoEditor:
             flags=re.IGNORECASE,
         )
         year_match = re.search(r'\b(?:19|20)\d{2}\b', candidate)
-        volume_match = re.search(r'\b(?:19|20)\d{2}\s*;\s*(?P<volume>[A-Za-z]?\d+(?:\([^)]+\))?)', candidate)
+        volume_match = re.search(
+            r'\b(?:19|20)\d{2}(?:\s+[A-Za-z]{3,9}(?:\s+\d{1,2})?)?\s*;\s*(?P<volume>[A-Za-z]?\d+(?:\([^)]+\))?)',
+            candidate
+        )
         page_match = re.search(
             r'(?::\s*(?P<pages>[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?))\b',
             candidate,
@@ -1169,7 +1187,7 @@ class ChicagoEditor:
 
             pieces = [p.rstrip('.') for p in [authors_norm, title_norm, third_segment] if p]
             normalized = '. '.join(pieces).strip()
-            normalized = re.sub(r'\s+([,;:.])', r'\1', normalized)
+            normalized = re.sub(r'\s+([,:.])', r'\1', normalized)
             normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
         else:
             normalized = candidate
@@ -1203,7 +1221,7 @@ class ChicagoEditor:
             result = self._insert_missing_placeholder(result, code, placeholder)
 
         result = re.sub(r'\s{2,}', ' ', result).strip()
-        result = re.sub(r'\s+([,;:.])', r'\1', result)
+        result = re.sub(r'\s+([,:.])', r'\1', result)
         if result and not result.endswith('.'):
             result += '.'
         return result

@@ -131,6 +131,24 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("Smith A.B.", out)
         self.assertIn("J Archit Res", out)
 
+    def test_reference_author_list_over_six_collapses_to_first_author_et_al(self):
+        source = (
+            "References\n"
+            "Smith AB, Doe CD, Lee EF, Kumar GH, Patel IJ, Brown KL, Green MN. sample title. Journal of Testing. 2024;10(2):100-110.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Smith A.B., et al.", out)
+        self.assertNotIn("Doe C.D.", out)
+
+    def test_reference_tail_uses_house_journal_pattern(self):
+        source = (
+            "References\n"
+            "Nooreldeen R, Bach H. Current and future development in lung cancer diagnosis. International Journal of Molecular Sciences. 2021 Aug 12;22(16):8661. doi:10.3390/ijms22168661.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Nooreldeen R., Bach H.", out)
+        self.assertIn("Int J Mol Sci. 2021 ;22(16):8661. doi: 10.3390/ijms22168661.", out)
+
     def test_citation_reference_validator_is_source_type_aware(self):
         source = (
             "Introduction cites [1, 2, 3].\n"
