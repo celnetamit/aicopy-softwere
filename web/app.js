@@ -3140,6 +3140,54 @@ function applyProcessResponseToState(response, options = {}) {
         : buildDefaultGroupDecisions();
 }
 
+function pollTaskUntilProcessed(taskId, attempt = 0) {
+    const safeTaskId = String(taskId || '').trim();
+    if (!safeTaskId || typeof eel === 'undefined' || typeof eel.get_task !== 'function') {
+        return;
+    }
+    const maxAttempts = 8;
+    eel.get_task(safeTaskId)(function (response) {
+        if (!response || !response.success || !response.task) {
+            if (attempt < maxAttempts - 1) {
+                window.setTimeout(() => pollTaskUntilProcessed(safeTaskId, attempt + 1), 1200);
+            } else {
+                setStatus('Processing failed: could not recover task state', 'error');
+            }
+            return;
+        }
+
+        const task = response.task;
+        const status = String(task.status || '').toUpperCase();
+        if (status === 'PROCESSED') {
+            applyTaskDetailsToState(task);
+            switch_tab('corrected');
+            if (saveCleanBtn) {
+                saveCleanBtn.disabled = false;
+            }
+            if (saveHighlightBtn) {
+                saveHighlightBtn.disabled = false;
+            }
+            setStatus('Processing complete (recovered after transient server response issue)', 'success');
+            setProgress(100);
+            return;
+        }
+
+        if (status === 'FAILED') {
+            const reports = task.reports && typeof task.reports === 'object' ? task.reports : {};
+            const note = String(reports.processing_note || task.error || '').trim();
+            setStatus('Processing failed', 'error');
+            alert('Processing error: ' + (note || 'Task failed on server.'));
+            return;
+        }
+
+        if (attempt < maxAttempts - 1) {
+            window.setTimeout(() => pollTaskUntilProcessed(safeTaskId, attempt + 1), 1200);
+            return;
+        }
+        setStatus('Processing still running on server. Refresh task list and open the latest task.', 'warning');
+    });
+}
+
 function process_document() {
     if (!fileContent.original) {
         alert('Please load a document first.');
@@ -3173,8 +3221,16 @@ function process_document() {
             setProgress(100);
             refreshTaskHistory();
         } else {
-            setStatus('Error: ' + response.error, 'error');
-            alert('Processing error: ' + response.error);
+            const errorText = String((response && response.error) || 'Unknown server error');
+            setStatus('Error: ' + errorText, 'error');
+            const looksLikeInvalidJson = /invalid json response from server/i.test(errorText);
+            const hasTaskContext = String(fileContent.taskId || '').trim().length > 0;
+            if (looksLikeInvalidJson && hasTaskContext) {
+                setStatus('Server returned a transient non-JSON response. Attempting task recovery...', 'warning');
+                pollTaskUntilProcessed(fileContent.taskId, 0);
+            } else {
+                alert('Processing error: ' + errorText);
+            }
         }
         document.getElementById('process-btn').disabled = false;
     });
