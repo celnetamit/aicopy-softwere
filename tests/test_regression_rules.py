@@ -387,16 +387,26 @@ class ProcessorRegressionTests(unittest.TestCase):
 
     def test_foreign_annotated_html_italics_known_foreign_terms(self):
         processor = DocumentProcessor()
+        html = processor.build_foreign_annotated_html(
+            "The ruling was ultra vires and mutatis mutandis would apply."
+        )
+        self.assertIn('<em class="foreign-term">ultra vires</em>', html)
+        self.assertIn('<em class="foreign-term">mutatis mutandis</em>', html)
+
+    def test_foreign_annotated_html_leaves_common_scholarly_latin_in_roman(self):
+        processor = DocumentProcessor()
         html = processor.build_foreign_annotated_html("Study was done in vitro and in vivo.")
-        self.assertIn('<em class="foreign-term">in vitro</em>', html)
-        self.assertIn('<em class="foreign-term">in vivo</em>', html)
+        self.assertNotIn('<em class="foreign-term">in vitro</em>', html)
+        self.assertNotIn('<em class="foreign-term">in vivo</em>', html)
+        self.assertIn('in vitro', html)
+        self.assertIn('in vivo', html)
 
     def test_foreign_annotated_html_skips_url_and_email_literals(self):
         processor = DocumentProcessor()
         html = processor.build_foreign_annotated_html(
-            "Use ibid in text. URL https://example.com/ibid Email ibid@example.com"
+            "Use mutatis mutandis in text. URL https://example.com/mutatis Email mutatis@example.com"
         )
-        self.assertEqual(html.count('<em class="foreign-term">ibid</em>'), 1)
+        self.assertEqual(html.count('<em class="foreign-term">mutatis mutandis</em>'), 1)
 
     def test_process_text_rule_mode_sets_expected_note(self):
         processor = DocumentProcessor()

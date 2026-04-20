@@ -114,14 +114,30 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             output_path = handle.name
 
         try:
-            main.processor.generate_clean_docx("Method used in vitro and in vivo.", output_path)
+            main.processor.generate_clean_docx("The remedy was ultra vires and mutatis mutandis applied.", output_path)
             doc = Document(output_path)
             runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
 
-            in_vitro_run = next(run for run in runs if run.text == "in vitro")
-            in_vivo_run = next(run for run in runs if run.text == "in vivo")
-            self.assertTrue(in_vitro_run.italic)
-            self.assertTrue(in_vivo_run.italic)
+            ultra_vires_run = next(run for run in runs if run.text == "ultra vires")
+            mutatis_run = next(run for run in runs if run.text == "mutatis mutandis")
+            self.assertTrue(ultra_vires_run.italic)
+            self.assertTrue(mutatis_run.italic)
+        finally:
+            os.unlink(output_path)
+
+    def test_clean_docx_keeps_common_scholarly_latin_in_roman(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
+            output_path = handle.name
+
+        try:
+            main.processor.generate_clean_docx("Method used in vitro and in vivo.", output_path)
+            doc = Document(output_path)
+            runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
+            paragraph_text = " ".join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
+            self.assertIn("in vitro", paragraph_text)
+            self.assertIn("in vivo", paragraph_text)
+            self.assertFalse(any(bool(run.italic) and "in vitro" in run.text for run in runs))
+            self.assertFalse(any(bool(run.italic) and "in vivo" in run.text for run in runs))
         finally:
             os.unlink(output_path)
 
@@ -131,14 +147,14 @@ class ExportSaveTelemetryTests(unittest.TestCase):
 
         try:
             main.processor.generate_clean_docx(
-                "Use ibid in text. URL https://example.com/ibid Email ibid@example.com",
+                "Use mutatis mutandis in text. URL https://example.com/mutatis Email mutatis@example.com",
                 output_path,
             )
             doc = Document(output_path)
             runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
 
-            italic_ibid_runs = [run for run in runs if run.text == "ibid" and bool(run.italic)]
-            self.assertEqual(len(italic_ibid_runs), 1)
+            italic_term_runs = [run for run in runs if run.text == "mutatis mutandis" and bool(run.italic)]
+            self.assertEqual(len(italic_term_runs), 1)
         finally:
             os.unlink(output_path)
 

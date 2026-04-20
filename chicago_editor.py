@@ -170,6 +170,12 @@ class ChicagoEditor:
         'habeas corpus', 'mens rea', 'actus reus', 'sub judice', 'ultra vires',
         'mutatis mutandis', 'sui generis', 'ipso facto', 'ibid', 'cf'
     }
+    FOREIGN_TERMS_ROMAN = {
+        'et al', 'in vitro', 'in vivo', 'ad hoc', 'de facto', 'prima facie',
+        'per se', 'a priori', 'post hoc', 'vice versa', 'status quo', 'pro bono',
+        'ibid', 'cf'
+    }
+    FOREIGN_TERMS_ITALIC = FOREIGN_TERMS - FOREIGN_TERMS_ROMAN
     TITLE_SMALL_WORDS = {
         'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in',
         'of', 'on', 'or', 'per', 'the', 'to', 'via', 'vs'
@@ -764,6 +770,13 @@ class ChicagoEditor:
             pattern = re.compile(r'(?i)(?<!\w)' + re.escape(term) + r'(?!\w)')
             result = pattern.sub(term.lower(), result)
         return result
+
+    def get_foreign_term_style_catalog(self) -> Dict[str, List[str]]:
+        """Return foreign-term categories for Chicago-style rendering decisions."""
+        return {
+            "roman": sorted(self.FOREIGN_TERMS_ROMAN, key=len, reverse=True),
+            "italic": sorted(self.FOREIGN_TERMS_ITALIC, key=len, reverse=True),
+        }
 
     def normalize_scientific_percentages(self, text: str) -> str:
         """Convert scientific percentage expressions to numeral + % form."""

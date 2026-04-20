@@ -1998,8 +1998,12 @@ Corrected manuscript:"""
         return "".join(chunks)
 
     def _foreign_terms_catalog(self) -> List[str]:
-        """Return sorted foreign-term catalog."""
-        terms = getattr(self.editor, "FOREIGN_TERMS", set()) or set()
+        """Return sorted foreign terms that should be italicized in output."""
+        if hasattr(self.editor, "get_foreign_term_style_catalog"):
+            catalog = self.editor.get_foreign_term_style_catalog() or {}
+            terms = catalog.get("italic", []) or []
+        else:
+            terms = getattr(self.editor, "FOREIGN_TERMS", set()) or set()
         return sorted({str(t).strip().lower() for t in terms if str(t).strip()}, key=len, reverse=True)
 
     def _protected_literal_spans(self, text: str) -> List[Tuple[int, int]]:
