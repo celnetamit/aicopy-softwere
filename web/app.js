@@ -109,6 +109,7 @@ const adminAiKeyInput = document.getElementById('admin-ai-key');
 const adminAiOllamaHostInput = document.getElementById('admin-ai-ollama-host');
 const adminValidateAiBtn = document.getElementById('admin-validate-ai-btn');
 const adminAiValidationResult = document.getElementById('admin-ai-validation-result');
+const adminAiKeyToggleBtn = document.getElementById('admin-ai-key-toggle');
 const editingOptionsSection = document.getElementById('editing-options-section');
 const aiSettingsSection = document.getElementById('ai-settings-section');
 const managedSettingsNote = document.getElementById('managed-settings-note');
@@ -130,6 +131,8 @@ const adminSettingAiModelList = document.getElementById('admin-setting-ai-model-
 const adminSettingOllamaHost = document.getElementById('admin-setting-ollama-host');
 const adminSettingGeminiKey = document.getElementById('admin-setting-gemini-key');
 const adminSettingOpenrouterKey = document.getElementById('admin-setting-openrouter-key');
+const adminSettingGeminiKeyToggleBtn = document.getElementById('admin-setting-gemini-key-toggle');
+const adminSettingOpenrouterKeyToggleBtn = document.getElementById('admin-setting-openrouter-key-toggle');
 const adminSettingSectionWise = document.getElementById('admin-setting-section-wise');
 const adminSettingSectionThresholdChars = document.getElementById('admin-setting-section-threshold-chars');
 const adminSettingSectionThresholdParagraphs = document.getElementById('admin-setting-section-threshold-paragraphs');
@@ -1016,6 +1019,31 @@ function setElementVisible(el, visible) {
         return;
     }
     el.classList.toggle('hidden', visible === false);
+}
+
+function bindPasswordToggle(inputEl, toggleBtn, labels) {
+    if (!inputEl || !toggleBtn) {
+        return;
+    }
+    const safeLabels = labels && typeof labels === 'object' ? labels : {};
+    const showLabel = String(safeLabels.show || 'Show');
+    const hideLabel = String(safeLabels.hide || 'Hide');
+    const showAria = String(safeLabels.showAria || 'Show value');
+    const hideAria = String(safeLabels.hideAria || 'Hide value');
+
+    const update = () => {
+        const visible = inputEl.type === 'text';
+        toggleBtn.textContent = visible ? hideLabel : showLabel;
+        toggleBtn.setAttribute('aria-label', visible ? hideAria : showAria);
+        toggleBtn.setAttribute('aria-pressed', visible ? 'true' : 'false');
+    };
+
+    toggleBtn.addEventListener('click', () => {
+        inputEl.type = inputEl.type === 'password' ? 'text' : 'password';
+        update();
+    });
+
+    update();
 }
 
 function getModelSuggestionsForProvider(provider, ollamaModels) {
@@ -2956,6 +2984,25 @@ if (adminAiProviderSelect) {
         updateAdminAiValidationHint();
     });
 }
+
+bindPasswordToggle(adminAiKeyInput, adminAiKeyToggleBtn, {
+    show: 'Show',
+    hide: 'Hide',
+    showAria: 'Show API key',
+    hideAria: 'Hide API key'
+});
+bindPasswordToggle(adminSettingGeminiKey, adminSettingGeminiKeyToggleBtn, {
+    show: 'Show',
+    hide: 'Hide',
+    showAria: 'Show Gemini API key',
+    hideAria: 'Hide Gemini API key'
+});
+bindPasswordToggle(adminSettingOpenrouterKey, adminSettingOpenrouterKeyToggleBtn, {
+    show: 'Show',
+    hide: 'Hide',
+    showAria: 'Show OpenRouter API key',
+    hideAria: 'Hide OpenRouter API key'
+});
 
 if (adminValidateAiBtn) {
     adminValidateAiBtn.addEventListener('click', () => {

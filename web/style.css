@@ -1531,6 +1531,24 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     align-items: center;
 }
 
+.password-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.password-field-input {
+    margin-bottom: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.password-toggle-btn {
+    flex: 0 0 auto;
+    min-width: 68px;
+}
+
 .admin-panel-card .btn-primary {
     width: auto;
 }

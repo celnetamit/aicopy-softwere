@@ -407,8 +407,14 @@
                                 <input id="admin-setting-ai-model" class="input-field" type="text" value="openrouter/auto" placeholder="Model name" list="admin-setting-ai-model-list" />
                                 <datalist id="admin-setting-ai-model-list"></datalist>
                                 <input id="admin-setting-ollama-host" class="input-field" type="text" value="http://localhost:11434" placeholder="Ollama host" />
-                                <input id="admin-setting-gemini-key" class="input-field" type="password" placeholder="Gemini API key (server-side)" />
-                                <input id="admin-setting-openrouter-key" class="input-field" type="password" placeholder="OpenRouter API key (server-side)" />
+                                <div class="password-field">
+                                    <input id="admin-setting-gemini-key" class="input-field password-field-input" type="password" placeholder="Gemini API key (server-side)" />
+                                    <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-gemini-key-toggle" type="button" aria-label="Show Gemini API key">Show</button>
+                                </div>
+                                <div class="password-field">
+                                    <input id="admin-setting-openrouter-key" class="input-field password-field-input" type="password" placeholder="OpenRouter API key (server-side)" />
+                                    <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-openrouter-key-toggle" type="button" aria-label="Show OpenRouter API key">Show</button>
+                                </div>
                             </div>
                         </div>
 
@@ -448,7 +454,10 @@
                         </select>
                         <input id="admin-ai-model" class="input-field" type="text" value="openrouter/auto" placeholder="Model (optional)" list="admin-ai-model-list" />
                         <datalist id="admin-ai-model-list"></datalist>
-                        <input id="admin-ai-key" class="input-field" type="password" placeholder="API key (optional, uses server env if empty)" />
+                        <div class="password-field">
+                            <input id="admin-ai-key" class="input-field password-field-input" type="password" placeholder="API key (optional, uses server env if empty)" />
+                            <button class="btn-secondary btn-small password-toggle-btn" id="admin-ai-key-toggle" type="button" aria-label="Show API key">Show</button>
+                        </div>
                         <input id="admin-ai-ollama-host" class="input-field" type="text" value="http://localhost:11434" placeholder="Ollama host" />
                         <button class="btn-secondary btn-small" id="admin-validate-ai-btn" type="button">Validate API</button>
                     </div>
