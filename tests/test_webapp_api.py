@@ -7,6 +7,7 @@ import math
 import os
 import tempfile
 import unittest
+import zipfile
 from urllib.parse import urlencode
 from wsgiref.util import setup_testing_defaults
 
@@ -230,6 +231,20 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertIn("base64_data", payload)
+        exported_bytes = base64.b64decode(payload["base64_data"])
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+        try:
+            with open(output_path, "wb") as outfile:
+                outfile.write(exported_bytes)
+            self.assertTrue(zipfile.is_zipfile(output_path))
+            with zipfile.ZipFile(output_path) as archive:
+                names = set(archive.namelist())
+                self.assertIn("[Content_Types].xml", names)
+                self.assertIn("word/document.xml", names)
+                self.assertIn("word/_rels/document.xml.rels", names)
+        finally:
+            os.unlink(output_path)
 
         status, payload = self.client.request("GET", "/api/tasks")
         self.assertEqual(status, 200)

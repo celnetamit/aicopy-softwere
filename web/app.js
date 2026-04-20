@@ -3286,8 +3286,15 @@ function save_file(file_type) {
         link.download = fileName || 'manuscript.docx';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        // Delay cleanup so the browser has time to consume the Blob URL fully.
+        window.setTimeout(() => {
+            try {
+                document.body.removeChild(link);
+            } catch (err) {
+                // Ignore cleanup races if the node is already gone.
+            }
+            URL.revokeObjectURL(url);
+        }, 60_000);
     }
 
     if (typeof eel === 'undefined' || typeof eel.export_file !== 'function') {
