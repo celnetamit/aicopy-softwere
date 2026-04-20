@@ -1422,7 +1422,9 @@ Corrected manuscript:"""
                 self._merge_relationships_from_source(source_rels, output_rels, relationship_types)
                 rebuilt_entries[rels_name] = ET.tostring(output_rels, encoding="utf-8", xml_declaration=True)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_zip_handle:
+        output_dir = os.path.dirname(os.path.abspath(output_path)) or "."
+        os.makedirs(output_dir, exist_ok=True)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx", dir=output_dir) as temp_zip_handle:
             temp_zip_path = temp_zip_handle.name
         try:
             with zipfile.ZipFile(temp_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as rebuilt_zip:
