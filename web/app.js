@@ -117,6 +117,7 @@ const adminSettingSentenceCase = document.getElementById('admin-setting-sentence
 const adminSettingPunctuation = document.getElementById('admin-setting-punctuation');
 const adminSettingChicagoStyle = document.getElementById('admin-setting-chicago-style');
 const adminSettingCmosStrict = document.getElementById('admin-setting-cmos-strict');
+const adminSettingOnlineReferenceValidation = document.getElementById('admin-setting-online-reference-validation');
 const adminSettingDomainProfile = document.getElementById('admin-setting-domain-profile');
 const adminSettingCustomTerms = document.getElementById('admin-setting-custom-terms');
 const adminSettingAiEnabled = document.getElementById('admin-setting-ai-enabled');
@@ -594,9 +595,11 @@ function refreshRuntimeSettings(callback) {
 }
 
 function buildProcessingOptionsFromRuntimeSettings() {
-    const onlineReferenceValidationEnabled = onlineReferenceValidationInput
-        ? onlineReferenceValidationInput.checked !== false
-        : true;
+    const settings = runtimeManagedSettings && typeof runtimeManagedSettings === 'object' ? runtimeManagedSettings : null;
+    const editing = settings && settings.editing && typeof settings.editing === 'object' ? settings.editing : {};
+    const onlineReferenceValidationEnabled = settings
+        ? editing.online_reference_validation !== false
+        : (onlineReferenceValidationInput ? onlineReferenceValidationInput.checked !== false : true);
     const defaults = {
         spelling: true,
         sentence_case: true,
@@ -624,11 +627,9 @@ function buildProcessingOptionsFromRuntimeSettings() {
             global_consistency_max_chars: 18000
         }
     };
-    const settings = runtimeManagedSettings && typeof runtimeManagedSettings === 'object' ? runtimeManagedSettings : null;
     if (!settings) {
         return defaults;
     }
-    const editing = settings.editing && typeof settings.editing === 'object' ? settings.editing : {};
     const ai = settings.ai && typeof settings.ai === 'object' ? settings.ai : {};
     return {
         spelling: editing.spelling !== false,
@@ -1116,6 +1117,9 @@ function applyAdminGlobalSettingsForm(settings) {
     if (adminSettingPunctuation) adminSettingPunctuation.checked = editing.punctuation !== false;
     if (adminSettingChicagoStyle) adminSettingChicagoStyle.checked = editing.chicago_style !== false;
     if (adminSettingCmosStrict) adminSettingCmosStrict.checked = editing.cmos_strict_mode !== false;
+    if (adminSettingOnlineReferenceValidation) {
+        adminSettingOnlineReferenceValidation.checked = editing.online_reference_validation !== false;
+    }
     if (adminSettingDomainProfile) adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
     if (adminSettingCustomTerms) {
         const terms = Array.isArray(editing.custom_terms) ? editing.custom_terms : [];
@@ -1144,6 +1148,9 @@ function collectAdminGlobalSettingsForm() {
             punctuation: adminSettingPunctuation ? adminSettingPunctuation.checked : true,
             chicago_style: adminSettingChicagoStyle ? adminSettingChicagoStyle.checked : true,
             cmos_strict_mode: adminSettingCmosStrict ? adminSettingCmosStrict.checked : true,
+            online_reference_validation: adminSettingOnlineReferenceValidation
+                ? adminSettingOnlineReferenceValidation.checked
+                : true,
             domain_profile: adminSettingDomainProfile ? String(adminSettingDomainProfile.value || 'auto') : 'auto',
             custom_terms: adminSettingCustomTerms ? parseCustomTerms(adminSettingCustomTerms.value) : []
         },

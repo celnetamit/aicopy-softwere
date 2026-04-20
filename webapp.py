@@ -302,6 +302,7 @@ def _default_global_runtime_settings() -> Dict:
             "punctuation": True,
             "chicago_style": True,
             "cmos_strict_mode": True,
+            "online_reference_validation": True,
             "domain_profile": "auto",
             "custom_terms": [],
         },
@@ -376,6 +377,11 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
             "punctuation": _bool(editing_in, "punctuation", defaults["editing"]["punctuation"]),
             "chicago_style": _bool(editing_in, "chicago_style", defaults["editing"]["chicago_style"]),
             "cmos_strict_mode": _bool(editing_in, "cmos_strict_mode", defaults["editing"]["cmos_strict_mode"]),
+            "online_reference_validation": _bool(
+                editing_in,
+                "online_reference_validation",
+                defaults["editing"]["online_reference_validation"],
+            ),
             "domain_profile": domain,
             "custom_terms": _normalize_custom_terms(editing_in.get("custom_terms", defaults["editing"]["custom_terms"])),
         },
@@ -427,6 +433,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["punctuation"] = bool(editing.get("punctuation", True))
     opts["chicago_style"] = bool(editing.get("chicago_style", True))
     opts["cmos_strict_mode"] = bool(editing.get("cmos_strict_mode", True))
+    opts["online_reference_validation"] = bool(editing.get("online_reference_validation", True))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
     opts["custom_terms"] = list(editing.get("custom_terms", []))
     opts["journal_profile"] = "vancouver_periods"
