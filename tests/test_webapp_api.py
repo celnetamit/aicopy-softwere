@@ -144,6 +144,61 @@ class WsgiTestClient:
         text = response_body.decode("utf-8") if response_body else ""
         return status_code, text
 
+    def request_bytes(self, method, path, payload=None, query=None, headers=None):
+        body = b""
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+
+        environ = {}
+        setup_testing_defaults(environ)
+        environ["REQUEST_METHOD"] = method.upper()
+
+        path_info = path
+        query_string = ""
+        if "?" in path:
+            path_info, query_string = path.split("?", 1)
+        if query:
+            encoded = urlencode(query)
+            query_string = f"{query_string}&{encoded}" if query_string else encoded
+
+        environ["PATH_INFO"] = path_info
+        environ["QUERY_STRING"] = query_string
+        environ["CONTENT_LENGTH"] = str(len(body))
+        environ["wsgi.input"] = io.BytesIO(body)
+
+        if body:
+            environ["CONTENT_TYPE"] = "application/json"
+
+        if self.cookies:
+            environ["HTTP_COOKIE"] = "; ".join(f"{key}={value}" for key, value in self.cookies.items())
+
+        if headers:
+            for raw_name, raw_value in headers.items():
+                if raw_name is None or raw_value is None:
+                    continue
+                name = str(raw_name).strip()
+                if not name:
+                    continue
+                key = name.upper().replace("-", "_")
+                if key not in ("CONTENT_TYPE", "CONTENT_LENGTH") and not key.startswith("HTTP_"):
+                    key = "HTTP_" + key
+                environ[key] = str(raw_value)
+
+        meta = {}
+
+        def start_response(status, headers, exc_info=None):
+            meta["status"] = status
+            meta["headers"] = headers
+
+        result = self.app(environ, start_response)
+        response_body = b"".join(result)
+        if hasattr(result, "close"):
+            result.close()
+
+        status_code = int(str(meta.get("status", "500")).split(" ", 1)[0])
+        headers_dict = {str(k).lower(): str(v) for k, v in meta.get("headers", [])}
+        return status_code, response_body, headers_dict
+
 
 class AuthenticatedWebAppApiTests(unittest.TestCase):
     def setUp(self):
@@ -250,6 +305,61 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertGreaterEqual(len(payload.get("tasks", [])), 1)
+
+    def test_binary_download_endpoint_returns_valid_docx(self):
+        self._login("writer@conwiz.in")
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        task_id = payload.get("task_id")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {
+                "options": {
+                    "spelling": True,
+                    "sentence_case": True,
+                    "punctuation": True,
+                    "chicago_style": True,
+                    "ai": {"enabled": False},
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, body, headers = self.client.request_bytes(
+            "GET",
+            f"/api/tasks/{task_id}/download-file",
+            query={"type": "clean"},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers.get("content-type", ""),
+        )
+        self.assertIn("attachment;", headers.get("content-disposition", ""))
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+        try:
+            with open(output_path, "wb") as outfile:
+                outfile.write(body)
+            self.assertTrue(zipfile.is_zipfile(output_path))
+            with zipfile.ZipFile(output_path) as archive:
+                names = set(archive.namelist())
+                self.assertIn("[Content_Types].xml", names)
+                self.assertIn("word/document.xml", names)
+                self.assertIn("word/_rels/document.xml.rels", names)
+        finally:
+            os.unlink(output_path)
 
     def test_legacy_export_file_uses_docx_template_when_base64_source_is_supplied(self):
         self._login("writer@conwiz.in")

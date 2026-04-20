@@ -3353,6 +3353,18 @@ function save_file(file_type) {
         }, 60_000);
     }
 
+    const taskIdForDirectDownload = String(fileContent.taskId || '').trim();
+    if (isBrowserWebMode && taskIdForDirectDownload) {
+        const query = new URLSearchParams({
+            type: file_type,
+            _ts: String(Date.now())
+        });
+        const directUrl = `/api/tasks/${encodeURIComponent(taskIdForDirectDownload)}/download-file?${query.toString()}`;
+        window.location.assign(directUrl);
+        setStatus(file_type + ' version downloaded', 'success');
+        return;
+    }
+
     if (typeof eel === 'undefined' || typeof eel.export_file !== 'function') {
         fallbackLegacySave();
         return;

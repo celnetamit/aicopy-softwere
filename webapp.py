@@ -863,7 +863,8 @@ def _apply_group_decisions(context: SessionContext, task: Dict, group_decisions:
     return process_payload
 
 
-def _read_task_download_payload(context: SessionContext, task_id: str, file_type: str) -> Dict:
+def _resolve_task_download_file(context: SessionContext, task_id: str, file_type: str) -> Tuple[Dict, str, str]:
+    """Resolve generated DOCX metadata and absolute path for task downloads."""
     normalized_type = "clean" if str(file_type or "").strip().lower() == "clean" else "highlighted"
 
     file_row = _STORE.get_task_file_for_user(
@@ -893,6 +894,16 @@ def _read_task_download_payload(context: SessionContext, task_id: str, file_type
     file_abs = _resolve_storage_path(str(file_row.get("storage_path") or ""))
     if not os.path.isfile(file_abs):
         raise FileNotFoundError("Stored file was not found on disk")
+
+    return file_row, file_abs, normalized_type
+
+
+def _read_task_download_payload(context: SessionContext, task_id: str, file_type: str) -> Dict:
+    file_row, file_abs, normalized_type = _resolve_task_download_file(
+        context=context,
+        task_id=task_id,
+        file_type=file_type,
+    )
 
     with open(file_abs, "rb") as infile:
         encoded = base64.b64encode(infile.read()).decode("ascii")
@@ -1409,6 +1420,50 @@ def api_tasks_download(task_id: str):
         payload = _read_task_download_payload(context, task_id=task_id, file_type=file_type)
         _increment_runtime_counter(context.session_id, "export_successes")
         return _json_response(payload, session_id=context.session_id)
+    except Exception as exc:
+        _increment_runtime_counter(context.session_id, "export_failures", "EXPORT_FILE_MISSING")
+        return _json_response(
+            _error_payload("EXPORT_FILE_MISSING", str(exc)),
+            status=404,
+            session_id=context.session_id,
+        )
+
+
+@app.get("/api/tasks/<task_id>/download-file")
+@require_auth
+def api_tasks_download_file(task_id: str):
+    """Download generated DOCX as binary stream (avoids JSON/base64 transport)."""
+    context = _auth_context_from_request()
+    file_type = str(request.query.get("type", "") or request.query.get("file_type", "") or "clean")
+
+    try:
+        _increment_runtime_counter(context.session_id, "export_attempts")
+        file_row, file_abs, normalized_type = _resolve_task_download_file(
+            context=context,
+            task_id=task_id,
+            file_type=file_type,
+        )
+
+        download_name = str(file_row.get("download_name") or _build_download_filename("manuscript", normalized_type))
+        mime_type = str(file_row.get("mime_type") or MIME_DOCX)
+
+        with open(file_abs, "rb") as infile:
+            body = infile.read()
+
+        _record_audit(
+            event_type="task_downloaded",
+            actor_user_id=context.user_id,
+            entity_type="task",
+            entity_id=task_id,
+            metadata={"file_type": normalized_type, "transport": "binary"},
+        )
+        _increment_runtime_counter(context.session_id, "export_successes")
+
+        http_response = HTTPResponse(status=200, body=body)
+        http_response.set_header("Content-Type", mime_type)
+        http_response.set_header("Content-Disposition", f'attachment; filename="{download_name}"')
+        http_response.set_header("Cache-Control", "no-store")
+        return http_response
     except Exception as exc:
         _increment_runtime_counter(context.session_id, "export_failures", "EXPORT_FILE_MISSING")
         return _json_response(
