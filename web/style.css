@@ -589,6 +589,102 @@ section h2 {
     color: #9fc4ff;
 }
 
+.doc-figure-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    margin: 12px 0;
+    padding: 14px 16px;
+    border: 1px solid rgba(159, 196, 255, 0.22);
+    border-radius: 10px;
+    background:
+        linear-gradient(135deg, rgba(159, 196, 255, 0.08), rgba(78, 204, 163, 0.06)),
+        rgba(255, 255, 255, 0.03);
+}
+
+.doc-figure-card-page {
+    border-color: #cfd7e6;
+    background:
+        linear-gradient(135deg, rgba(201, 214, 234, 0.45), rgba(236, 240, 247, 0.85)),
+        #f7f8fb;
+}
+
+.doc-figure-icon {
+    min-width: 62px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: rgba(233, 69, 96, 0.16);
+    color: #ffd5dd;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.doc-figure-card-page .doc-figure-icon {
+    background: #25324d;
+    color: #f5f8ff;
+}
+
+.doc-figure-body {
+    min-width: 0;
+}
+
+.doc-figure-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #eef5ff;
+    margin-bottom: 6px;
+}
+
+.doc-figure-card-page .doc-figure-title {
+    color: #17243a;
+}
+
+.doc-figure-note,
+.doc-figure-meta {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #b8c7e8;
+}
+
+.doc-figure-card-page .doc-figure-note,
+.doc-figure-card-page .doc-figure-meta {
+    color: #53627d;
+}
+
+.doc-figure-meta {
+    margin-top: 8px;
+}
+
+.doc-figure-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.doc-figure-tag {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(159, 196, 255, 0.14);
+    border: 1px solid rgba(159, 196, 255, 0.22);
+    color: #ddecff;
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.doc-figure-card-page .doc-figure-tag {
+    background: rgba(37, 50, 77, 0.08);
+    border-color: rgba(37, 50, 77, 0.14);
+    color: #2c3a54;
+}
+
 .page-stack {
     display: flex;
     flex-direction: column;

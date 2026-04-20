@@ -207,6 +207,131 @@ function stripHtml(value) {
     return (value || '').replace(/<[^>]*>/g, '');
 }
 
+function normalizeTextboxMarkersForDisplay(value) {
+    return String(value || '')
+        .replaceAll('[[TEXTBOX_PARA]]', '\n')
+        .replaceAll('[[TEXTBOX]]', ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
+function getDocxPreviewFeatures() {
+    const safeAudit = fileContent.processingAudit && typeof fileContent.processingAudit === 'object'
+        ? fileContent.processingAudit
+        : null;
+    const summary = safeAudit && safeAudit.summary && typeof safeAudit.summary === 'object'
+        ? safeAudit.summary
+        : {};
+    return summary.docx_package_features && typeof summary.docx_package_features === 'object'
+        ? summary.docx_package_features
+        : null;
+}
+
+function shouldCollapseTextboxHeavyPreview() {
+    const features = getDocxPreviewFeatures();
+    if (!features) {
+        return false;
+    }
+    return String(fileContent.sourceType || '').toLowerCase() === 'docx' && Number(features.textboxes || 0) > 0;
+}
+
+function extractTextboxLineMeta(line, isHtmlInput) {
+    const raw = String(line || '');
+    const candidate = isHtmlInput ? stripHtml(raw) : raw;
+    if (!candidate.includes('[[TEXTBOX]]') && !candidate.includes('[[TEXTBOX_PARA]]')) {
+        return null;
+    }
+
+    const flattened = candidate
+        .replaceAll('[[TEXTBOX_PARA]]', '\n')
+        .split('[[TEXTBOX]]')
+        .flatMap((part) => String(part || '').split('\n'))
+        .map((part) => normalizeTextboxMarkersForDisplay(part))
+        .filter(Boolean);
+
+    if (flattened.length === 0) {
+        return null;
+    }
+
+    const labels = uniqueNonEmpty(flattened);
+    const caption = labels.find((value) => /^(fig(?:ure)?\.?\s*\d+|table\s+\d+)/i.test(value)) || '';
+    return {
+        labels: labels.filter((value) => value !== caption),
+        caption: caption
+    };
+}
+
+function buildPreviewSegments(content, isHtmlInput) {
+    const normalized = String(content || '').replace(/\r\n/g, '\n');
+    const lines = normalized.split('\n');
+    const segments = [];
+    const collapseTextboxPreview = shouldCollapseTextboxHeavyPreview();
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const meta = collapseTextboxPreview ? extractTextboxLineMeta(line, isHtmlInput) : null;
+
+        if (!meta) {
+            const displayLine = normalizeTextboxMarkersForDisplay(isHtmlInput ? stripHtml(line) : line);
+            segments.push({
+                kind: 'line',
+                rawLine: isHtmlInput ? normalizeTextboxMarkersForDisplay(line) : escapeHtml(displayLine),
+                plainLine: displayLine
+            });
+            continue;
+        }
+
+        const grouped = [];
+        let scanIndex = index;
+        while (scanIndex < lines.length) {
+            const nextMeta = extractTextboxLineMeta(lines[scanIndex], isHtmlInput);
+            if (!nextMeta) {
+                break;
+            }
+            grouped.push(nextMeta);
+            scanIndex += 1;
+        }
+        index = scanIndex - 1;
+
+        const captions = grouped.map((item) => item.caption).filter(Boolean);
+        const labels = uniqueNonEmpty(grouped.flatMap((item) => item.labels)).slice(0, 8);
+        segments.push({
+            kind: 'figure',
+            caption: captions[0] || '',
+            labels: labels,
+            lineCount: grouped.length
+        });
+    }
+
+    return segments;
+}
+
+function renderFigurePreviewCard(segment, pageMode = false) {
+    const safe = segment && typeof segment === 'object' ? segment : {};
+    const title = safe.caption || 'Diagram/Textbox figure preview';
+    const labels = Array.isArray(safe.labels) ? safe.labels.slice(0, 6) : [];
+    const lineCount = Number(safe.lineCount || 0);
+    const wrapperClass = pageMode ? 'doc-figure-card doc-figure-card-page' : 'doc-figure-card';
+    let html = `<section class="${wrapperClass}">`;
+    html += '<div class="doc-figure-icon">Figure</div>';
+    html += `<div class="doc-figure-body"><div class="doc-figure-title">${escapeHtml(title)}</div>`;
+    html += '<div class="doc-figure-note">Browser preview collapsed shape/textbox-derived DOCX content to keep figure-heavy pages readable. Exported DOCX preserves the actual drawing container.</div>';
+    if (labels.length > 0) {
+        html += '<div class="doc-figure-tags">';
+        labels.forEach((label) => {
+            html += `<span class="doc-figure-tag">${escapeHtml(label)}</span>`;
+        });
+        html += '</div>';
+    }
+    if (lineCount > 1) {
+        html += `<div class="doc-figure-meta">${lineCount} textbox-linked lines grouped in this preview.</div>`;
+    }
+    html += '</div></section>';
+    return html;
+}
+
 function clampNumber(value, min, max, fallback) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) {
@@ -1446,8 +1571,7 @@ function isSectionHeading(text) {
 }
 
 function renderRichDocument(content, isHtmlInput) {
-    const normalized = (content || '').replace(/\r\n/g, '\n');
-    const lines = normalized.split('\n');
+    const segments = buildPreviewSegments(content, isHtmlInput);
     let html = '<div class="doc-preview">';
     let activeList = null; // bullet | numbered | reference
     let sawFirstHeading = false;
@@ -1482,9 +1606,14 @@ function renderRichDocument(content, isHtmlInput) {
         return rawLine.replace(markerRegex, '').trim();
     }
 
-    for (const line of lines) {
-        const rawLine = isHtmlInput ? line : escapeHtml(line);
-        const plainLine = (isHtmlInput ? stripHtml(line) : line).trim();
+    for (const segment of segments) {
+        if (segment.kind === 'figure') {
+            closeList();
+            html += renderFigurePreviewCard(segment);
+            continue;
+        }
+        const rawLine = segment.rawLine;
+        const plainLine = segment.plainLine.trim();
 
         if (!plainLine) {
             closeList();
@@ -1534,8 +1663,7 @@ function renderRichDocument(content, isHtmlInput) {
 }
 
 function renderPageDocument(content, isHtmlInput) {
-    const normalized = (content || '').replace(/\r\n/g, '\n');
-    const lines = normalized.split('\n');
+    const segments = buildPreviewSegments(content, isHtmlInput);
     const blocks = [];
     let sawFirstHeading = false;
 
@@ -1546,9 +1674,17 @@ function renderPageDocument(content, isHtmlInput) {
         return rawLine.replace(markerRegex, '').trim();
     }
 
-    for (const line of lines) {
-        const rawLine = isHtmlInput ? line : escapeHtml(line);
-        const plainLine = (isHtmlInput ? stripHtml(line) : line).trim();
+    for (const segment of segments) {
+        if (segment.kind === 'figure') {
+            blocks.push({
+                kind: 'figure',
+                plain: segment.caption || (Array.isArray(segment.labels) ? segment.labels.join(' ') : 'Figure preview'),
+                html: renderFigurePreviewCard(segment, true)
+            });
+            continue;
+        }
+        const rawLine = segment.rawLine;
+        const plainLine = segment.plainLine.trim();
 
         if (!plainLine) {
             blocks.push({ kind: 'gap', plain: '' });
@@ -1635,6 +1771,9 @@ function renderPageDocument(content, isHtmlInput) {
         }
         if (block.kind === 'h3') {
             return `<h3>${block.html}</h3>`;
+        }
+        if (block.kind === 'figure') {
+            return block.html;
         }
         if (block.kind === 'bullet' || block.kind === 'numbered' || block.kind === 'ref') {
             return `<p class="page-list-item"><span class="page-list-marker">${block.marker}</span>${block.html}</p>`;
@@ -1973,9 +2112,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
 
         items.forEach((item) => {
             const line = Number(item.line || 0);
-            const oldText = (item.original || '').trim();
-            const newText = (item.corrected || '').trim();
-            const context = (item.context || '').trim();
+            const oldText = normalizeTextboxMarkersForDisplay(item.original || '');
+            const newText = normalizeTextboxMarkersForDisplay(item.corrected || '');
+            const context = normalizeTextboxMarkersForDisplay(item.context || '');
             const oldDisplay = oldText ? escapeHtml(oldText) : '<em class="cor-empty-token">(none)</em>';
             const newDisplay = newText ? escapeHtml(newText) : '<em class="cor-empty-token">(none)</em>';
 
@@ -2037,9 +2176,9 @@ function renderCurrentPreview() {
 
     if (currentViewMode === 'plain') {
         if (currentTab === 'redline') {
-            preview.textContent = stripHtml(tabValue);
+            preview.textContent = normalizeTextboxMarkersForDisplay(stripHtml(tabValue));
         } else {
-            preview.textContent = tabValue;
+            preview.textContent = normalizeTextboxMarkersForDisplay(tabValue);
         }
         return;
     }
