@@ -55,6 +55,17 @@ class ChicagoEditor:
         'nineteen': 19, 'twenty': 20, 'thirty': 30, 'forty': 40,
         'fifty': 50, 'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90
     }
+    MEASUREMENT_UNITS = {
+        'mg', 'g', 'kg', 'ng', 'ug', 'mcg',
+        'ml', 'mL', 'l', 'L',
+        'mm', 'cm', 'm', 'km',
+        'in', 'ft', 'yd', 'mi',
+        'hz', 'khz', 'mhz', 'ghz',
+        'v', 'kv', 'mv',
+        'w', 'kw', 'mw',
+        'a', 'ma',
+        '°c', '°f', 'k',
+    }
     JOURNAL_ABBREVIATIONS = {
         'academy': 'Acad',
         'american': 'Am',
@@ -339,7 +350,10 @@ class ChicagoEditor:
         masked = text
         domain_terms = self._select_domain_terms(text, options)
         custom_terms = self._extract_custom_terms(options)
-        protected_terms = set(domain_terms) | set(custom_terms)
+        protected_terms = {
+            term for term in (set(domain_terms) | set(custom_terms))
+            if term.lower() not in self.FOREIGN_TERMS
+        }
         self.last_protected_domain_terms = 0
 
         patterns = [
@@ -506,6 +520,10 @@ class ChicagoEditor:
         result = self.normalize_author_line_name_markers(result)
         # Keep common foreign terms in lowercase form.
         result = self.normalize_foreign_terms(result)
+        # Prefer scientific styling for percentages.
+        result = self.normalize_scientific_percentages(result)
+        # Prefer numerals with abbreviated scientific measurements.
+        result = self.normalize_measurement_numerals(result)
         # Ensure keyword lines use sentence case per item.
         result = self.normalize_keywords_line(result)
         # Enforce Vancouver numbering so citations and references follow first appearance.
@@ -746,6 +764,52 @@ class ChicagoEditor:
             pattern = re.compile(r'(?i)(?<!\w)' + re.escape(term) + r'(?!\w)')
             result = pattern.sub(term.lower(), result)
         return result
+
+    def normalize_scientific_percentages(self, text: str) -> str:
+        """Convert scientific percentage expressions to numeral + % form."""
+        word_pattern = (
+            r'(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
+            r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|'
+            r'thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|'
+            r'four|five|six|seven|eight|nine))?'
+        )
+
+        def repl(match):
+            raw_number = match.group(1)
+            if raw_number.isdigit():
+                return f"{raw_number}%"
+            try:
+                return f"{self._word_to_number(raw_number)}%"
+            except ValueError:
+                return match.group(0)
+
+        pattern = re.compile(
+            r'(?i)\b(' + word_pattern + r'|\d+)\s+percent\b'
+        )
+        return pattern.sub(repl, text)
+
+    def normalize_measurement_numerals(self, text: str) -> str:
+        """Convert spelled-out numbers before abbreviated measurements into numerals."""
+        word_pattern = (
+            r'(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
+            r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|'
+            r'thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|'
+            r'four|five|six|seven|eight|nine))?'
+        )
+        unit_pattern = '|'.join(sorted((re.escape(unit) for unit in self.MEASUREMENT_UNITS), key=len, reverse=True))
+
+        def repl(match):
+            raw_number = match.group(1)
+            unit = match.group(2)
+            try:
+                return f"{self._word_to_number(raw_number)} {unit}"
+            except ValueError:
+                return match.group(0)
+
+        pattern = re.compile(
+            r'(?i)\b(' + word_pattern + r')\s+(' + unit_pattern + r')\b'
+        )
+        return pattern.sub(repl, text)
 
     def _normalize_author_name(self, name: str, profile: Dict[str, Any]) -> str:
         """Normalize a single author token to Vancouver-style surname + initials."""

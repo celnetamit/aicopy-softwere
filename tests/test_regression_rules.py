@@ -77,6 +77,52 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("HTTPS://Example.COM/Path?q=OneTwo", out)
         self.assertIn("DOI:10.1000/ABCdEf", out)
 
+    def test_scientific_percentages_convert_to_percent_symbol(self):
+        source = "The sample was 10 percent pure, and five percent was discarded."
+        out = self.editor.correct_all(
+            source,
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+            },
+        )
+        self.assertIn("10% pure", out)
+        self.assertIn("5% was discarded", out)
+
+    def test_spelled_out_measurements_convert_to_numerals(self):
+        source = "The rod was five cm long and weighed ten mg at twenty °C."
+        out = self.editor.correct_all(
+            source,
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+            },
+        )
+        self.assertIn("5 cm", out)
+        self.assertIn("10 mg", out)
+        self.assertIn("20 °C", out)
+
+    def test_foreign_terms_normalize_even_when_medical_domain_is_auto_detected(self):
+        source = "The study used In Vitro and In Vivo methods in oncology."
+        out = self.editor.correct_all(
+            source,
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+                "domain_profile": "auto",
+            },
+        )
+        self.assertIn("in vitro", out)
+        self.assertIn("in vivo", out)
+        self.assertNotIn("In Vitro", out)
+        self.assertNotIn("In Vivo", out)
+
     def test_reference_profile_initial_periods_rule_changes_author_initials(self):
         source = (
             "References\n"
