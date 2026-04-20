@@ -414,6 +414,58 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_legacy_process_document_can_create_and_process_docx_task_without_task_id(self):
+        self._login("writer@conwiz.in")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
+            source_path = source_handle.name
+
+        try:
+            doc = Document()
+            doc.add_paragraph("Intro paragraph")
+            table = doc.add_table(rows=1, cols=2)
+            table.cell(0, 0).text = "A1"
+            table.cell(0, 1).text = "B1"
+            doc.add_paragraph("Closing paragraph")
+            doc.save(source_path)
+
+            with open(source_path, "rb") as infile:
+                source_docx_base64 = base64.b64encode(infile.read()).decode("ascii")
+
+            status, payload = self.client.request(
+                "POST",
+                "/api/process-document",
+                {
+                    "task_id": "",
+                    "source_type": "docx",
+                    "source_docx_base64": source_docx_base64,
+                    "source_text": "Intro paragraph\nA1\tB1\nClosing paragraph",
+                    "source_file_name": "sample.docx",
+                    "options": {
+                        "spelling": True,
+                        "sentence_case": True,
+                        "punctuation": True,
+                        "chicago_style": True,
+                        "ai": {"enabled": False},
+                    },
+                },
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(payload.get("success"))
+            task_id = payload.get("task_id")
+            self.assertTrue(task_id)
+
+            status, task_payload = self.client.request("GET", f"/api/tasks/{task_id}")
+            self.assertEqual(status, 200)
+            self.assertTrue(task_payload.get("success"))
+            task = task_payload.get("task") or {}
+            self.assertEqual(task.get("status"), "PROCESSED")
+            self.assertTrue(str(task.get("corrected_text") or "").strip())
+            self.assertTrue(task.get("downloads", {}).get("clean"))
+            self.assertTrue(task.get("downloads", {}).get("highlighted"))
+        finally:
+            os.unlink(source_path)
+
     def test_upload_succeeds_when_bridge_header_is_present(self):
         self._login("bridge@conwiz.in")
         status, payload = self.client.request(

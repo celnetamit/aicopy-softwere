@@ -149,6 +149,8 @@
             return postJson('/api/process-document', {
                 options: options,
                 task_id: taskId || '',
+                source_type: (window.fileContent && window.fileContent.sourceType) || 'text',
+                source_docx_base64: (window.fileContent && window.fileContent.sourceDocxBase64) || '',
                 source_text: (window.fileContent && window.fileContent.original) || '',
                 source_file_name: (window.fileContent && window.fileContent.fileName) || ''
             });

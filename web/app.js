@@ -24,6 +24,9 @@ let taskHistory = [];
 let adminUsers = [];
 let adminEvents = [];
 let runtimeManagedSettings = null;
+let isFileLoading = false;
+let isProcessingDocument = false;
+let pendingProcessAfterLoad = false;
 const SETTINGS_STORAGE_KEY = 'manuscript_editor_ai_settings_v1';
 const FIRST_RUN_SETUP_KEY = 'manuscript_editor_first_run_setup_v1';
 const FIRST_RUN_SETUP_VERSION = '20260417r2';
@@ -699,6 +702,7 @@ function applyTaskDetailsToState(task) {
     if (saveHighlightBtn) {
         saveHighlightBtn.disabled = !processed;
     }
+    refreshProcessButtonState();
 
     switch_tab(processed ? 'corrected' : 'original');
     renderTaskHistory();
@@ -2992,6 +2996,9 @@ function handleFile(file) {
         return;
     }
     setStatus('Loading file...', 'warning');
+    isFileLoading = true;
+    pendingProcessAfterLoad = false;
+    refreshProcessButtonState();
 
     if (ext === 'txt') {
         const reader = new FileReader();
@@ -2999,6 +3006,8 @@ function handleFile(file) {
             eel.load_text_content(file.name, reader.result)(handleLoadResponse(file.name));
         };
         reader.onerror = function () {
+            isFileLoading = false;
+            refreshProcessButtonState();
             setStatus('Error loading file', 'error');
             alert('Error reading .txt file');
         };
@@ -3019,6 +3028,8 @@ function handleFile(file) {
         eel.load_docx_content(file.name, base64)(handleLoadResponse(file.name));
     };
     reader.onerror = function () {
+        isFileLoading = false;
+        refreshProcessButtonState();
         setStatus('Error loading file', 'error');
         alert('Error reading .docx file');
     };
@@ -3027,6 +3038,7 @@ function handleFile(file) {
 
 function handleLoadResponse(displayName) {
     return function (response) {
+        isFileLoading = false;
         if (response.success) {
             fileContent.taskId = String(response.task_id || '');
             if (!fileContent.sourceType) {
@@ -3054,9 +3066,18 @@ function handleLoadResponse(displayName) {
             switch_tab('original');
             document.getElementById('save-clean-btn').disabled = true;
             document.getElementById('save-highlight-btn').disabled = true;
+            refreshProcessButtonState();
             setStatus('File loaded successfully', 'success');
             refreshTaskHistory();
+            if (pendingProcessAfterLoad) {
+                pendingProcessAfterLoad = false;
+                window.setTimeout(() => {
+                    process_document();
+                }, 0);
+            }
         } else {
+            pendingProcessAfterLoad = false;
+            refreshProcessButtonState();
             setStatus('Error loading file', 'error');
             alert('Error loading file: ' + response.error);
         }
@@ -3114,6 +3135,13 @@ function setStatus(message, type) {
         error: '#e94560'
     };
     statusEl.style.color = colors[type] || colors.info;
+}
+
+function refreshProcessButtonState() {
+    if (!processBtn) {
+        return;
+    }
+    processBtn.disabled = isFileLoading || isProcessingDocument || !String(fileContent.original || '').trim();
 }
 
 function setProgress(progress) {
@@ -3189,14 +3217,21 @@ function pollTaskUntilProcessed(taskId, attempt = 0) {
 }
 
 function process_document() {
+    if (isFileLoading) {
+        pendingProcessAfterLoad = true;
+        setStatus('File is still loading. Processing will start automatically when upload finishes.', 'warning');
+        refreshProcessButtonState();
+        return;
+    }
     if (!fileContent.original) {
         alert('Please load a document first.');
         return;
     }
 
+    isProcessingDocument = true;
     setStatus('Processing...', 'warning');
     setProgress(30);
-    document.getElementById('process-btn').disabled = true;
+    refreshProcessButtonState();
     const options = buildProcessingOptionsFromRuntimeSettings();
     saveAiSettings();
 
@@ -3232,7 +3267,8 @@ function process_document() {
                 alert('Processing error: ' + errorText);
             }
         }
-        document.getElementById('process-btn').disabled = false;
+        isProcessingDocument = false;
+        refreshProcessButtonState();
     });
 }
 
@@ -3425,6 +3461,9 @@ function clear_all() {
         groupDecisions: null,
         processingAudit: null
     };
+    isFileLoading = false;
+    isProcessingDocument = false;
+    pendingProcessAfterLoad = false;
     window.fileContent = fileContent;
     renderAdminDocxStructureSummary();
     document.getElementById('file-name').textContent = 'No file selected';
@@ -3435,12 +3474,14 @@ function clear_all() {
     switch_tab('original');
     setStatus('Ready', 'info');
     setProgress(0);
+    refreshProcessButtonState();
 }
 
 updateAdminGlobalAiProviderUI(false);
 updateAdminAiValidationHint();
 applyRouteViewMode();
 checkAuthenticatedUser();
+refreshProcessButtonState();
 
 window.addEventListener('pageshow', () => {
     applyRouteViewMode();

@@ -784,6 +784,28 @@ def _upload_text_to_task(context: SessionContext, file_name: str, text: str, sou
     }
 
 
+def _upload_docx_to_task(context: SessionContext, file_name: str, byte_data: bytes) -> Dict:
+    """Decode DOCX bytes, extract text, and persist as a DOCX-backed task."""
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
+            handle.write(byte_data)
+            temp_path = handle.name
+
+        processor = DocumentProcessor()
+        text, _ = processor.load_document(temp_path)
+        return _upload_text_to_task(
+            context,
+            file_name=file_name,
+            text=text,
+            source_type="docx",
+            source_bytes=byte_data,
+        )
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
 def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     processor = DocumentProcessor()
     original_text = str(task.get("original_text") or "")
@@ -1274,27 +1296,11 @@ def api_tasks_upload_docx():
     except Exception:
         return _json_response(_error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"), status=400)
 
-    temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
-            handle.write(byte_data)
-            temp_path = handle.name
-
-        processor = DocumentProcessor()
-        text, _ = processor.load_document(temp_path)
-        result = _upload_text_to_task(
-            context,
-            file_name=file_name,
-            text=text,
-            source_type="docx",
-            source_bytes=byte_data,
-        )
+        result = _upload_docx_to_task(context, file_name=file_name, byte_data=byte_data)
         return _json_response(result, session_id=context.session_id)
     except Exception as exc:
         return _json_response(_error_payload("TASK_UPLOAD_FAILED", str(exc)), status=400, session_id=context.session_id)
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
 
 
 @app.get("/api/tasks")
@@ -1498,16 +1504,33 @@ def process_document_legacy():
     task_id = str(payload.get("task_id", "") or "").strip()
     source_text = str(payload.get("source_text", "") or "")
     source_file_name = str(payload.get("source_file_name", "manuscript.txt") or "manuscript.txt")
+    source_type = str(payload.get("source_type", "text") or "text").strip().lower()
+    source_docx_base64 = str(payload.get("source_docx_base64", "") or "")
 
     try:
-        if not task_id and source_text.strip():
-            uploaded = _upload_text_to_task(
-                context,
-                file_name=source_file_name,
-                text=source_text,
-                source_type="text",
-            )
-            task_id = str(uploaded.get("task_id") or "")
+        if not task_id:
+            if source_type == "docx" and source_docx_base64.strip():
+                try:
+                    source_docx_bytes = base64.b64decode(source_docx_base64)
+                except Exception:
+                    return _json_response(
+                        _error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"),
+                        status=400,
+                    )
+                uploaded = _upload_docx_to_task(
+                    context,
+                    file_name=source_file_name if source_file_name.lower().endswith(".docx") else "manuscript.docx",
+                    byte_data=source_docx_bytes,
+                )
+                task_id = str(uploaded.get("task_id") or "")
+            elif source_text.strip():
+                uploaded = _upload_text_to_task(
+                    context,
+                    file_name=source_file_name,
+                    text=source_text,
+                    source_type="text",
+                )
+                task_id = str(uploaded.get("task_id") or "")
 
         if not task_id:
             return _json_response(_error_payload("TASK_REQUIRED", "No task selected"), status=400)
