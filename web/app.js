@@ -173,6 +173,7 @@ const importCustomTermsBtn = document.getElementById('import-custom-terms-btn');
 const clearCustomTermsBtn = document.getElementById('clear-custom-terms-btn');
 const customTermsFileInput = document.getElementById('custom-terms-file-input');
 const cmosStrictInput = document.getElementById('opt-cmos-strict');
+const onlineReferenceValidationInput = document.getElementById('opt-online-reference-validation');
 const pageControls = document.getElementById('page-controls');
 const pagePresetSelect = document.getElementById('page-preset');
 const pageFontSizeInput = document.getElementById('page-font-size');
@@ -593,12 +594,16 @@ function refreshRuntimeSettings(callback) {
 }
 
 function buildProcessingOptionsFromRuntimeSettings() {
+    const onlineReferenceValidationEnabled = onlineReferenceValidationInput
+        ? onlineReferenceValidationInput.checked !== false
+        : true;
     const defaults = {
         spelling: true,
         sentence_case: true,
         punctuation: true,
         chicago_style: true,
         cmos_strict_mode: true,
+        online_reference_validation: onlineReferenceValidationEnabled,
         domain_profile: 'auto',
         custom_terms: [],
         journal_profile: FIXED_JOURNAL_PROFILE,
@@ -631,6 +636,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
         punctuation: editing.punctuation !== false,
         chicago_style: editing.chicago_style !== false,
         cmos_strict_mode: editing.cmos_strict_mode !== false,
+        online_reference_validation: onlineReferenceValidationEnabled,
         domain_profile: String(editing.domain_profile || 'auto'),
         custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
         journal_profile: FIXED_JOURNAL_PROFILE,
@@ -1920,6 +1926,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             ? safeValidator.category_counts
             : {};
         const messages = Array.isArray(safeValidator.messages) ? safeValidator.messages : [];
+        const onlineValidation = safeValidator.online_validation && typeof safeValidator.online_validation === 'object'
+            ? safeValidator.online_validation
+            : null;
         const totalIssues = Number(summary.total_issues || 0);
         const citationIssues = Number(summary.citation_issues || 0);
         const referenceIssues = Number(summary.reference_issues || 0);
@@ -1966,6 +1975,64 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += '<div class="validator-ok">No citation/reference validation issues detected.</div>';
         }
         html += '</section>';
+
+        if (onlineValidation) {
+            const onlineSummary = onlineValidation.summary && typeof onlineValidation.summary === 'object'
+                ? onlineValidation.summary
+                : {};
+            const onlineMessages = Array.isArray(onlineValidation.messages) ? onlineValidation.messages : [];
+            const onlineEntries = Array.isArray(onlineValidation.entries) ? onlineValidation.entries : [];
+            const flaggedEntries = onlineEntries
+                .filter((item) => ['mismatch', 'not_found', 'ambiguous', 'error'].includes(String(item && item.status || '')))
+                .slice(0, 8);
+            const statusLabel = (value) => String(value || '')
+                .replaceAll('_', ' ')
+                .replace(/\b\w/g, (c) => c.toUpperCase());
+
+            html += '<section class="validator-card">';
+            html += '<div class="validator-title">Online Reference Validation</div>';
+            html += '<div class="validator-grid">';
+            html += `<div class="validator-item"><span>Status</span><strong>${onlineValidation.enabled ? 'On' : 'Off'}</strong></div>`;
+            html += `<div class="validator-item"><span>Checked</span><strong>${Number(onlineSummary.checked || 0)}</strong></div>`;
+            html += `<div class="validator-item"><span>Verified</span><strong>${Number(onlineSummary.verified || 0)}</strong></div>`;
+            html += `<div class="validator-item"><span>Likely Match</span><strong>${Number(onlineSummary.likely_match || 0)}</strong></div>`;
+            html += `<div class="validator-item"><span>Not Found</span><strong>${Number(onlineSummary.not_found || 0)}</strong></div>`;
+            html += `<div class="validator-item"><span>Skipped</span><strong>${Number(onlineSummary.skipped || 0)}</strong></div>`;
+            html += '</div>';
+
+            if (onlineMessages.length > 0) {
+                html += '<div class="validator-messages">';
+                html += '<div class="validator-messages-title">Online Validation Notes</div><ul>';
+                onlineMessages.forEach((message) => {
+                    html += `<li>${escapeHtml(String(message || ''))}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            if (flaggedEntries.length > 0) {
+                html += '<div class="validator-messages">';
+                html += '<div class="validator-messages-title">References To Review</div><ul>';
+                flaggedEntries.forEach((item) => {
+                    const number = Number(item && item.number || 0);
+                    const status = statusLabel(item && item.status);
+                    const reason = String(item && item.reason || '');
+                    const matchedTitle = String(item && item.matched_title || '');
+                    const source = String(item && item.source || '');
+                    let line = `[${number}] ${status}: ${reason}`;
+                    if (matchedTitle) {
+                        line += ` Match: ${matchedTitle}.`;
+                    }
+                    if (source) {
+                        line += ` Source: ${source}.`;
+                    }
+                    html += `<li>${escapeHtml(line)}</li>`;
+                });
+                html += '</ul></div>';
+            } else if (onlineValidation.enabled && Number(onlineSummary.checked || 0) > 0) {
+                html += '<div class="validator-ok">No online reference mismatches were flagged in the checked journal references.</div>';
+            }
+            html += '</section>';
+        }
     }
     const safeJournal = journalProfileReport && typeof journalProfileReport === 'object' ? journalProfileReport : null;
     if (safeJournal) {
@@ -2354,6 +2421,7 @@ function saveAiSettings() {
         ai_advanced: aiAdvanced,
         domain_profile: domainProfileSelect.value || 'auto',
         cmos_strict_mode: cmosStrictInput ? cmosStrictInput.checked : true,
+        online_reference_validation: onlineReferenceValidationInput ? onlineReferenceValidationInput.checked !== false : true,
         custom_terms_text: normalizeCustomTermsText(customTermsInput.value),
         journal_profile: FIXED_JOURNAL_PROFILE,
         reference_profile: FIXED_JOURNAL_PROFILE,
@@ -2452,6 +2520,11 @@ function loadAiSettings() {
         cmosStrictInput.checked = parsed.cmos_strict_mode;
     } else if (cmosStrictInput) {
         cmosStrictInput.checked = true;
+    }
+    if (typeof parsed.online_reference_validation === 'boolean' && onlineReferenceValidationInput) {
+        onlineReferenceValidationInput.checked = parsed.online_reference_validation;
+    } else if (onlineReferenceValidationInput) {
+        onlineReferenceValidationInput.checked = true;
     }
     if (typeof parsed.custom_terms_text === 'string') {
         customTermsInput.value = normalizeCustomTermsText(parsed.custom_terms_text);
@@ -2743,7 +2816,8 @@ updateAiProviderUI();
     aiGlobalConsistencyMaxCharsInput,
     domainProfileSelect,
     customTermsInput,
-    cmosStrictInput
+    cmosStrictInput,
+    onlineReferenceValidationInput
 ].forEach((el) => {
     if (!el) {
         return;

@@ -1,13 +1,18 @@
 """Chicago Manual of Style editing rules and corrections."""
 
 import re
+from urllib.parse import quote
 from typing import List, Tuple, Dict, Optional, Any
+
+import requests
 
 
 class ChicagoEditor:
     """Handles all Chicago Manual of Style corrections."""
 
     MISSING_PLACEHOLDER_RE = re.compile(r'\[[A-Za-z][A-Za-z ]* missing\]', flags=re.IGNORECASE)
+    ONLINE_VALIDATION_MAX_REFERENCES = 25
+    ONLINE_VALIDATION_TIMEOUT_SECONDS = 5
 
     # American vs British spelling preferences (Chicago prefers American)
     PREFERRED_SPELLINGS = {
@@ -1069,6 +1074,11 @@ class ChicagoEditor:
             "title": title,
             "journal": journal,
             "tail": tail,
+            "year": year_match.group(0) if year_match else "",
+            "volume": volume_match.group("volume") if volume_match and volume_match.groupdict().get("volume") else "",
+            "pages": page_match.group("pages") if page_match and page_match.groupdict().get("pages") else "",
+            "url": url_match.group(1).rstrip(".,;") if url_match else "",
+            "doi": doi_match.group(0).replace("doi:", "").strip().rstrip(".,;") if doi_match else "",
             "has_author": bool(re.search(r'[A-Za-z]', authors or "")),
             "has_title": bool(re.search(r'[A-Za-z]', title or "")),
             "has_journal": bool(re.search(r'[A-Za-z]', journal or "")),
@@ -1862,6 +1872,7 @@ class ChicagoEditor:
         }
         citation_issue_total = sum(count for code, count in issue_counts.items() if code in citation_issue_codes)
         reference_issue_total = sum(count for code, count in issue_counts.items() if code not in citation_issue_codes)
+        online_validation = self._build_online_reference_validation_report(ref_entries, options or {})
 
         return {
             "summary": {
@@ -1875,7 +1886,356 @@ class ChicagoEditor:
             "category_counts": issue_counts,
             "messages": messages[:12],
             "details": details,
+            "online_validation": online_validation,
         }
+
+    def _build_online_reference_validation_report(
+        self,
+        ref_entries: List[Dict[str, Any]],
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Validate journal references against public metadata services when enabled."""
+        enabled = bool((options or {}).get("online_reference_validation", False))
+        summary = {
+            "checked": 0,
+            "attempted": 0,
+            "verified": 0,
+            "likely_match": 0,
+            "mismatch": 0,
+            "not_found": 0,
+            "ambiguous": 0,
+            "skipped": 0,
+            "error": 0,
+        }
+        report = {
+            "enabled": enabled,
+            "limit": self.ONLINE_VALIDATION_MAX_REFERENCES,
+            "summary": summary,
+            "entries": [],
+            "messages": [],
+        }
+        if not enabled:
+            report["messages"] = ["Online reference validation was disabled for this run."]
+            return report
+
+        checked = 0
+        for item in ref_entries:
+            if checked >= self.ONLINE_VALIDATION_MAX_REFERENCES:
+                summary["skipped"] += 1
+                continue
+
+            number = int(item.get("number") or 0)
+            entry = str(item.get("entry") or "").strip()
+            if not entry:
+                continue
+            metadata = self._analyze_reference_entry(entry)
+            if str(metadata.get("source_type") or "") != "journal":
+                summary["skipped"] += 1
+                report["entries"].append({
+                    "number": number,
+                    "status": "skipped",
+                    "reason": "Online validation currently checks journal-style references only.",
+                    "entry": entry,
+                })
+                continue
+            if not metadata.get("has_title"):
+                summary["skipped"] += 1
+                report["entries"].append({
+                    "number": number,
+                    "status": "skipped",
+                    "reason": "Reference title is missing, so no reliable online lookup was attempted.",
+                    "entry": entry,
+                })
+                continue
+
+            checked += 1
+            result = self._validate_reference_online(number, entry, metadata)
+            summary["checked"] += 1
+            status = str(result.get("status") or "error")
+            if status != "skipped":
+                summary["attempted"] += 1
+            summary[status] = int(summary.get(status, 0)) + 1
+            report["entries"].append(result)
+
+        if checked >= self.ONLINE_VALIDATION_MAX_REFERENCES and len(ref_entries) > self.ONLINE_VALIDATION_MAX_REFERENCES:
+            report["messages"].append(
+                f"Online validation checked the first {self.ONLINE_VALIDATION_MAX_REFERENCES} journal references to keep processing responsive."
+            )
+        if summary["error"] > 0:
+            report["messages"].append("Some reference lookups failed due to remote API/network errors.")
+        if summary["not_found"] > 0 or summary["mismatch"] > 0 or summary["ambiguous"] > 0:
+            report["messages"].append("Review references marked not found, mismatch, or ambiguous before final submission.")
+        if summary["attempted"] == 0:
+            report["messages"].append("No eligible journal references were available for online validation.")
+        return report
+
+    def _validate_reference_online(self, number: int, entry: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Run conservative online validation for one journal reference."""
+        base = {
+            "number": number,
+            "entry": entry,
+            "doi": str(metadata.get("doi") or ""),
+            "title": str(metadata.get("title") or ""),
+            "year": str(metadata.get("year") or ""),
+            "journal": str(metadata.get("journal") or ""),
+            "status": "not_found",
+            "reason": "No matching record was found online.",
+            "source": "",
+        }
+
+        try:
+            doi = str(metadata.get("doi") or "").strip().rstrip(".")
+            if doi:
+                match = self._fetch_crossref_work_by_doi(doi)
+                if not match:
+                    base["reason"] = "DOI did not resolve in Crossref."
+                    return base
+                assessed = self._assess_online_metadata_match(metadata, match, "crossref_doi")
+                assessed.update({"number": number, "entry": entry, "doi": doi})
+                return assessed
+
+            candidates: List[Dict[str, Any]] = []
+            candidates.extend(self._search_crossref_works(metadata))
+            if not candidates:
+                candidates.extend(self._search_openalex_works(metadata))
+            if not candidates:
+                return base
+
+            scored = [self._assess_online_metadata_match(metadata, candidate, str(candidate.get("source") or "")) for candidate in candidates]
+            scored.sort(key=lambda item: float(item.get("score") or 0), reverse=True)
+            best = scored[0]
+            second_score = float(scored[1].get("score") or 0) if len(scored) > 1 else 0.0
+            best_score = float(best.get("score") or 0)
+            if best_score < 0.72:
+                base["reason"] = "Search results did not closely match the supplied reference metadata."
+                return base
+            if second_score >= 0.78 and abs(best_score - second_score) <= 0.03:
+                best["status"] = "ambiguous"
+                best["reason"] = "Multiple similar online records matched this reference."
+            elif best["status"] == "verified" and best_score < 0.93:
+                best["status"] = "likely_match"
+                best["reason"] = "A strong online match was found, but the citation was matched by search rather than DOI."
+            best.update({"number": number, "entry": entry, "doi": str(metadata.get("doi") or "")})
+            return best
+        except requests.RequestException as exc:
+            base["status"] = "error"
+            base["reason"] = f"Online lookup failed: {exc.__class__.__name__}."
+            return base
+        except Exception as exc:
+            base["status"] = "error"
+            base["reason"] = f"Online validation error: {exc.__class__.__name__}."
+            return base
+
+    def _fetch_crossref_work_by_doi(self, doi: str) -> Optional[Dict[str, Any]]:
+        """Return Crossref metadata for a DOI when available."""
+        url = f"https://api.crossref.org/works/{quote(doi, safe='')}"
+        response = requests.get(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
+            timeout=self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+        message = payload.get("message") if isinstance(payload, dict) else None
+        return self._normalize_crossref_candidate(message) if isinstance(message, dict) else None
+
+    def _search_crossref_works(self, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search Crossref by bibliographic metadata."""
+        title = str(metadata.get("title") or "").strip()
+        first_author = self._extract_reference_first_author(str(metadata.get("authors") or ""))
+        year = str(metadata.get("year") or "").strip()
+        journal = str(metadata.get("journal") or "").strip()
+        query = " ".join(part for part in [title, first_author, year, journal] if part).strip()
+        if not query:
+            return []
+        response = requests.get(
+            "https://api.crossref.org/works",
+            headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
+            params={"rows": 5, "query.bibliographic": query},
+            timeout=self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        message = payload.get("message") if isinstance(payload, dict) else {}
+        items = message.get("items") if isinstance(message, dict) else []
+        normalized: List[Dict[str, Any]] = []
+        for item in items if isinstance(items, list) else []:
+            candidate = self._normalize_crossref_candidate(item)
+            if candidate:
+                normalized.append(candidate)
+        return normalized
+
+    def _search_openalex_works(self, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Fallback search in OpenAlex when Crossref does not find a title match."""
+        title = str(metadata.get("title") or "").strip()
+        if not title:
+            return []
+        response = requests.get(
+            "https://api.openalex.org/works",
+            headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
+            params={"search": title, "per-page": 5},
+            timeout=self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = payload.get("results") if isinstance(payload, dict) else []
+        normalized: List[Dict[str, Any]] = []
+        for item in results if isinstance(results, list) else []:
+            candidate = self._normalize_openalex_candidate(item)
+            if candidate:
+                normalized.append(candidate)
+        return normalized
+
+    def _normalize_crossref_candidate(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Convert one Crossref record to internal matching metadata."""
+        if not isinstance(item, dict):
+            return None
+        titles = item.get("title")
+        title = titles[0] if isinstance(titles, list) and titles else str(item.get("title") or "")
+        container = item.get("container-title")
+        journal = container[0] if isinstance(container, list) and container else str(item.get("container-title") or "")
+        issued = item.get("issued", {})
+        year = ""
+        if isinstance(issued, dict):
+            date_parts = issued.get("date-parts")
+            if isinstance(date_parts, list) and date_parts and isinstance(date_parts[0], list) and date_parts[0]:
+                year = str(date_parts[0][0])
+        authors = item.get("author")
+        first_author = ""
+        if isinstance(authors, list) and authors and isinstance(authors[0], dict):
+            first_author = str(authors[0].get("family") or authors[0].get("name") or "").strip()
+        pages = str(item.get("page") or "").strip()
+        return {
+            "source": "crossref",
+            "title": str(title or "").strip(),
+            "journal": str(journal or "").strip(),
+            "year": year,
+            "pages": pages,
+            "volume": str(item.get("volume") or "").strip(),
+            "issue": str(item.get("issue") or "").strip(),
+            "doi": str(item.get("DOI") or "").strip(),
+            "first_author": first_author,
+        }
+
+    def _normalize_openalex_candidate(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Convert one OpenAlex result to internal matching metadata."""
+        if not isinstance(item, dict):
+            return None
+        location = item.get("primary_location") if isinstance(item.get("primary_location"), dict) else {}
+        source = location.get("source") if isinstance(location.get("source"), dict) else {}
+        authorships = item.get("authorships")
+        first_author = ""
+        if isinstance(authorships, list) and authorships and isinstance(authorships[0], dict):
+            author = authorships[0].get("author") if isinstance(authorships[0].get("author"), dict) else {}
+            first_author = str(author.get("display_name") or "").strip()
+        biblio = item.get("biblio") if isinstance(item.get("biblio"), dict) else {}
+        doi = str(item.get("doi") or "").strip()
+        doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+        return {
+            "source": "openalex",
+            "title": str(item.get("display_name") or "").strip(),
+            "journal": str(source.get("display_name") or "").strip(),
+            "year": str(item.get("publication_year") or "").strip(),
+            "pages": self._build_pages_value(str(biblio.get("first_page") or ""), str(biblio.get("last_page") or "")),
+            "volume": str(biblio.get("volume") or "").strip(),
+            "issue": str(biblio.get("issue") or "").strip(),
+            "doi": doi.strip(),
+            "first_author": first_author,
+        }
+
+    def _assess_online_metadata_match(
+        self,
+        metadata: Dict[str, Any],
+        candidate: Dict[str, Any],
+        source_label: str,
+    ) -> Dict[str, Any]:
+        """Score how well one remote metadata record matches the supplied reference."""
+        title_score = self._text_similarity(str(metadata.get("title") or ""), str(candidate.get("title") or ""))
+        reference_author = self._extract_reference_first_author(str(metadata.get("authors") or ""))
+        candidate_author = self._extract_reference_first_author(str(candidate.get("first_author") or ""))
+        author_match = bool(reference_author and candidate_author and reference_author == candidate_author)
+        year_match = bool(metadata.get("year") and candidate.get("year") and str(metadata.get("year")) == str(candidate.get("year")))
+        pages_match = self._page_tokens_match(str(metadata.get("pages") or ""), str(candidate.get("pages") or ""))
+        score = title_score
+        if author_match:
+            score += 0.18
+        if year_match:
+            score += 0.12
+        if pages_match:
+            score += 0.08
+        status = "verified"
+        reason = "Online metadata matched the supplied reference."
+        if title_score < 0.45 or (metadata.get("year") and candidate.get("year") and not year_match and not author_match):
+            status = "mismatch"
+            reason = "Online metadata conflicts with the supplied reference."
+        elif score < 0.82:
+            status = "likely_match"
+            reason = "An online record closely matched the supplied reference."
+        elif source_label == "crossref_doi" and metadata.get("doi") and candidate.get("doi") and str(metadata.get("doi")).lower() != str(candidate.get("doi")).lower():
+            status = "mismatch"
+            reason = "The DOI resolved, but the returned metadata did not match the supplied DOI."
+        return {
+            "status": status,
+            "reason": reason,
+            "source": source_label,
+            "score": round(score, 3),
+            "matched_title": str(candidate.get("title") or ""),
+            "matched_journal": str(candidate.get("journal") or ""),
+            "matched_year": str(candidate.get("year") or ""),
+            "matched_pages": str(candidate.get("pages") or ""),
+            "matched_doi": str(candidate.get("doi") or ""),
+            "matched_first_author": str(candidate.get("first_author") or ""),
+        }
+
+    def _extract_reference_first_author(self, author_block: str) -> str:
+        """Return a lowercased first-author family name for coarse matching."""
+        text = re.sub(r'\bet al\.?$', '', str(author_block or '').strip(), flags=re.IGNORECASE).strip()
+        if not text:
+            return ""
+        primary = re.split(r',|;|\band\b|&', text, maxsplit=1, flags=re.IGNORECASE)[0]
+        tokens = re.findall(r"[A-Za-z][A-Za-z'`-]*", primary)
+        if not tokens:
+            return ""
+        return tokens[0].lower()
+
+    def _normalize_match_text(self, value: str) -> str:
+        """Lowercase and strip punctuation for reference matching."""
+        return " ".join(re.findall(r"[a-z0-9]+", str(value or "").lower()))
+
+    def _text_similarity(self, left: str, right: str) -> float:
+        """Return a small heuristic similarity score for metadata matching."""
+        left_norm = self._normalize_match_text(left)
+        right_norm = self._normalize_match_text(right)
+        if not left_norm or not right_norm:
+            return 0.0
+        if left_norm == right_norm:
+            return 1.0
+        if left_norm in right_norm or right_norm in left_norm:
+            return 0.92
+        left_tokens = set(left_norm.split())
+        right_tokens = set(right_norm.split())
+        if not left_tokens or not right_tokens:
+            return 0.0
+        overlap = len(left_tokens & right_tokens)
+        return (2.0 * overlap) / (len(left_tokens) + len(right_tokens))
+
+    def _page_tokens_match(self, left: str, right: str) -> bool:
+        """Compare page/article numbers loosely."""
+        left_norm = re.sub(r'[^A-Za-z0-9]+', '', str(left or '').lower())
+        right_norm = re.sub(r'[^A-Za-z0-9]+', '', str(right or '').lower())
+        if not left_norm or not right_norm:
+            return False
+        return left_norm == right_norm
+
+    def _build_pages_value(self, first_page: str, last_page: str) -> str:
+        """Build a compact pages field from OpenAlex bibliographic fields."""
+        first = str(first_page or "").strip()
+        last = str(last_page or "").strip()
+        if first and last and first != last:
+            return f"{first}-{last}"
+        return first or last
 
     def format_references_vancouver_numbered(self, text: str, options: Optional[Dict] = None) -> str:
         """Format manuscript citations/references in Vancouver first-appearance order."""

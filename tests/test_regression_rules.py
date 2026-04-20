@@ -2,6 +2,7 @@
 
 import re
 import unittest
+from unittest.mock import Mock, patch
 
 from chicago_editor import ChicagoEditor
 from document_processor import DocumentProcessor
@@ -226,6 +227,94 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         report = self.editor.build_citation_reference_validator_report(source, {})
         self.assertEqual(report.get("summary", {}).get("total_issues"), 0)
         self.assertEqual(report.get("messages"), [])
+
+    @patch("chicago_editor.requests.get")
+    def test_online_reference_validation_can_be_disabled(self, mock_get):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110. doi:10.1000/alpha.\n"
+        )
+        report = self.editor.build_citation_reference_validator_report(
+            source,
+            {"online_reference_validation": False},
+        )
+        online = report.get("online_validation", {})
+        self.assertFalse(online.get("enabled"))
+        mock_get.assert_not_called()
+
+    @patch("chicago_editor.requests.get")
+    def test_online_reference_validation_verifies_matching_doi(self, mock_get):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110. doi:10.1000/alpha.\n"
+        )
+
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "message": {
+                "title": ["Complete title"],
+                "container-title": ["Journal of Testing"],
+                "issued": {"date-parts": [[2024, 1, 1]]},
+                "page": "100-110",
+                "volume": "10",
+                "issue": "2",
+                "DOI": "10.1000/alpha",
+                "author": [{"family": "Alpha"}],
+            }
+        }
+        mock_get.return_value = response
+
+        report = self.editor.build_citation_reference_validator_report(
+            source,
+            {"online_reference_validation": True},
+        )
+        online = report.get("online_validation", {})
+        self.assertTrue(online.get("enabled"))
+        self.assertEqual(online.get("summary", {}).get("verified"), 1)
+        self.assertEqual(online.get("summary", {}).get("checked"), 1)
+        self.assertEqual(online.get("entries", [])[0].get("status"), "verified")
+
+    @patch("chicago_editor.requests.get")
+    def test_online_reference_validation_search_fallback_finds_match(self, mock_get):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Kaplan S. The restorative benefits of nature: toward an integrative framework. J Environ Psychol. 1995 ;15(3):169-182.\n"
+        )
+
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "message": {
+                "items": [
+                    {
+                        "title": ["The restorative benefits of nature: Toward an integrative framework"],
+                        "container-title": ["Journal of Environmental Psychology"],
+                        "issued": {"date-parts": [[1995, 1, 1]]},
+                        "page": "169-182",
+                        "volume": "15",
+                        "issue": "3",
+                        "DOI": "10.1000/restorative",
+                        "author": [{"family": "Kaplan"}],
+                    }
+                ]
+            }
+        }
+        mock_get.return_value = response
+
+        report = self.editor.build_citation_reference_validator_report(
+            source,
+            {"online_reference_validation": True},
+        )
+        online = report.get("online_validation", {})
+        self.assertEqual(online.get("summary", {}).get("checked"), 1)
+        self.assertEqual(online.get("summary", {}).get("verified"), 1)
+        self.assertEqual(online.get("entries", [])[0].get("source"), "crossref")
 
     def test_source_type_missing_placeholders_are_injected(self):
         source = (
