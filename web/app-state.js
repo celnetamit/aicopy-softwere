@@ -31,7 +31,7 @@ app.constants = {
         ollama: 'llama3.1',
         gemini: 'gemini-1.5-flash',
         openrouter: 'openrouter/auto',
-        agent_router: 'gpt-5'
+        agent_router: 'deepseek-v3.1'
     },
     AI_ADVANCED_DEFAULTS: {
         section_wise: true,

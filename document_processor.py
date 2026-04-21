@@ -43,7 +43,7 @@ class DocumentProcessor:
         self.model = "llama3.1"
         self.gemini_model = "gemini-1.5-flash"
         self.openrouter_model = "openrouter/auto"
-        self.agent_router_model = "gpt-5"
+        self.agent_router_model = "deepseek-v3.1"
         self._last_ai_warning = ""
         self._last_selection_note = ""
         self._last_ai_pipeline_note = ""

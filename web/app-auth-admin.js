@@ -673,7 +673,7 @@ function getModelSuggestionsForProvider(provider, ollamaModels) {
     const selected = String(provider || '').trim().toLowerCase();
     if (selected === 'gemini') return ['gemini-1.5-flash', 'gemini-1.5-pro'];
     if (selected === 'openrouter') return ['openrouter/auto', 'openai/gpt-5.4', 'google/gemini-2.5-pro', 'anthropic/claude-sonnet-4'];
-    if (selected === 'agent_router') return ['gpt-5', 'gpt-4.1', 'claude-sonnet-4', 'gemini-2.5-pro'];
+    if (selected === 'agent_router') return ['deepseek-v3.1', 'deepseek-r1-0528', 'claude-opus-4-6'];
     return Array.isArray(ollamaModels) && ollamaModels.length > 0
         ? ollamaModels
         : ['llama3.1', 'llama3.1:latest', 'qwen2.5:7b', 'mistral:7b'];
@@ -728,7 +728,7 @@ function updateAdminGlobalAiProviderUI(forceDefaultModel) {
         : provider === 'ollama'
             ? 'llama3.1'
             : provider === 'agent_router'
-                ? 'gpt-5'
+                ? 'deepseek-v3.1'
                 : 'openrouter/auto';
 
     if (provider === 'ollama') {
@@ -994,13 +994,13 @@ function updateAdminAiValidationHint() {
         : provider === 'ollama'
             ? 'llama3.1'
             : provider === 'agent_router'
-                ? 'gpt-5'
+                ? 'deepseek-v3.1'
                 : 'openrouter/auto';
     if (authDom.adminAiValidationHelp) {
         authDom.adminAiValidationHelp.textContent = provider === 'ollama'
             ? 'Leave host blank to validate the saved Ollama host. A model check now verifies that the selected model exists.'
             : provider === 'agent_router'
-                ? 'Leave token blank to validate with the saved AgentRouter token or AGENT_ROUTER_TOKEN from server env.'
+                ? 'Use the exact AgentRouter model ID from your dashboard, such as deepseek-v3.1 or claude-opus-4-6. Leave token blank to use the saved token or AGENT_ROUTER_TOKEN.'
                 : provider === 'gemini'
                     ? 'Leave key blank to validate with the saved Gemini key or GEMINI_API_KEY from server env.'
                     : 'Leave key blank to validate with the saved OpenRouter key or OPENROUTER_API_KEY from server env.';

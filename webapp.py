@@ -1103,7 +1103,7 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
             key = str(os.getenv("AGENT_ROUTER_TOKEN", "") or "").strip()
         if not key:
             return False, "AgentRouter token missing"
-        use_model = selected_model or "gpt-5"
+        use_model = selected_model or "deepseek-v3.1"
         headers = {
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",

@@ -164,8 +164,13 @@
 
                     <div id="agent-router-model-settings" class="hidden">
                         <label class="field-label" for="agent-router-model-input">Agent Router Model</label>
-                        <input id="agent-router-model-input" class="input-field" type="text" value="gpt-5" />
-                        <p class="hint-text">Recommended: <code>gpt-5</code></p>
+                        <input id="agent-router-model-input" class="input-field" type="text" value="deepseek-v3.1" list="agent-router-model-list" />
+                        <datalist id="agent-router-model-list">
+                            <option value="deepseek-v3.1">DeepSeek V3.1</option>
+                            <option value="deepseek-r1-0528">DeepSeek R1 0528</option>
+                            <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                        </datalist>
+                        <p class="hint-text">Use the exact model ID shown in your AgentRouter console or pricing page.</p>
                     </div>
 
                     <div id="ollama-settings">
