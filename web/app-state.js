@@ -77,6 +77,12 @@ app.constants = {
         'Building the corrected draft and redline preview...',
         'Preparing corrections and export-ready output...'
     ],
+    TASK_RECOVERY_SOFT_TIMEOUT_MS: 45_000,
+    TASK_RECOVERY_HARD_TIMEOUT_MS: 20 * 60 * 1000,
+    TASK_RECOVERY_FAST_POLL_MS: 1_200,
+    TASK_RECOVERY_MEDIUM_POLL_MS: 2_500,
+    TASK_RECOVERY_SLOW_POLL_MS: 5_000,
+    TASK_RECOVERY_HISTORY_REFRESH_EVERY: 3,
     FIXED_JOURNAL_PROFILE: 'vancouver_periods',
     ADMIN_DASHBOARD_PATH: '/admin-dashboard'
 };
@@ -96,6 +102,9 @@ app.state = {
     processingTimerIntervalId: null,
     processingMessageIntervalId: null,
     processingMessageIndex: 0,
+    trackedProcessingTaskId: '',
+    taskRecoveryStartedAt: 0,
+    taskRecoveryPollCount: 0,
     pendingOllamaModelFromStorage: '',
     remoteOllamaHostHint: '',
     pageSettings: {

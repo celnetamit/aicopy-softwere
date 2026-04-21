@@ -102,6 +102,67 @@ function stopProcessingPresence() {
     setProcessingPresenceVisible(false);
 }
 
+function clearServerTaskTracking() {
+    mainState.trackedProcessingTaskId = '';
+    mainState.taskRecoveryStartedAt = 0;
+    mainState.taskRecoveryPollCount = 0;
+}
+
+function getTaskRecoveryPollDelay(elapsedMs) {
+    if (elapsedMs < 15_000) {
+        return mainConstants.TASK_RECOVERY_FAST_POLL_MS;
+    }
+    if (elapsedMs < 90_000) {
+        return mainConstants.TASK_RECOVERY_MEDIUM_POLL_MS;
+    }
+    return mainConstants.TASK_RECOVERY_SLOW_POLL_MS;
+}
+
+function buildTaskRecoveryStatus(status, elapsedMs) {
+    const elapsedText = formatProcessingDuration(Math.floor(elapsedMs / 1000));
+    const normalized = String(status || '').toUpperCase();
+    if (elapsedMs >= mainConstants.TASK_RECOVERY_SOFT_TIMEOUT_MS) {
+        return `Still processing on server (${elapsedText}). We are tracking it automatically.`;
+    }
+    if (normalized === 'UPLOADED') {
+        return `Upload finished. Waiting for server processing to continue... (${elapsedText})`;
+    }
+    return `Processing on server... (${elapsedText})`;
+}
+
+function scheduleTaskRecoveryPoll(taskId) {
+    const safeTaskId = String(taskId || '').trim();
+    if (!safeTaskId || mainState.trackedProcessingTaskId !== safeTaskId) {
+        return;
+    }
+    const startedAt = mainState.taskRecoveryStartedAt || Date.now();
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    const delay = getTaskRecoveryPollDelay(elapsedMs);
+    window.setTimeout(() => {
+        if (mainState.trackedProcessingTaskId === safeTaskId) {
+            pollTaskUntilProcessed(safeTaskId);
+        }
+    }, delay);
+}
+
+function startServerTaskTracking(taskId, message) {
+    const safeTaskId = String(taskId || '').trim();
+    if (!safeTaskId) {
+        return;
+    }
+    mainState.trackedProcessingTaskId = safeTaskId;
+    if (!mainState.taskRecoveryStartedAt) {
+        mainState.taskRecoveryStartedAt = Date.now();
+    }
+    if (!mainState.processingStartedAt) {
+        startProcessingPresence();
+    }
+    if (message) {
+        setStatus(message, 'warning');
+    }
+    pollTaskUntilProcessed(safeTaskId);
+}
+
 function handleLoadResponse(displayName) {
     return function (response) {
         mainState.isFileLoading = false;
@@ -249,19 +310,43 @@ function applyProcessResponseToState(response, options = {}) {
     appMain.syncWindowFileContent();
 }
 
-function pollTaskUntilProcessed(taskId, attempt = 0) {
+function pollTaskUntilProcessed(taskId) {
     const safeTaskId = String(taskId || '').trim();
     if (!safeTaskId || typeof eel === 'undefined' || typeof eel.get_task !== 'function') return;
-    const maxAttempts = 8;
+    if (mainState.trackedProcessingTaskId && mainState.trackedProcessingTaskId !== safeTaskId) return;
+    mainState.trackedProcessingTaskId = safeTaskId;
+    if (!mainState.taskRecoveryStartedAt) {
+        mainState.taskRecoveryStartedAt = Date.now();
+    }
+    mainState.taskRecoveryPollCount = Number(mainState.taskRecoveryPollCount || 0) + 1;
     eel.get_task(safeTaskId)(function (response) {
+        if (mainState.trackedProcessingTaskId !== safeTaskId) {
+            return;
+        }
+        const elapsedMs = Math.max(0, Date.now() - (mainState.taskRecoveryStartedAt || Date.now()));
+        const shouldRefreshHistory = mainState.taskRecoveryPollCount === 1
+            || (mainState.taskRecoveryPollCount % mainConstants.TASK_RECOVERY_HISTORY_REFRESH_EVERY) === 0;
+        if (shouldRefreshHistory) {
+            mainAuth.refreshTaskHistory();
+        }
         if (!response || !response.success || !response.task) {
-            if (attempt < maxAttempts - 1) window.setTimeout(() => pollTaskUntilProcessed(safeTaskId, attempt + 1), 1200);
-            else setStatus('Processing failed: could not recover task state', 'error');
+            if (elapsedMs >= mainConstants.TASK_RECOVERY_HARD_TIMEOUT_MS) {
+                clearServerTaskTracking();
+                mainState.isProcessingDocument = false;
+                stopProcessingPresence();
+                setStatus('Processing is taking unusually long and task tracking stopped. Open the latest task from history to check final state.', 'warning');
+                refreshProcessButtonState();
+                return;
+            }
+            setStatus(`Waiting for server task update... (${formatProcessingDuration(Math.floor(elapsedMs / 1000))})`, 'warning');
+            scheduleTaskRecoveryPoll(safeTaskId);
             return;
         }
         const task = response.task;
         const status = String(task.status || '').toUpperCase();
         if (status === 'PROCESSED') {
+            clearServerTaskTracking();
+            mainState.isProcessingDocument = false;
             mainAuth.applyTaskDetailsToState(task);
             switch_tab('corrected');
             if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
@@ -269,20 +354,30 @@ function pollTaskUntilProcessed(taskId, attempt = 0) {
             stopProcessingPresence();
             setStatus('Processing complete (recovered after transient server response issue)', 'success');
             setProgress(100);
+            refreshProcessButtonState();
             return;
         }
         if (status === 'FAILED') {
             const reports = task.reports && typeof task.reports === 'object' ? task.reports : {};
+            clearServerTaskTracking();
+            mainState.isProcessingDocument = false;
             stopProcessingPresence();
             setStatus('Processing failed', 'error');
             alert('Processing error: ' + String(reports.processing_note || task.error || 'Task failed on server.'));
+            refreshProcessButtonState();
             return;
         }
-        if (attempt < maxAttempts - 1) {
-            window.setTimeout(() => pollTaskUntilProcessed(safeTaskId, attempt + 1), 1200);
+        mainAuth.applyTaskDetailsToState(task);
+        if (elapsedMs >= mainConstants.TASK_RECOVERY_HARD_TIMEOUT_MS) {
+            clearServerTaskTracking();
+            mainState.isProcessingDocument = false;
+            stopProcessingPresence();
+            setStatus('Processing is taking unusually long and automatic tracking stopped. The task remains in history and may still finish on the server.', 'warning');
+            refreshProcessButtonState();
             return;
         }
-        setStatus('Processing still running on server. Refresh task list and open the latest task.', 'warning');
+        setStatus(buildTaskRecoveryStatus(status, elapsedMs), 'warning');
+        scheduleTaskRecoveryPoll(safeTaskId);
     });
 }
 
@@ -299,6 +394,7 @@ function process_document() {
     }
 
     mainState.isProcessingDocument = true;
+    clearServerTaskTracking();
     setStatus('Processing...', 'warning');
     setProgress(30);
     startProcessingPresence();
@@ -306,7 +402,9 @@ function process_document() {
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     mainSettings.saveAiSettings();
     eel.process_document(options, mainState.fileContent.taskId || '')(function (response) {
+        let keepProcessingState = false;
         if (response.success) {
+            clearServerTaskTracking();
             applyProcessResponseToState(response, { keepGroupDecisions: false });
             switch_tab('corrected');
             document.getElementById('word-count').textContent = 'Words: ' + response.word_count;
@@ -326,14 +424,19 @@ function process_document() {
             setStatus('Error: ' + errorText, 'error');
             const looksLikeInvalidJson = /invalid json response from server/i.test(errorText);
             if (looksLikeInvalidJson && String(mainState.fileContent.taskId || '').trim()) {
-                startProcessingPresence();
-                setStatus('Server returned a transient non-JSON response. Attempting task recovery...', 'warning');
-                pollTaskUntilProcessed(mainState.fileContent.taskId, 0);
+                mainState.taskRecoveryStartedAt = Date.now();
+                mainState.taskRecoveryPollCount = 0;
+                keepProcessingState = true;
+                startServerTaskTracking(
+                    mainState.fileContent.taskId,
+                    'Server returned a transient response. Continuing to track processing automatically...'
+                );
             } else {
+                clearServerTaskTracking();
                 alert('Processing error: ' + errorText);
             }
         }
-        mainState.isProcessingDocument = false;
+        mainState.isProcessingDocument = keepProcessingState;
         refreshProcessButtonState();
     });
 }
@@ -475,6 +578,7 @@ function clear_all() {
     mainState.isFileLoading = false;
     mainState.isProcessingDocument = false;
     mainState.pendingProcessAfterLoad = false;
+    clearServerTaskTracking();
     stopProcessingPresence();
     appMain.syncWindowFileContent();
     mainAuth.renderAdminDocxStructureSummary();
@@ -499,6 +603,7 @@ appMain.actions = {
     setProgress,
     startProcessingPresence,
     stopProcessingPresence,
+    startServerTaskTracking,
     applyProcessResponseToState,
     pollTaskUntilProcessed,
     process_document,
