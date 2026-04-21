@@ -42,6 +42,10 @@ class ChicagoEditor:
         'july', 'august', 'september', 'october', 'november', 'december',
         'spring', 'summer', 'fall', 'winter',
     }
+    WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june',
+                   'july', 'august', 'september', 'october', 'november', 'december']
+    AMBIGUOUS_MONTH_NAMES = {'march', 'may'}
     SUPERSCRIPT_MAP = str.maketrans({
         '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
         '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
@@ -471,13 +475,50 @@ class ChicagoEditor:
                 if next_char.islower():
                     result = result[:gap] + next_char.upper() + result[gap+1:]
 
-        # Capitalize days and months
-        for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
+        # Capitalize weekdays and unambiguous month names. Ambiguous month
+        # words like "may" and "march" need context so verbs/modal auxiliaries
+        # are not promoted to proper nouns in body text.
+        for day in self.WEEKDAY_NAMES:
             result = re.sub(r'\b' + day + r'\b', day.capitalize(), result, flags=re.IGNORECASE)
 
-        for month in ['january', 'february', 'march', 'april', 'may', 'june',
-                      'july', 'august', 'september', 'october', 'november', 'december']:
+        for month in self.MONTH_NAMES:
+            if month in self.AMBIGUOUS_MONTH_NAMES:
+                continue
             result = re.sub(r'\b' + month + r'\b', month.capitalize(), result, flags=re.IGNORECASE)
+
+        result = self._capitalize_ambiguous_month_references(result)
+
+        return result
+
+    def _capitalize_ambiguous_month_references(self, text: str) -> str:
+        """Capitalize ambiguous month names only in date-like contexts."""
+        result = text
+        ambiguous = '|'.join(sorted(self.AMBIGUOUS_MONTH_NAMES))
+        prepositions = (
+            'in', 'on', 'by', 'during', 'through', 'throughout', 'from', 'until',
+            'before', 'after', 'since', 'around', 'late', 'early', 'mid',
+            'next', 'last', 'this', 'each', 'every'
+        )
+        preposition_pattern = '|'.join(prepositions)
+
+        result = re.sub(
+            rf'\b((?:{preposition_pattern})\s+)(?P<month>{ambiguous})\b',
+            lambda match: match.group(1) + match.group('month').capitalize(),
+            result,
+            flags=re.IGNORECASE,
+        )
+        result = re.sub(
+            rf'\b(?P<month>{ambiguous})(?=(?:\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,\s*\d{{4}})?)|\s+\d{{4}}\b)',
+            lambda match: match.group('month').capitalize(),
+            result,
+            flags=re.IGNORECASE,
+        )
+        result = re.sub(
+            rf'(\b\d{{1,2}}(?:st|nd|rd|th)?\s+of\s+)(?P<month>{ambiguous})\b',
+            lambda match: match.group(1) + match.group('month').capitalize(),
+            result,
+            flags=re.IGNORECASE,
+        )
 
         return result
 

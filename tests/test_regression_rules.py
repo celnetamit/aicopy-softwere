@@ -123,6 +123,53 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertNotIn("In Vitro", out)
         self.assertNotIn("In Vivo", out)
 
+    def test_sentence_case_does_not_capitalize_modal_may(self):
+        source = (
+            "Future work may introduce explicit couplings. "
+            "The framework may evolve further."
+        )
+        out = self.editor.correct_all(
+            source,
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+            },
+        )
+        self.assertIn("Future work may introduce explicit couplings.", out)
+        self.assertIn("framework may evolve", out)
+        self.assertNotIn("work May introduce", out)
+        self.assertNotIn("framework May evolve", out)
+
+    def test_sentence_case_capitalizes_ambiguous_month_in_date_context(self):
+        source = "The conference will begin in may 2026 and continue through march 2027."
+        out = self.editor.correct_all(
+            source,
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+            },
+        )
+        self.assertIn("in May 2026", out)
+        self.assertIn("through March 2027", out)
+
+    def test_sentence_case_does_not_capitalize_verb_march(self):
+        source = "Participants march toward the gate each spring."
+        out = self.editor.correct_all(
+            source,
+            {
+                "spelling": True,
+                "sentence_case": True,
+                "punctuation": True,
+                "chicago_style": True,
+            },
+        )
+        self.assertIn("Participants march toward the gate", out)
+        self.assertNotIn("Participants March toward the gate", out)
+
     def test_reference_profile_initial_periods_rule_changes_author_initials(self):
         source = (
             "References\n"
