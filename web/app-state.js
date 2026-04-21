@@ -70,6 +70,13 @@ app.constants = {
         reference: 'Reference',
         style: 'Style'
     },
+    PROCESSING_MESSAGES: [
+        'Reading your manuscript and lining up edits...',
+        'Checking wording, punctuation, and style...',
+        'Comparing rule-based edits with AI guidance...',
+        'Building the corrected draft and redline preview...',
+        'Preparing corrections and export-ready output...'
+    ],
     FIXED_JOURNAL_PROFILE: 'vancouver_periods',
     ADMIN_DASHBOARD_PATH: '/admin-dashboard'
 };
@@ -85,6 +92,10 @@ app.state = {
     isFileLoading: false,
     isProcessingDocument: false,
     pendingProcessAfterLoad: false,
+    processingStartedAt: 0,
+    processingTimerIntervalId: null,
+    processingMessageIntervalId: null,
+    processingMessageIndex: 0,
     pendingOllamaModelFromStorage: '',
     remoteOllamaHostHint: '',
     pageSettings: {
@@ -174,6 +185,9 @@ app.dom = {
     saveCleanBtn: document.getElementById('save-clean-btn'),
     saveHighlightBtn: document.getElementById('save-highlight-btn'),
     clearBtn: document.getElementById('clear-btn'),
+    processingPresence: document.getElementById('processing-presence'),
+    processingMessage: document.getElementById('processing-message'),
+    processingTimer: document.getElementById('processing-timer'),
     aiProvider: document.getElementById('ai-provider'),
     ollamaModelSelect: document.getElementById('ollama-model-select'),
     refreshModelsBtn: document.getElementById('refresh-models-btn'),
@@ -216,6 +230,7 @@ app.dom = {
     pageMarginBottomInput: document.getElementById('page-margin-bottom'),
     pageMarginLeftInput: document.getElementById('page-margin-left'),
     pageMarginRightInput: document.getElementById('page-margin-right'),
+    progressBar: document.querySelector('.progress-bar'),
     openSetupWizardBtn: document.getElementById('open-setup-wizard-btn'),
     setupWizardBackdrop: document.getElementById('setup-wizard-backdrop'),
     setupWizardProvider: document.getElementById('wizard-provider'),

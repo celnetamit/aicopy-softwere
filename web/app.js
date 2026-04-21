@@ -32,6 +32,76 @@ function setProgress(progress) {
     document.getElementById('progress-fill').style.width = progress + '%';
 }
 
+function formatProcessingDuration(totalSeconds) {
+    const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+}
+
+function setProcessingPresenceVisible(visible) {
+    if (!mainDom.processingPresence) {
+        return;
+    }
+    mainDom.processingPresence.classList.toggle('hidden', !visible);
+    if (mainDom.progressBar) {
+        mainDom.progressBar.classList.toggle('processing', !!visible);
+    }
+}
+
+function updateProcessingTimer() {
+    if (!mainDom.processingTimer) {
+        return;
+    }
+    if (!mainState.processingStartedAt) {
+        mainDom.processingTimer.textContent = '00:00';
+        return;
+    }
+    const elapsedSeconds = Math.floor((Date.now() - mainState.processingStartedAt) / 1000);
+    mainDom.processingTimer.textContent = formatProcessingDuration(elapsedSeconds);
+}
+
+function startProcessingPresence() {
+    stopProcessingPresence();
+    mainState.processingStartedAt = Date.now();
+    mainState.processingMessageIndex = 0;
+    setProcessingPresenceVisible(true);
+    if (mainDom.processingMessage) {
+        mainDom.processingMessage.textContent = mainConstants.PROCESSING_MESSAGES[0];
+    }
+    updateProcessingTimer();
+    mainState.processingTimerIntervalId = window.setInterval(updateProcessingTimer, 1000);
+    mainState.processingMessageIntervalId = window.setInterval(() => {
+        mainState.processingMessageIndex = (mainState.processingMessageIndex + 1) % mainConstants.PROCESSING_MESSAGES.length;
+        if (mainDom.processingMessage) {
+            mainDom.processingMessage.textContent = mainConstants.PROCESSING_MESSAGES[mainState.processingMessageIndex];
+        }
+        const elapsedSeconds = Math.floor((Date.now() - mainState.processingStartedAt) / 1000);
+        const gentleProgress = Math.min(92, 30 + (elapsedSeconds * 2.2));
+        setProgress(gentleProgress);
+    }, 2400);
+}
+
+function stopProcessingPresence() {
+    if (mainState.processingTimerIntervalId) {
+        window.clearInterval(mainState.processingTimerIntervalId);
+        mainState.processingTimerIntervalId = null;
+    }
+    if (mainState.processingMessageIntervalId) {
+        window.clearInterval(mainState.processingMessageIntervalId);
+        mainState.processingMessageIntervalId = null;
+    }
+    mainState.processingStartedAt = 0;
+    mainState.processingMessageIndex = 0;
+    if (mainDom.processingMessage) {
+        mainDom.processingMessage.textContent = mainConstants.PROCESSING_MESSAGES[0];
+    }
+    if (mainDom.processingTimer) {
+        mainDom.processingTimer.textContent = '00:00';
+    }
+    setProcessingPresenceVisible(false);
+}
+
 function handleLoadResponse(displayName) {
     return function (response) {
         mainState.isFileLoading = false;
@@ -196,12 +266,14 @@ function pollTaskUntilProcessed(taskId, attempt = 0) {
             switch_tab('corrected');
             if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
             if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
+            stopProcessingPresence();
             setStatus('Processing complete (recovered after transient server response issue)', 'success');
             setProgress(100);
             return;
         }
         if (status === 'FAILED') {
             const reports = task.reports && typeof task.reports === 'object' ? task.reports : {};
+            stopProcessingPresence();
             setStatus('Processing failed', 'error');
             alert('Processing error: ' + String(reports.processing_note || task.error || 'Task failed on server.'));
             return;
@@ -229,6 +301,7 @@ function process_document() {
     mainState.isProcessingDocument = true;
     setStatus('Processing...', 'warning');
     setProgress(30);
+    startProcessingPresence();
     refreshProcessButtonState();
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     mainSettings.saveAiSettings();
@@ -244,13 +317,16 @@ function process_document() {
             } else {
                 setStatus('Processing complete', 'success');
             }
+            stopProcessingPresence();
             setProgress(100);
             mainAuth.refreshTaskHistory();
         } else {
             const errorText = String((response && response.error) || 'Unknown server error');
+            stopProcessingPresence();
             setStatus('Error: ' + errorText, 'error');
             const looksLikeInvalidJson = /invalid json response from server/i.test(errorText);
             if (looksLikeInvalidJson && String(mainState.fileContent.taskId || '').trim()) {
+                startProcessingPresence();
                 setStatus('Server returned a transient non-JSON response. Attempting task recovery...', 'warning');
                 pollTaskUntilProcessed(mainState.fileContent.taskId, 0);
             } else {
@@ -399,6 +475,7 @@ function clear_all() {
     mainState.isFileLoading = false;
     mainState.isProcessingDocument = false;
     mainState.pendingProcessAfterLoad = false;
+    stopProcessingPresence();
     appMain.syncWindowFileContent();
     mainAuth.renderAdminDocxStructureSummary();
     document.getElementById('file-name').textContent = 'No file selected';
@@ -420,6 +497,8 @@ appMain.actions = {
     setStatus,
     refreshProcessButtonState,
     setProgress,
+    startProcessingPresence,
+    stopProcessingPresence,
     applyProcessResponseToState,
     pollTaskUntilProcessed,
     process_document,
