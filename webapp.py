@@ -93,6 +93,13 @@ ENABLE_DEV_TEST_TOKENS = str(os.getenv("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "0")
     "true",
     "yes",
 )
+ENABLE_LOCAL_MANUAL_LOGIN = str(os.getenv("MANUSCRIPT_EDITOR_LOCAL_LOGIN", "0") or "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+LOCAL_MANUAL_LOGIN_USERNAME = str(os.getenv("MANUSCRIPT_EDITOR_LOCAL_LOGIN_USERNAME", "admin") or "admin").strip()
+LOCAL_MANUAL_LOGIN_PASSWORD = str(os.getenv("MANUSCRIPT_EDITOR_LOCAL_LOGIN_PASSWORD", "password") or "password")
 
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -216,6 +223,23 @@ def _get_client_ip() -> str:
 
 def _get_user_agent() -> str:
     return str(request.get_header("User-Agent", "") or "").strip()[:512]
+
+
+def _is_local_request() -> bool:
+    ip = _get_client_ip().strip().lower()
+    if not ip:
+        return False
+    if ip in ("127.0.0.1", "::1", "localhost"):
+        return True
+    if ip.startswith("127."):
+        return True
+    if ip.startswith("::ffff:127."):
+        return True
+    return False
+
+
+def _is_local_manual_login_allowed() -> bool:
+    return ENABLE_LOCAL_MANUAL_LOGIN and _is_local_request()
 
 
 def _read_cookie_value_from_header(cookie_name: str) -> str:
@@ -1125,6 +1149,8 @@ def api_auth_config():
             "success": True,
             "google_client_id": GOOGLE_CLIENT_ID,
             "allowed_domains": ALLOWED_EMAIL_DOMAINS,
+            "local_manual_login_enabled": _is_local_manual_login_allowed(),
+            "local_manual_login_username_hint": LOCAL_MANUAL_LOGIN_USERNAME if _is_local_manual_login_allowed() else "",
         }
     )
 
@@ -1210,6 +1236,77 @@ def api_auth_google_login():
                 "status": str(user.get("status") or STATUS_ACTIVE),
             },
             "allowed_domains": ALLOWED_EMAIL_DOMAINS,
+        },
+        session_id=session_id,
+    )
+
+
+@app.post("/api/auth/local-login")
+def api_auth_local_login():
+    if not _is_local_manual_login_allowed():
+        _record_audit(
+            event_type="auth_local_login_blocked",
+            metadata={"reason": "manual_login_disabled", "client_ip": _get_client_ip()},
+        )
+        return _json_response(
+            _error_payload("AUTH_LOCAL_LOGIN_DISABLED", "Local manual login is disabled"),
+            status=403,
+        )
+
+    payload = _read_json_payload()
+    username = str(payload.get("username", "") or "").strip()
+    password = str(payload.get("password", "") or "")
+    if username != LOCAL_MANUAL_LOGIN_USERNAME or password != LOCAL_MANUAL_LOGIN_PASSWORD:
+        _record_audit(
+            event_type="auth_local_login_failed",
+            metadata={"reason": "invalid_credentials", "username": username[:64]},
+        )
+        return _json_response(
+            _error_payload("AUTH_INVALID_CREDENTIALS", "Invalid local login credentials"),
+            status=401,
+        )
+
+    _STORE.bootstrap_admin_roles(ADMIN_EMAILS)
+    admin_email = ADMIN_EMAILS[0] if ADMIN_EMAILS else "admin@conwiz.in"
+    domain = admin_email.rsplit("@", 1)[-1].lower().strip() if "@" in admin_email else "conwiz.in"
+    user = _STORE.upsert_google_user(
+        email=admin_email,
+        google_sub="local_manual_admin",
+        display_name="Local Admin",
+        domain=domain,
+        admin_emails=ADMIN_EMAILS or [admin_email],
+    )
+
+    if str(user.get("status") or STATUS_ACTIVE) != STATUS_ACTIVE:
+        _record_audit(
+            event_type="auth_local_login_blocked",
+            actor_user_id=str(user.get("id") or ""),
+            metadata={"reason": "user_inactive", "email": admin_email},
+        )
+        return _json_response(_error_payload("AUTH_USER_INACTIVE", "User access is inactive"), status=403)
+
+    session_id = _STORE.create_session(
+        user_id=str(user.get("id") or ""),
+        ttl_hours=SESSION_TTL_HOURS,
+        ip_address=_get_client_ip(),
+        user_agent=_get_user_agent(),
+    )
+    _record_audit(
+        event_type="auth_local_login_success",
+        actor_user_id=str(user.get("id") or ""),
+        metadata={"email": admin_email, "role": str(user.get("role") or "USER")},
+    )
+    return _json_response(
+        {
+            "success": True,
+            "user": {
+                "id": str(user.get("id") or ""),
+                "email": admin_email,
+                "display_name": str(user.get("display_name") or "Local Admin"),
+                "role": str(user.get("role") or "USER"),
+                "status": str(user.get("status") or STATUS_ACTIVE),
+            },
+            "manual_login": True,
         },
         session_id=session_id,
     )

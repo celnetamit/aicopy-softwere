@@ -183,6 +183,23 @@ Added:
    - upgrade notes expectations
    - rollback instructions
 
+## Repo Status
+
+Current status: `Release Candidate / Engineering-Complete Core`
+
+What this means:
+1. Core editing, DOCX preservation/export, authenticated web mode, admin controls, and packaging pipelines are implemented.
+2. The local quality gate is passing.
+3. The main remaining release gate is fresh-machine QA sign-off for Windows and Ubuntu packaged installs.
+
+Immediate priorities:
+1. `P0`: complete Windows + Ubuntu installer/package QA and attach evidence
+2. `P1`: centralize versioning, reduce duplicated desktop/web flow logic, and harden web processing/runtime settings
+3. `P2`: expand journal/profile customization, admin tooling, and release/distribution maturity
+
+Full roadmap:
+1. `REPO_STATUS_ROADMAP.md`
+
 ## Usage
 
 ### Linux/Ubuntu

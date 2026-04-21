@@ -204,6 +204,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
     def setUp(self):
         webapp._STORE.clear_all_for_tests()
         self.client = WsgiTestClient(webapp.app)
+        self._old_local_login_enabled = webapp.ENABLE_LOCAL_MANUAL_LOGIN
+
+    def tearDown(self):
+        webapp.ENABLE_LOCAL_MANUAL_LOGIN = self._old_local_login_enabled
 
     def _login(self, email="user@conwiz.in"):
         status, payload = self.client.request(
@@ -237,6 +241,33 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         self.assertEqual(payload["user"]["email"], "staff@conwiz.in")
         self.assertEqual(payload["user"]["role"], user["role"])
+
+    def test_local_manual_login_disabled_by_default(self):
+        status, payload = self.client.request(
+            "POST",
+            "/api/auth/local-login",
+            {"username": "admin", "password": "password"},
+        )
+        self.assertEqual(status, 403)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "AUTH_LOCAL_LOGIN_DISABLED")
+
+    def test_local_manual_login_succeeds_when_enabled(self):
+        webapp.ENABLE_LOCAL_MANUAL_LOGIN = True
+        status, payload = self.client.request(
+            "POST",
+            "/api/auth/local-login",
+            {"username": "admin", "password": "password"},
+            headers={"X-Forwarded-For": "127.0.0.1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload["user"]["role"], "ADMIN")
+
+        status, payload = self.client.request("GET", "/api/auth/me")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload["user"]["role"], "ADMIN")
 
     def test_admin_dashboard_route_renders_admin_shell(self):
         status, html = self.client.request_text("GET", "/admin-dashboard")

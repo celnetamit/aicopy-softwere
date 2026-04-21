@@ -110,6 +110,13 @@
             });
         }),
 
+        auth_local_login: callbackWrapper(function (username, password) {
+            return postJson('/api/auth/local-login', {
+                username: username,
+                password: password
+            });
+        }),
+
         auth_config: callbackWrapper(function () {
             return getJson('/api/auth/config');
         }),

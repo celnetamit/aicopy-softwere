@@ -1,0 +1,449 @@
+const app = window.ManuscriptEditorApp || (window.ManuscriptEditorApp = {});
+
+function createEmptyFileContent() {
+    return {
+        taskId: '',
+        sourceType: 'text',
+        sourceDocxBase64: '',
+        original: '',
+        fileName: '',
+        corrected: '',
+        fullCorrectedText: '',
+        correctedAnnotatedHtml: '',
+        redline: '',
+        corrections: null,
+        nounReport: null,
+        domainReport: null,
+        journalProfileReport: null,
+        citationReferenceReport: null,
+        groupDecisions: null,
+        processingAudit: null
+    };
+}
+
+app.constants = {
+    SETTINGS_STORAGE_KEY: 'manuscript_editor_ai_settings_v1',
+    FIRST_RUN_SETUP_KEY: 'manuscript_editor_first_run_setup_v1',
+    FIRST_RUN_SETUP_VERSION: '20260417r2',
+    A4_WIDTH_PX: 8.27 * 96,
+    A4_HEIGHT_PX: 11.69 * 96,
+    DEFAULT_MODEL_BY_PROVIDER: {
+        ollama: 'llama3.1',
+        gemini: 'gemini-1.5-flash',
+        openrouter: 'openrouter/auto',
+        agent_router: 'openrouter/auto'
+    },
+    AI_ADVANCED_DEFAULTS: {
+        section_wise: true,
+        section_threshold_chars: 12000,
+        section_threshold_paragraphs: 90,
+        section_chunk_chars: 5500,
+        section_chunk_lines: 28,
+        global_consistency_max_chars: 18000
+    },
+    PAGE_PRESETS: {
+        manuscript_default: {
+            marginTopIn: 1,
+            marginBottomIn: 1,
+            marginLeftIn: 1.25,
+            marginRightIn: 1.25,
+            fontPt: 12,
+            lineHeight: 1.5,
+            paragraphSpacingPt: 0
+        },
+        journal_compact: {
+            marginTopIn: 1,
+            marginBottomIn: 1,
+            marginLeftIn: 1,
+            marginRightIn: 1,
+            fontPt: 11,
+            lineHeight: 1.35,
+            paragraphSpacingPt: 3
+        }
+    },
+    CORRECTION_GROUP_ORDER: ['spelling', 'capitalization', 'punctuation', 'citation', 'reference', 'style'],
+    CORRECTION_GROUP_LABEL: {
+        spelling: 'Spelling',
+        capitalization: 'Capitalization',
+        punctuation: 'Punctuation',
+        citation: 'Citation',
+        reference: 'Reference',
+        style: 'Style'
+    },
+    FIXED_JOURNAL_PROFILE: 'vancouver_periods',
+    ADMIN_DASHBOARD_PATH: '/admin-dashboard'
+};
+
+app.state = {
+    currentTab: 'original',
+    currentViewMode: 'rich',
+    currentUser: null,
+    taskHistory: [],
+    adminUsers: [],
+    adminEvents: [],
+    runtimeManagedSettings: null,
+    isFileLoading: false,
+    isProcessingDocument: false,
+    pendingProcessAfterLoad: false,
+    pendingOllamaModelFromStorage: '',
+    remoteOllamaHostHint: '',
+    pageSettings: {
+        ...app.constants.PAGE_PRESETS.manuscript_default,
+        preset: 'manuscript_default'
+    },
+    isApplyingGroupDecisions: false,
+    pendingGroupDecisionApply: false,
+    adminGlobalOllamaModelCache: [],
+    adminGlobalOllamaModelHostCache: '',
+    fileContent: createEmptyFileContent()
+};
+
+app.factories = {
+    createEmptyFileContent
+};
+
+app.syncWindowFileContent = function syncWindowFileContent() {
+    window.fileContent = app.state.fileContent;
+};
+app.syncWindowFileContent();
+
+app.dom = {
+    loginView: document.getElementById('login-view'),
+    appShell: document.getElementById('app-shell'),
+    loginStatus: document.getElementById('login-status'),
+    loginDomainsEl: document.getElementById('login-domains'),
+    localLoginBox: document.getElementById('local-login-box'),
+    localLoginHelp: document.getElementById('local-login-help'),
+    localLoginUsernameInput: document.getElementById('local-login-username'),
+    localLoginPasswordInput: document.getElementById('local-login-password'),
+    localLoginBtn: document.getElementById('local-login-btn'),
+    userNameEl: document.getElementById('user-name'),
+    userRoleEl: document.getElementById('user-role'),
+    logoutBtn: document.getElementById('logout-btn'),
+    refreshHistoryBtn: document.getElementById('refresh-history-btn'),
+    taskHistoryEl: document.getElementById('task-history'),
+    openAdminPanelBtn: document.getElementById('open-admin-panel-btn'),
+    adminPanelBackdrop: document.getElementById('admin-panel-backdrop'),
+    adminClosePanelBtn: document.getElementById('admin-close-panel-btn'),
+    adminRefreshUsersBtn: document.getElementById('admin-refresh-users-btn'),
+    adminRefreshAuditBtn: document.getElementById('admin-refresh-audit-btn'),
+    adminUsersBody: document.getElementById('admin-users-body'),
+    adminAuditBody: document.getElementById('admin-audit-body'),
+    adminDocxStructureSummary: document.getElementById('admin-docx-structure-summary'),
+    adminAiProviderSelect: document.getElementById('admin-ai-provider'),
+    adminAiModelInput: document.getElementById('admin-ai-model'),
+    adminAiModelList: document.getElementById('admin-ai-model-list'),
+    adminAiKeyInput: document.getElementById('admin-ai-key'),
+    adminAiOllamaHostInput: document.getElementById('admin-ai-ollama-host'),
+    adminValidateAiBtn: document.getElementById('admin-validate-ai-btn'),
+    adminAiValidationResult: document.getElementById('admin-ai-validation-result'),
+    adminAiKeyToggleBtn: document.getElementById('admin-ai-key-toggle'),
+    editingOptionsSection: document.getElementById('editing-options-section'),
+    aiSettingsSection: document.getElementById('ai-settings-section'),
+    managedSettingsNote: document.getElementById('managed-settings-note'),
+    adminLoadGlobalSettingsBtn: document.getElementById('admin-load-global-settings-btn'),
+    adminSaveGlobalSettingsBtn: document.getElementById('admin-save-global-settings-btn'),
+    adminGlobalSettingsStatus: document.getElementById('admin-global-settings-status'),
+    adminSettingSpelling: document.getElementById('admin-setting-spelling'),
+    adminSettingSentenceCase: document.getElementById('admin-setting-sentence-case'),
+    adminSettingPunctuation: document.getElementById('admin-setting-punctuation'),
+    adminSettingChicagoStyle: document.getElementById('admin-setting-chicago-style'),
+    adminSettingCmosStrict: document.getElementById('admin-setting-cmos-strict'),
+    adminSettingOnlineReferenceValidation: document.getElementById('admin-setting-online-reference-validation'),
+    adminSettingDomainProfile: document.getElementById('admin-setting-domain-profile'),
+    adminSettingCustomTerms: document.getElementById('admin-setting-custom-terms'),
+    adminSettingAiEnabled: document.getElementById('admin-setting-ai-enabled'),
+    adminSettingAiProvider: document.getElementById('admin-setting-ai-provider'),
+    adminSettingAiModel: document.getElementById('admin-setting-ai-model'),
+    adminSettingAiModelList: document.getElementById('admin-setting-ai-model-list'),
+    adminSettingOllamaHost: document.getElementById('admin-setting-ollama-host'),
+    adminSettingGeminiKey: document.getElementById('admin-setting-gemini-key'),
+    adminSettingOpenrouterKey: document.getElementById('admin-setting-openrouter-key'),
+    adminSettingGeminiKeyToggleBtn: document.getElementById('admin-setting-gemini-key-toggle'),
+    adminSettingOpenrouterKeyToggleBtn: document.getElementById('admin-setting-openrouter-key-toggle'),
+    adminSettingSectionWise: document.getElementById('admin-setting-section-wise'),
+    adminSettingSectionThresholdChars: document.getElementById('admin-setting-section-threshold-chars'),
+    adminSettingSectionThresholdParagraphs: document.getElementById('admin-setting-section-threshold-paragraphs'),
+    adminSettingSectionChunkChars: document.getElementById('admin-setting-section-chunk-chars'),
+    adminSettingSectionChunkLines: document.getElementById('admin-setting-section-chunk-lines'),
+    adminSettingGlobalConsistencyMaxChars: document.getElementById('admin-setting-global-consistency-max-chars'),
+    dropZone: document.getElementById('drop-zone'),
+    fileInput: document.getElementById('file-input'),
+    browseFileBtn: document.getElementById('browse-file-btn'),
+    processBtn: document.getElementById('process-btn'),
+    saveCleanBtn: document.getElementById('save-clean-btn'),
+    saveHighlightBtn: document.getElementById('save-highlight-btn'),
+    clearBtn: document.getElementById('clear-btn'),
+    aiProvider: document.getElementById('ai-provider'),
+    ollamaModelSelect: document.getElementById('ollama-model-select'),
+    refreshModelsBtn: document.getElementById('refresh-models-btn'),
+    ollamaModelHint: document.getElementById('ollama-model-hint'),
+    ollamaModelSettings: document.getElementById('ollama-model-settings'),
+    geminiModelSettings: document.getElementById('gemini-model-settings'),
+    openrouterModelSettings: document.getElementById('openrouter-model-settings'),
+    agentRouterModelSettings: document.getElementById('agent-router-model-settings'),
+    geminiModelInput: document.getElementById('gemini-model-input'),
+    openrouterModelInput: document.getElementById('openrouter-model-input'),
+    agentRouterModelInput: document.getElementById('agent-router-model-input'),
+    ollamaSettings: document.getElementById('ollama-settings'),
+    geminiSettings: document.getElementById('gemini-settings'),
+    openrouterSettings: document.getElementById('openrouter-settings'),
+    aiEnabled: document.getElementById('opt-ai-enabled'),
+    ollamaHostInput: document.getElementById('ollama-host'),
+    useLocalOllamaBtn: document.getElementById('use-local-ollama-btn'),
+    useRemoteOllamaBtn: document.getElementById('use-remote-ollama-btn'),
+    geminiApiKeyInput: document.getElementById('gemini-api-key'),
+    openrouterApiKeyInput: document.getElementById('openrouter-api-key'),
+    aiSectionWiseInput: document.getElementById('ai-section-wise'),
+    aiSectionThresholdCharsInput: document.getElementById('ai-section-threshold-chars'),
+    aiSectionThresholdParagraphsInput: document.getElementById('ai-section-threshold-paragraphs'),
+    aiSectionChunkCharsInput: document.getElementById('ai-section-chunk-chars'),
+    aiSectionChunkLinesInput: document.getElementById('ai-section-chunk-lines'),
+    aiGlobalConsistencyMaxCharsInput: document.getElementById('ai-global-consistency-max-chars'),
+    domainProfileSelect: document.getElementById('domain-profile'),
+    customTermsInput: document.getElementById('custom-terms-input'),
+    importCustomTermsBtn: document.getElementById('import-custom-terms-btn'),
+    clearCustomTermsBtn: document.getElementById('clear-custom-terms-btn'),
+    customTermsFileInput: document.getElementById('custom-terms-file-input'),
+    cmosStrictInput: document.getElementById('opt-cmos-strict'),
+    onlineReferenceValidationInput: document.getElementById('opt-online-reference-validation'),
+    pageControls: document.getElementById('page-controls'),
+    pagePresetSelect: document.getElementById('page-preset'),
+    pageFontSizeInput: document.getElementById('page-font-size'),
+    pageLineHeightInput: document.getElementById('page-line-height'),
+    pageParagraphSpacingInput: document.getElementById('page-paragraph-spacing'),
+    pageMarginTopInput: document.getElementById('page-margin-top'),
+    pageMarginBottomInput: document.getElementById('page-margin-bottom'),
+    pageMarginLeftInput: document.getElementById('page-margin-left'),
+    pageMarginRightInput: document.getElementById('page-margin-right'),
+    openSetupWizardBtn: document.getElementById('open-setup-wizard-btn'),
+    setupWizardBackdrop: document.getElementById('setup-wizard-backdrop'),
+    setupWizardProvider: document.getElementById('wizard-provider'),
+    setupWizardOllamaBox: document.getElementById('wizard-ollama-box'),
+    setupWizardGeminiBox: document.getElementById('wizard-gemini-box'),
+    setupWizardOpenrouterBox: document.getElementById('wizard-openrouter-box'),
+    setupWizardOllamaHostInput: document.getElementById('wizard-ollama-host'),
+    setupWizardGeminiKeyInput: document.getElementById('wizard-gemini-key'),
+    setupWizardOpenrouterKeyInput: document.getElementById('wizard-openrouter-key'),
+    setupWizardHelp: document.getElementById('setup-wizard-help'),
+    setupWizardSaveBtn: document.getElementById('setup-wizard-save-btn'),
+    setupWizardCancelBtn: document.getElementById('setup-wizard-cancel-btn'),
+    setupWizardSkipBtn: document.getElementById('setup-wizard-skip-btn')
+};
+
+function escapeHtml(value) {
+    return (value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+}
+
+function stripHtml(value) {
+    return (value || '').replace(/<[^>]*>/g, '');
+}
+
+function normalizeTextboxMarkersForDisplay(value) {
+    return String(value || '')
+        .replaceAll('[[TEXTBOX_PARA]]', '\n')
+        .replaceAll('[[TEXTBOX]]', ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
+function uniqueNonEmpty(values) {
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(values) ? values : []).forEach((raw) => {
+        const value = String(raw || '').trim();
+        if (!value) {
+            return;
+        }
+        const key = value.toLowerCase();
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        out.push(value);
+    });
+    return out;
+}
+
+function getDocxPreviewFeatures() {
+    const safeAudit = app.state.fileContent.processingAudit && typeof app.state.fileContent.processingAudit === 'object'
+        ? app.state.fileContent.processingAudit
+        : null;
+    const summary = safeAudit && safeAudit.summary && typeof safeAudit.summary === 'object'
+        ? safeAudit.summary
+        : {};
+    return summary.docx_package_features && typeof summary.docx_package_features === 'object'
+        ? summary.docx_package_features
+        : null;
+}
+
+function shouldCollapseTextboxHeavyPreview() {
+    const features = getDocxPreviewFeatures();
+    if (!features) {
+        return false;
+    }
+    return String(app.state.fileContent.sourceType || '').toLowerCase() === 'docx' && Number(features.textboxes || 0) > 0;
+}
+
+function extractTextboxLineMeta(line, isHtmlInput) {
+    const raw = String(line || '');
+    const candidate = isHtmlInput ? stripHtml(raw) : raw;
+    if (!candidate.includes('[[TEXTBOX]]') && !candidate.includes('[[TEXTBOX_PARA]]')) {
+        return null;
+    }
+
+    const flattened = candidate
+        .replaceAll('[[TEXTBOX_PARA]]', '\n')
+        .split('[[TEXTBOX]]')
+        .flatMap((part) => String(part || '').split('\n'))
+        .map((part) => normalizeTextboxMarkersForDisplay(part))
+        .filter(Boolean);
+
+    if (flattened.length === 0) {
+        return null;
+    }
+
+    const labels = uniqueNonEmpty(flattened);
+    const caption = labels.find((value) => /^(fig(?:ure)?\.?\s*\d+|table\s+\d+)/i.test(value)) || '';
+    return {
+        labels: labels.filter((value) => value !== caption),
+        caption: caption
+    };
+}
+
+function buildPreviewSegments(content, isHtmlInput) {
+    const normalized = String(content || '').replace(/\r\n/g, '\n');
+    const lines = normalized.split('\n');
+    const segments = [];
+    const collapseTextboxPreview = shouldCollapseTextboxHeavyPreview();
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const meta = collapseTextboxPreview ? extractTextboxLineMeta(line, isHtmlInput) : null;
+
+        if (!meta) {
+            const displayLine = normalizeTextboxMarkersForDisplay(isHtmlInput ? stripHtml(line) : line);
+            segments.push({
+                kind: 'line',
+                rawLine: isHtmlInput ? normalizeTextboxMarkersForDisplay(line) : escapeHtml(displayLine),
+                plainLine: displayLine
+            });
+            continue;
+        }
+
+        const grouped = [];
+        let scanIndex = index;
+        while (scanIndex < lines.length) {
+            const nextMeta = extractTextboxLineMeta(lines[scanIndex], isHtmlInput);
+            if (!nextMeta) {
+                break;
+            }
+            grouped.push(nextMeta);
+            scanIndex += 1;
+        }
+        index = scanIndex - 1;
+
+        const captions = grouped.map((item) => item.caption).filter(Boolean);
+        const labels = uniqueNonEmpty(grouped.flatMap((item) => item.labels)).slice(0, 8);
+        segments.push({
+            kind: 'figure',
+            caption: captions[0] || '',
+            labels: labels,
+            lineCount: grouped.length
+        });
+    }
+
+    return segments;
+}
+
+function renderFigurePreviewCard(segment, pageMode = false) {
+    const safe = segment && typeof segment === 'object' ? segment : {};
+    const title = safe.caption || 'Diagram/Textbox figure preview';
+    const labels = Array.isArray(safe.labels) ? safe.labels.slice(0, 6) : [];
+    const lineCount = Number(safe.lineCount || 0);
+    const wrapperClass = pageMode ? 'doc-figure-card doc-figure-card-page' : 'doc-figure-card';
+    let html = `<section class="${wrapperClass}">`;
+    html += '<div class="doc-figure-icon">Figure</div>';
+    html += `<div class="doc-figure-body"><div class="doc-figure-title">${escapeHtml(title)}</div>`;
+    html += '<div class="doc-figure-note">Browser preview collapsed shape/textbox-derived DOCX content to keep figure-heavy pages readable. Exported DOCX preserves the actual drawing container.</div>';
+    if (labels.length > 0) {
+        html += '<div class="doc-figure-tags">';
+        labels.forEach((label) => {
+            html += `<span class="doc-figure-tag">${escapeHtml(label)}</span>`;
+        });
+        html += '</div>';
+    }
+    if (lineCount > 1) {
+        html += `<div class="doc-figure-meta">${lineCount} textbox-linked lines grouped in this preview.</div>`;
+    }
+    html += '</div></section>';
+    return html;
+}
+
+function clampNumber(value, min, max, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function clampInt(value, min, max, fallback) {
+    const parsed = Number.parseInt(String(value), 10);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function formatUnixTimestamp(ts) {
+    const value = Number(ts || 0);
+    if (!Number.isFinite(value) || value <= 0) {
+        return '-';
+    }
+    try {
+        return new Date(value * 1000).toLocaleString();
+    } catch (err) {
+        return '-';
+    }
+}
+
+function normalizePathname(pathname) {
+    const raw = String(pathname || '/').trim();
+    if (!raw || raw === '/') {
+        return '/';
+    }
+    const withoutTrailing = raw.replace(/\/+$/g, '');
+    return withoutTrailing || '/';
+}
+
+function normalizeUserRole(roleValue) {
+    return String(roleValue || 'USER').trim().toUpperCase();
+}
+
+function isAdminUser(user) {
+    return normalizeUserRole(user && user.role) === 'ADMIN';
+}
+
+app.helpers = {
+    escapeHtml,
+    stripHtml,
+    normalizeTextboxMarkersForDisplay,
+    uniqueNonEmpty,
+    getDocxPreviewFeatures,
+    shouldCollapseTextboxHeavyPreview,
+    extractTextboxLineMeta,
+    buildPreviewSegments,
+    renderFigurePreviewCard,
+    clampNumber,
+    clampInt,
+    formatUnixTimestamp,
+    normalizePathname,
+    normalizeUserRole,
+    isAdminUser
+};
