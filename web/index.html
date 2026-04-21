@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manuscript Editor</title>
-    <link rel="stylesheet" href="style.css?v=20260421r50">
+    <link rel="stylesheet" href="style.css?v=20260421r51">
 </head>
 <body>
     <div class="login-view" id="login-view">
@@ -164,8 +164,8 @@
 
                     <div id="agent-router-model-settings" class="hidden">
                         <label class="field-label" for="agent-router-model-input">Agent Router Model</label>
-                        <input id="agent-router-model-input" class="input-field" type="text" value="openrouter/auto" />
-                        <p class="hint-text">Recommended: <code>openrouter/auto</code></p>
+                        <input id="agent-router-model-input" class="input-field" type="text" value="gpt-5" />
+                        <p class="hint-text">Recommended: <code>gpt-5</code></p>
                     </div>
 
                     <div id="ollama-settings">
@@ -186,6 +186,11 @@
                     <div id="openrouter-settings" class="hidden">
                         <label class="field-label" for="openrouter-api-key">OpenRouter API Key</label>
                         <input id="openrouter-api-key" class="input-field" type="password" placeholder="Paste your OpenRouter API key" />
+                    </div>
+
+                    <div id="agent-router-settings" class="hidden">
+                        <label class="field-label" for="agent-router-api-key">AgentRouter Token</label>
+                        <input id="agent-router-api-key" class="input-field" type="password" placeholder="Paste your AgentRouter token" />
                     </div>
 
                     <details class="advanced-settings" open>
@@ -353,6 +358,11 @@
                     <label class="field-label" for="wizard-openrouter-key">OpenRouter API Key</label>
                     <input id="wizard-openrouter-key" class="input-field" type="password" placeholder="Paste OpenRouter API key" />
                 </div>
+
+                <div id="wizard-agent-router-box" class="hidden">
+                    <label class="field-label" for="wizard-agent-router-key">AgentRouter Token</label>
+                    <input id="wizard-agent-router-key" class="input-field" type="password" placeholder="Paste AgentRouter token" />
+                </div>
             </div>
 
             <div class="setup-wizard-help" id="setup-wizard-help">
@@ -433,6 +443,10 @@
                                     <input id="admin-setting-openrouter-key" class="input-field password-field-input" type="password" placeholder="OpenRouter API key (server-side)" />
                                     <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-openrouter-key-toggle" type="button" aria-label="Show OpenRouter API key">Show</button>
                                 </div>
+                                <div class="password-field">
+                                    <input id="admin-setting-agent-router-key" class="input-field password-field-input" type="password" placeholder="AgentRouter token (server-side)" />
+                                    <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-agent-router-key-toggle" type="button" aria-label="Show AgentRouter token">Show</button>
+                                </div>
                             </div>
                         </div>
 
@@ -472,13 +486,14 @@
                         </select>
                         <input id="admin-ai-model" class="input-field" type="text" value="openrouter/auto" placeholder="Model (optional)" list="admin-ai-model-list" />
                         <datalist id="admin-ai-model-list"></datalist>
-                        <div class="password-field">
+                        <div class="password-field" id="admin-ai-key-field">
                             <input id="admin-ai-key" class="input-field password-field-input" type="password" placeholder="API key (optional, uses server env if empty)" />
                             <button class="btn-secondary btn-small password-toggle-btn" id="admin-ai-key-toggle" type="button" aria-label="Show API key">Show</button>
                         </div>
                         <input id="admin-ai-ollama-host" class="input-field" type="text" value="http://localhost:11434" placeholder="Ollama host" />
                         <button class="btn-secondary btn-small" id="admin-validate-ai-btn" type="button">Validate API</button>
                     </div>
+                    <p class="hint-text" id="admin-ai-validation-help">Leave fields blank to validate with saved global settings or server environment values.</p>
                     <p class="hint-text" id="admin-ai-validation-result">Run a provider check from server runtime.</p>
                 </section>
 
@@ -532,10 +547,10 @@
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script type="text/javascript" src="/eel.js?v=20260421r47" data-cfasync="false"></script>
-    <script src="app-state.js?v=20260421r50" data-cfasync="false"></script>
-    <script src="app-auth-admin.js?v=20260421r50" data-cfasync="false"></script>
-    <script src="app-preview.js?v=20260421r50" data-cfasync="false"></script>
-    <script src="app-settings.js?v=20260421r50" data-cfasync="false"></script>
-    <script src="app.js?v=20260421r50" data-cfasync="false"></script>
+    <script src="app-state.js?v=20260421r51" data-cfasync="false"></script>
+    <script src="app-auth-admin.js?v=20260421r51" data-cfasync="false"></script>
+    <script src="app-preview.js?v=20260421r51" data-cfasync="false"></script>
+    <script src="app-settings.js?v=20260421r51" data-cfasync="false"></script>
+    <script src="app.js?v=20260421r51" data-cfasync="false"></script>
 </body>
 </html>

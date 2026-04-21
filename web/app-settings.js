@@ -42,7 +42,8 @@ function updateAiProviderUI() {
     const provider = settingsDom.aiProvider.value;
     settingsDom.ollamaSettings.classList.toggle('hidden', provider !== 'ollama');
     settingsDom.geminiSettings.classList.toggle('hidden', provider !== 'gemini');
-    settingsDom.openrouterSettings.classList.toggle('hidden', provider !== 'openrouter' && provider !== 'agent_router');
+    settingsDom.openrouterSettings.classList.toggle('hidden', provider !== 'openrouter');
+    settingsDom.agentRouterSettings.classList.toggle('hidden', provider !== 'agent_router');
     settingsDom.ollamaModelSettings.classList.toggle('hidden', provider !== 'ollama');
     settingsDom.geminiModelSettings.classList.toggle('hidden', provider !== 'gemini');
     settingsDom.openrouterModelSettings.classList.toggle('hidden', provider !== 'openrouter');
@@ -143,6 +144,7 @@ function saveAiSettings() {
         api_key: settingsDom.geminiApiKeyInput.value,
         gemini_api_key: settingsDom.geminiApiKeyInput.value,
         openrouter_api_key: settingsDom.openrouterApiKeyInput.value,
+        agent_router_api_key: settingsDom.agentRouterApiKeyInput.value,
         ai_advanced: aiAdvanced,
         domain_profile: settingsDom.domainProfileSelect.value || 'auto',
         cmos_strict_mode: settingsDom.cmosStrictInput ? settingsDom.cmosStrictInput.checked : true,
@@ -213,6 +215,7 @@ function loadAiSettings() {
     if (typeof parsed.gemini_api_key === 'string') settingsDom.geminiApiKeyInput.value = parsed.gemini_api_key;
     else if (typeof parsed.api_key === 'string') settingsDom.geminiApiKeyInput.value = parsed.api_key;
     if (typeof parsed.openrouter_api_key === 'string') settingsDom.openrouterApiKeyInput.value = parsed.openrouter_api_key;
+    if (typeof parsed.agent_router_api_key === 'string') settingsDom.agentRouterApiKeyInput.value = parsed.agent_router_api_key;
     if (parsed.ai_advanced && typeof parsed.ai_advanced === 'object') {
         previewApi.applyAiAdvancedSettingsToInputs(parsed.ai_advanced);
     } else {
@@ -259,7 +262,8 @@ function updateSetupWizardProviderUI() {
     const provider = settingsDom.setupWizardProvider.value;
     settingsDom.setupWizardOllamaBox.classList.toggle('hidden', provider !== 'ollama');
     settingsDom.setupWizardGeminiBox.classList.toggle('hidden', provider !== 'gemini');
-    settingsDom.setupWizardOpenrouterBox.classList.toggle('hidden', provider !== 'openrouter' && provider !== 'agent_router');
+    settingsDom.setupWizardOpenrouterBox.classList.toggle('hidden', provider !== 'openrouter');
+    settingsDom.setupWizardAgentRouterBox.classList.toggle('hidden', provider !== 'agent_router');
     if (provider === 'ollama') {
         settingsDom.setupWizardHelp.innerHTML = 'Use <strong>localhost</strong> for this PC. Use your LAN IP to connect to Ollama on another computer.';
     } else if (provider === 'gemini') {
@@ -267,7 +271,7 @@ function updateSetupWizardProviderUI() {
     } else if (provider === 'openrouter') {
         settingsDom.setupWizardHelp.innerHTML = 'Paste your OpenRouter API key. Model selection can be changed later in AI Settings.';
     } else {
-        settingsDom.setupWizardHelp.innerHTML = 'Agent Router can use your OpenRouter key. You can tune routing/model later.';
+        settingsDom.setupWizardHelp.innerHTML = 'Paste your AgentRouter token. Model selection can be changed later in AI Settings.';
     }
 }
 
@@ -277,6 +281,7 @@ function syncSetupWizardFromCurrentSettings() {
     settingsDom.setupWizardOllamaHostInput.value = normalizeOllamaHost(settingsDom.ollamaHostInput.value) || 'http://localhost:11434';
     settingsDom.setupWizardGeminiKeyInput.value = settingsDom.geminiApiKeyInput.value || '';
     settingsDom.setupWizardOpenrouterKeyInput.value = settingsDom.openrouterApiKeyInput.value || '';
+    settingsDom.setupWizardAgentRouterKeyInput.value = settingsDom.agentRouterApiKeyInput.value || '';
     updateSetupWizardProviderUI();
 }
 
@@ -309,10 +314,15 @@ function saveSetupWizardSettings() {
         if (!geminiKey) return alert('Please paste a Gemini API key.');
         settingsDom.geminiApiKeyInput.value = geminiKey;
     }
-    if (provider === 'openrouter' || provider === 'agent_router') {
+    if (provider === 'openrouter') {
         const openrouterKey = (settingsDom.setupWizardOpenrouterKeyInput.value || '').trim();
         if (!openrouterKey) return alert('Please paste an OpenRouter API key.');
         settingsDom.openrouterApiKeyInput.value = openrouterKey;
+    }
+    if (provider === 'agent_router') {
+        const agentRouterKey = (settingsDom.setupWizardAgentRouterKeyInput.value || '').trim();
+        if (!agentRouterKey) return alert('Please paste an AgentRouter token.');
+        settingsDom.agentRouterApiKeyInput.value = agentRouterKey;
     }
     settingsDom.aiProvider.value = provider;
     settingsDom.aiEnabled.checked = true;
@@ -469,6 +479,7 @@ function bindSettingsEvents() {
     authApi.bindPasswordToggle(settingsDom.adminAiKeyInput, settingsDom.adminAiKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show API key', hideAria: 'Hide API key' });
     authApi.bindPasswordToggle(settingsDom.adminSettingGeminiKey, settingsDom.adminSettingGeminiKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show Gemini API key', hideAria: 'Hide Gemini API key' });
     authApi.bindPasswordToggle(settingsDom.adminSettingOpenrouterKey, settingsDom.adminSettingOpenrouterKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show OpenRouter API key', hideAria: 'Hide OpenRouter API key' });
+    authApi.bindPasswordToggle(settingsDom.adminSettingAgentRouterKey, settingsDom.adminSettingAgentRouterKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show AgentRouter token', hideAria: 'Hide AgentRouter token' });
 
     if (settingsDom.adminValidateAiBtn) settingsDom.adminValidateAiBtn.addEventListener('click', authApi.validateAdminAiProvider);
     if (settingsDom.adminPanelBackdrop) {

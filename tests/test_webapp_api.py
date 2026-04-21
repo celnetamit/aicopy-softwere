@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 from wsgiref.util import setup_testing_defaults
 
@@ -598,11 +599,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             },
             "ai": {
                 "enabled": True,
-                "provider": "openrouter",
-                "model": "openrouter/auto",
+                "provider": "agent_router",
+                "model": "gpt-5",
                 "ollama_host": "http://localhost:11434",
                 "gemini_api_key": "gem-key",
                 "openrouter_api_key": "or-key",
+                "agent_router_api_key": "ar-key",
                 "section_wise": True,
                 "section_threshold_chars": 14000,
                 "section_threshold_paragraphs": 100,
@@ -626,6 +628,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         user_settings = payload.get("settings", {})
         self.assertEqual(user_settings.get("editing", {}).get("domain_profile"), "medical")
         self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
+        self.assertEqual(user_settings.get("ai", {}).get("agent_router_api_key", ""), "")
 
     def test_deactivated_user_cannot_access_api(self):
         admin_client = WsgiTestClient(webapp.app)
@@ -650,6 +653,64 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn(status, (401, 403))
         self.assertFalse(payload.get("success"))
         self.assertIn(payload.get("error_code"), {"AUTH_USER_INACTIVE", "AUTH_SESSION_INVALID"})
+
+    @patch("webapp.requests.post")
+    def test_admin_validate_ai_provider_uses_saved_global_key_when_input_blank(self, mock_post):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = admin_client.request(
+            "POST",
+            "/api/admin/global-settings",
+            {
+                "settings": {
+                    "editing": {},
+                    "ai": {
+                        "provider": "agent_router",
+                        "model": "gpt-5",
+                        "agent_router_api_key": "saved-agent-token",
+                    },
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"choices": [{"message": {"content": "OK"}}]}
+        mock_post.return_value = mock_response
+
+        status, payload = admin_client.request(
+            "POST",
+            "/api/admin/validate-ai-provider",
+            {"provider": "agent_router", "model": "", "api_key": "", "ollama_host": ""},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertTrue(payload.get("valid"))
+
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer saved-agent-token")
+        self.assertEqual(kwargs["json"]["model"], "gpt-5")
+
+    @patch("webapp.requests.get")
+    def test_validate_ai_provider_runtime_checks_ollama_model_presence(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"models":[{"name":"llama3.1:latest"}]}'
+        mock_response.json.return_value = {"models": [{"name": "llama3.1:latest"}]}
+        mock_get.return_value = mock_response
+
+        ok, message = webapp._validate_ai_provider_runtime("ollama", "missing-model", "", "http://localhost:11434")
+        self.assertFalse(ok)
+        self.assertIn("not installed", message)
+
+        ok, message = webapp._validate_ai_provider_runtime("ollama", "llama3.1:latest", "", "http://localhost:11434")
+        self.assertTrue(ok)
+        self.assertIn("with model llama3.1:latest", message)
 
 
 if __name__ == "__main__":

@@ -337,6 +337,7 @@ def _default_global_runtime_settings() -> Dict:
             "ollama_host": "http://localhost:11434",
             "gemini_api_key": "",
             "openrouter_api_key": "",
+            "agent_router_api_key": "",
             "ai_first_cmos": False,
             "section_wise": True,
             "section_threshold_chars": 12000,
@@ -417,6 +418,7 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
             "ollama_host": str(ai_in.get("ollama_host", defaults["ai"]["ollama_host"]) or defaults["ai"]["ollama_host"]).strip()[:300],
             "gemini_api_key": str(ai_in.get("gemini_api_key", defaults["ai"]["gemini_api_key"]) or "").strip(),
             "openrouter_api_key": str(ai_in.get("openrouter_api_key", defaults["ai"]["openrouter_api_key"]) or "").strip(),
+            "agent_router_api_key": str(ai_in.get("agent_router_api_key", defaults["ai"]["agent_router_api_key"]) or "").strip(),
             "ai_first_cmos": _bool(ai_in, "ai_first_cmos", defaults["ai"]["ai_first_cmos"]),
             "section_wise": _bool(ai_in, "section_wise", defaults["ai"]["section_wise"]),
             "section_threshold_chars": _int(ai_in, "section_threshold_chars", defaults["ai"]["section_threshold_chars"], 4000, 120000),
@@ -446,6 +448,7 @@ def _global_runtime_settings_for_user_payload(settings: Dict) -> Dict:
     # Do not expose server API keys to non-admin users.
     safe["ai"]["gemini_api_key"] = ""
     safe["ai"]["openrouter_api_key"] = ""
+    safe["ai"]["agent_router_api_key"] = ""
     return safe
 
 
@@ -472,6 +475,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
         "api_key": str(ai.get("gemini_api_key", "")),
         "gemini_api_key": str(ai.get("gemini_api_key", "")),
         "openrouter_api_key": str(ai.get("openrouter_api_key", "")),
+        "agent_router_api_key": str(ai.get("agent_router_api_key", "")),
         "ai_first_cmos": bool(ai.get("ai_first_cmos", False)),
         "section_wise": bool(ai.get("section_wise", True)),
         "section_threshold_chars": int(ai.get("section_threshold_chars", 12000)),
@@ -1013,7 +1017,23 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
         try:
             response = requests.get(f"{host}/api/tags", timeout=8)
             if response.status_code == 200:
-                return True, f"Ollama reachable at {host}"
+                data = response.json() if response.content else {}
+                raw_models = data.get("models", []) if isinstance(data, dict) else []
+                available_models = []
+                for item in raw_models if isinstance(raw_models, list) else []:
+                    if isinstance(item, dict):
+                        name = str(item.get("name", "") or "").strip()
+                        if name:
+                            available_models.append(name)
+                if selected_model:
+                    if selected_model in available_models:
+                        return True, f"Ollama reachable at {host} with model {selected_model}"
+                    if available_models:
+                        return False, f"Ollama reachable, but model '{selected_model}' is not installed on {host}"
+                    return False, f"Ollama reachable, but no models are installed on {host}"
+                if available_models:
+                    return True, f"Ollama reachable at {host} with {len(available_models)} installed model(s)"
+                return False, f"Ollama reachable at {host}, but no models are installed"
             return False, f"Ollama check failed ({response.status_code}) at {host}"
         except Exception as exc:
             return False, f"Ollama check failed: {exc}"
@@ -1039,7 +1059,7 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
         except Exception as exc:
             return False, f"Gemini check failed: {exc}"
 
-    if selected in ("openrouter", "agent_router"):
+    if selected == "openrouter":
         if not key:
             key = str(os.getenv("OPENROUTER_API_KEY", "") or "").strip()
         if not key:
@@ -1077,6 +1097,39 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
             return False, f"OpenRouter check failed ({response.status_code})"
         except Exception as exc:
             return False, f"OpenRouter check failed: {exc}"
+
+    if selected == "agent_router":
+        if not key:
+            key = str(os.getenv("AGENT_ROUTER_TOKEN", "") or "").strip()
+        if not key:
+            return False, "AgentRouter token missing"
+        use_model = selected_model or "gpt-5"
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": use_model,
+            "messages": [{"role": "user", "content": "Reply with OK only."}],
+            "temperature": 0,
+            "max_tokens": 8,
+        }
+        try:
+            response = requests.post(
+                "https://agentrouter.org/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=15,
+            )
+            if response.status_code == 200:
+                return True, f"AgentRouter reachable with model {use_model}"
+            if response.status_code in (401, 403):
+                return False, f"AgentRouter unauthorized/forbidden ({response.status_code})"
+            if response.status_code == 429:
+                return False, "AgentRouter rate-limited (429)"
+            return False, f"AgentRouter check failed ({response.status_code})"
+        except Exception as exc:
+            return False, f"AgentRouter check failed: {exc}"
 
     return False, f"Unsupported provider: {selected or 'unknown'}"
 
@@ -1965,6 +2018,20 @@ def api_admin_validate_ai_provider():
     model = str(payload.get("model", "") or "").strip()
     api_key = str(payload.get("api_key", "") or "").strip()
     ollama_host = str(payload.get("ollama_host", "") or "").strip()
+
+    saved_settings = _read_global_runtime_settings()
+    saved_ai = saved_settings.get("ai", {}) if isinstance(saved_settings.get("ai", {}), dict) else {}
+    saved_provider = str(saved_ai.get("provider", "") or "").strip().lower()
+    if not model and saved_provider == provider:
+        model = str(saved_ai.get("model", "") or "").strip()
+    if provider == "ollama" and not ollama_host:
+        ollama_host = str(saved_ai.get("ollama_host", "") or "").strip()
+    if provider == "gemini" and not api_key:
+        api_key = str(saved_ai.get("gemini_api_key", "") or "").strip()
+    if provider == "openrouter" and not api_key:
+        api_key = str(saved_ai.get("openrouter_api_key", "") or "").strip()
+    if provider == "agent_router" and not api_key:
+        api_key = str(saved_ai.get("agent_router_api_key", "") or "").strip()
 
     ok, message = _validate_ai_provider_runtime(provider, model, api_key, ollama_host)
     _record_audit(

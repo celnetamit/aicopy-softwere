@@ -228,6 +228,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
             api_key: '',
             gemini_api_key: '',
             openrouter_api_key: '',
+            agent_router_api_key: '',
             ai_first_cmos: false,
             section_wise: true,
             section_threshold_chars: 12000,
@@ -260,6 +261,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
             api_key: String(ai.gemini_api_key || ''),
             gemini_api_key: String(ai.gemini_api_key || ''),
             openrouter_api_key: String(ai.openrouter_api_key || ''),
+            agent_router_api_key: String(ai.agent_router_api_key || ''),
             ai_first_cmos: ai.ai_first_cmos === true,
             section_wise: ai.section_wise !== false,
             section_threshold_chars: Number(ai.section_threshold_chars || 12000),
@@ -671,7 +673,7 @@ function getModelSuggestionsForProvider(provider, ollamaModels) {
     const selected = String(provider || '').trim().toLowerCase();
     if (selected === 'gemini') return ['gemini-1.5-flash', 'gemini-1.5-pro'];
     if (selected === 'openrouter') return ['openrouter/auto', 'openai/gpt-5.4', 'google/gemini-2.5-pro', 'anthropic/claude-sonnet-4'];
-    if (selected === 'agent_router') return ['openrouter/auto', 'openai/gpt-5.4', 'google/gemini-2.5-pro'];
+    if (selected === 'agent_router') return ['gpt-5', 'gpt-4.1', 'claude-sonnet-4', 'gemini-2.5-pro'];
     return Array.isArray(ollamaModels) && ollamaModels.length > 0
         ? ollamaModels
         : ['llama3.1', 'llama3.1:latest', 'qwen2.5:7b', 'mistral:7b'];
@@ -709,20 +711,25 @@ function updateAdminGlobalAiProviderUI(forceDefaultModel) {
         return;
     }
     const provider = String(authDom.adminSettingAiProvider.value || '').toLowerCase();
-    const usesOpenrouterKey = provider === 'openrouter' || provider === 'agent_router';
+    const usesOpenrouterKey = provider === 'openrouter';
+    const usesAgentRouterKey = provider === 'agent_router';
     const usesGeminiKey = provider === 'gemini';
     if (authDom.adminSettingGeminiKey) authDom.adminSettingGeminiKey.disabled = !usesGeminiKey;
     if (authDom.adminSettingOpenrouterKey) authDom.adminSettingOpenrouterKey.disabled = !usesOpenrouterKey;
+    if (authDom.adminSettingAgentRouterKey) authDom.adminSettingAgentRouterKey.disabled = !usesAgentRouterKey;
     if (authDom.adminSettingOllamaHost) authDom.adminSettingOllamaHost.disabled = provider !== 'ollama';
     setElementVisible(authDom.adminSettingGeminiKey, usesGeminiKey);
     setElementVisible(authDom.adminSettingOpenrouterKey, usesOpenrouterKey);
+    setElementVisible(authDom.adminSettingAgentRouterKey, usesAgentRouterKey);
     setElementVisible(authDom.adminSettingOllamaHost, provider === 'ollama');
 
     authDom.adminSettingAiModel.placeholder = provider === 'gemini'
         ? 'gemini-1.5-flash'
         : provider === 'ollama'
             ? 'llama3.1'
-            : 'openrouter/auto';
+            : provider === 'agent_router'
+                ? 'gpt-5'
+                : 'openrouter/auto';
 
     if (provider === 'ollama') {
         loadAdminGlobalOllamaModels(false);
@@ -741,7 +748,54 @@ function getAdminProviderEndpoint(provider, fallbackHost) {
     const selected = String(provider || '').trim().toLowerCase();
     if (selected === 'ollama') return String(fallbackHost || '').trim() || 'http://localhost:11434';
     if (selected === 'gemini') return 'https://generativelanguage.googleapis.com';
+    if (selected === 'agent_router') return 'https://agentrouter.org/v1/chat/completions';
     return 'https://openrouter.ai/api/v1/chat/completions';
+}
+
+function getSavedValidationModelForProvider(provider, aiSettings) {
+    const selected = String(provider || '').trim().toLowerCase();
+    const ai = aiSettings && typeof aiSettings === 'object' ? aiSettings : {};
+    const savedProvider = String(ai.provider || '').trim().toLowerCase();
+    const savedModel = String(ai.model || '').trim();
+    if (savedProvider === selected && savedModel) {
+        return savedModel;
+    }
+    return authConstants.DEFAULT_MODEL_BY_PROVIDER[selected] || authConstants.DEFAULT_MODEL_BY_PROVIDER.openrouter;
+}
+
+function getSavedValidationKeyForProvider(provider, aiSettings) {
+    const selected = String(provider || '').trim().toLowerCase();
+    const ai = aiSettings && typeof aiSettings === 'object' ? aiSettings : {};
+    if (selected === 'gemini') return String(ai.gemini_api_key || '');
+    if (selected === 'openrouter') return String(ai.openrouter_api_key || '');
+    if (selected === 'agent_router') return String(ai.agent_router_api_key || '');
+    return '';
+}
+
+function syncAdminValidationInputs(forceOverwrite) {
+    const ai = authState.runtimeManagedSettings && authState.runtimeManagedSettings.ai && typeof authState.runtimeManagedSettings.ai === 'object'
+        ? authState.runtimeManagedSettings.ai
+        : {};
+    const provider = authDom.adminAiProviderSelect ? String(authDom.adminAiProviderSelect.value || '').toLowerCase() : '';
+    if (!provider) {
+        return;
+    }
+
+    const nextModel = getSavedValidationModelForProvider(provider, ai);
+    const nextKey = getSavedValidationKeyForProvider(provider, ai);
+    const nextHost = provider === 'ollama'
+        ? String(ai.ollama_host || authDom.adminAiOllamaHostInput?.value || 'http://localhost:11434')
+        : getAdminProviderEndpoint(provider, authDom.adminAiOllamaHostInput ? authDom.adminAiOllamaHostInput.value : '');
+
+    if (authDom.adminAiModelInput && (forceOverwrite || !String(authDom.adminAiModelInput.value || '').trim())) {
+        authDom.adminAiModelInput.value = nextModel;
+    }
+    if (authDom.adminAiKeyInput && provider !== 'ollama' && (forceOverwrite || !String(authDom.adminAiKeyInput.value || '').trim())) {
+        authDom.adminAiKeyInput.value = nextKey;
+    }
+    if (authDom.adminAiOllamaHostInput && (forceOverwrite || !String(authDom.adminAiOllamaHostInput.value || '').trim() || provider !== 'ollama')) {
+        authDom.adminAiOllamaHostInput.value = nextHost;
+    }
 }
 
 function applyAdminGlobalSettingsForm(settings) {
@@ -766,6 +820,7 @@ function applyAdminGlobalSettingsForm(settings) {
     if (authDom.adminSettingOllamaHost) authDom.adminSettingOllamaHost.value = String(ai.ollama_host || 'http://localhost:11434');
     if (authDom.adminSettingGeminiKey) authDom.adminSettingGeminiKey.value = String(ai.gemini_api_key || '');
     if (authDom.adminSettingOpenrouterKey) authDom.adminSettingOpenrouterKey.value = String(ai.openrouter_api_key || '');
+    if (authDom.adminSettingAgentRouterKey) authDom.adminSettingAgentRouterKey.value = String(ai.agent_router_api_key || '');
     if (authDom.adminSettingSectionWise) authDom.adminSettingSectionWise.checked = ai.section_wise !== false;
     if (authDom.adminSettingSectionThresholdChars) authDom.adminSettingSectionThresholdChars.value = Number(ai.section_threshold_chars || 12000);
     if (authDom.adminSettingSectionThresholdParagraphs) authDom.adminSettingSectionThresholdParagraphs.value = Number(ai.section_threshold_paragraphs || 90);
@@ -795,6 +850,7 @@ function collectAdminGlobalSettingsForm() {
             ollama_host: authDom.adminSettingOllamaHost ? String(authDom.adminSettingOllamaHost.value || '').trim() : '',
             gemini_api_key: authDom.adminSettingGeminiKey ? String(authDom.adminSettingGeminiKey.value || '').trim() : '',
             openrouter_api_key: authDom.adminSettingOpenrouterKey ? String(authDom.adminSettingOpenrouterKey.value || '').trim() : '',
+            agent_router_api_key: authDom.adminSettingAgentRouterKey ? String(authDom.adminSettingAgentRouterKey.value || '').trim() : '',
             section_wise: authDom.adminSettingSectionWise ? authDom.adminSettingSectionWise.checked : true,
             section_threshold_chars: authHelpers.clampInt(authDom.adminSettingSectionThresholdChars ? authDom.adminSettingSectionThresholdChars.value : 12000, 4000, 120000, 12000),
             section_threshold_paragraphs: authHelpers.clampInt(authDom.adminSettingSectionThresholdParagraphs ? authDom.adminSettingSectionThresholdParagraphs.value : 90, 20, 1000, 90),
@@ -823,6 +879,9 @@ function loadAdminGlobalSettings() {
             return;
         }
         applyAdminGlobalSettingsForm(response.settings || {});
+        authState.runtimeManagedSettings = response.settings || authState.runtimeManagedSettings;
+        syncAdminValidationInputs(true);
+        updateAdminAiValidationHint();
         if (authDom.adminGlobalSettingsStatus) {
             authDom.adminGlobalSettingsStatus.textContent = 'Global settings loaded.';
             authDom.adminGlobalSettingsStatus.style.color = '#a9f2d3';
@@ -855,6 +914,8 @@ function saveAdminGlobalSettings() {
             return;
         }
         authState.runtimeManagedSettings = response.settings || authState.runtimeManagedSettings;
+        syncAdminValidationInputs(true);
+        updateAdminAiValidationHint();
         if (authDom.adminGlobalSettingsStatus) {
             authDom.adminGlobalSettingsStatus.textContent = 'Global settings saved. New processing jobs now use this config.';
             authDom.adminGlobalSettingsStatus.style.color = '#a9f2d3';
@@ -914,15 +975,36 @@ function updateAdminAiValidationHint() {
     }
     const provider = String(authDom.adminAiProviderSelect.value || '').toLowerCase();
     const usesRemoteKey = provider === 'openrouter' || provider === 'agent_router' || provider === 'gemini';
+    if (authDom.adminAiKeyField) {
+        setElementVisible(authDom.adminAiKeyField, usesRemoteKey);
+    }
     authDom.adminAiKeyInput.disabled = !usesRemoteKey;
     authDom.adminAiOllamaHostInput.readOnly = provider !== 'ollama';
-    authDom.adminAiOllamaHostInput.value = getAdminProviderEndpoint(provider, authDom.adminAiOllamaHostInput.value);
+    if (provider !== 'ollama') {
+        authDom.adminAiOllamaHostInput.value = getAdminProviderEndpoint(provider, authDom.adminAiOllamaHostInput.value);
+    }
     authDom.adminAiOllamaHostInput.placeholder = provider === 'ollama' ? 'Ollama host' : 'Provider endpoint';
+    authDom.adminAiKeyInput.placeholder = provider === 'gemini'
+        ? 'Gemini API key (blank uses saved/server key)'
+        : provider === 'agent_router'
+            ? 'AgentRouter token (blank uses saved/server token)'
+            : 'OpenRouter API key (blank uses saved/server key)';
     authDom.adminAiModelInput.placeholder = provider === 'gemini'
         ? 'gemini-1.5-flash'
         : provider === 'ollama'
             ? 'llama3.1'
-            : 'openrouter/auto';
+            : provider === 'agent_router'
+                ? 'gpt-5'
+                : 'openrouter/auto';
+    if (authDom.adminAiValidationHelp) {
+        authDom.adminAiValidationHelp.textContent = provider === 'ollama'
+            ? 'Leave host blank to validate the saved Ollama host. A model check now verifies that the selected model exists.'
+            : provider === 'agent_router'
+                ? 'Leave token blank to validate with the saved AgentRouter token or AGENT_ROUTER_TOKEN from server env.'
+                : provider === 'gemini'
+                    ? 'Leave key blank to validate with the saved Gemini key or GEMINI_API_KEY from server env.'
+                    : 'Leave key blank to validate with the saved OpenRouter key or OPENROUTER_API_KEY from server env.';
+    }
     applyDatalistOptions(
         authDom.adminAiModelList,
         getModelSuggestionsForProvider(provider, provider === 'ollama' ? authState.adminGlobalOllamaModelCache : [])
@@ -930,6 +1012,7 @@ function updateAdminAiValidationHint() {
     if (!String(authDom.adminAiModelInput.value || '').trim()) {
         authDom.adminAiModelInput.value = authConstants.DEFAULT_MODEL_BY_PROVIDER[provider] || authConstants.DEFAULT_MODEL_BY_PROVIDER.openrouter;
     }
+    syncAdminValidationInputs(false);
 }
 
 function validateAdminAiProvider() {
@@ -990,6 +1073,7 @@ function openAdminPanel() {
         authDom.adminAiOllamaHostInput.value = String(authDom.ollamaHostInput.value || 'http://localhost:11434');
     }
     updateAdminGlobalAiProviderUI(false);
+    syncAdminValidationInputs(true);
     updateAdminAiValidationHint();
     if (authDom.adminAiValidationResult) {
         authDom.adminAiValidationResult.textContent = 'Run a provider check from server runtime.';

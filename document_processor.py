@@ -43,7 +43,7 @@ class DocumentProcessor:
         self.model = "llama3.1"
         self.gemini_model = "gemini-1.5-flash"
         self.openrouter_model = "openrouter/auto"
-        self.agent_router_model = "openrouter/auto"
+        self.agent_router_model = "gpt-5"
         self._last_ai_warning = ""
         self._last_selection_note = ""
         self._last_ai_pipeline_note = ""
@@ -202,8 +202,10 @@ class DocumentProcessor:
         if cmos_strict_mode and len(str(original or "")) > 12000 and not ai_enabled:
             recommendations.append("Enable AI section-wise mode for long manuscripts, then review audit fallback reasons.")
 
-        if ai_enabled and ai_provider in ("openrouter", "agent_router"):
+        if ai_enabled and ai_provider == "openrouter":
             recommendations.append("Validate OpenRouter key/model in Admin Dashboard before production runs.")
+        if ai_enabled and ai_provider == "agent_router":
+            recommendations.append("Validate AgentRouter token/model in Admin Dashboard before production runs.")
 
         compliance_score = 100
         compliance_score -= min(60, len(warnings) * 12)
@@ -279,8 +281,10 @@ class DocumentProcessor:
         """Dispatch AI request to configured provider."""
         if settings["provider"] == "gemini":
             return self._call_gemini_editor(prompt, settings)
-        if settings["provider"] in ("openrouter", "agent_router"):
+        if settings["provider"] == "openrouter":
             return self._call_openrouter_editor(prompt, settings)
+        if settings["provider"] == "agent_router":
+            return self._call_agent_router_editor(prompt, settings)
         return self._call_ollama_editor(prompt, settings)
 
     def _should_use_section_analysis(self, original: str, rules_corrected: str, options: Dict) -> bool:
@@ -754,6 +758,9 @@ Final consistent manuscript:"""
         openrouter_api_key = str(
             ai_options.get("openrouter_api_key", os.getenv("OPENROUTER_API_KEY", ""))
         ).strip()
+        agent_router_api_key = str(
+            ai_options.get("agent_router_api_key", os.getenv("AGENT_ROUTER_TOKEN", ""))
+        ).strip()
 
         if provider == "gemini":
             default_model = self.gemini_model
@@ -771,6 +778,7 @@ Final consistent manuscript:"""
             "model": model or default_model,
             "gemini_api_key": gemini_api_key,
             "openrouter_api_key": openrouter_api_key,
+            "agent_router_api_key": agent_router_api_key,
             "ai_first_cmos": bool(ai_options.get("ai_first_cmos", False)),
         }
 
@@ -923,6 +931,48 @@ Final consistent manuscript:"""
                 )
         except Exception as e:
             self._warn_once(f"OpenRouter editing failed: {e}")
+
+        return None
+
+    def _call_agent_router_editor(self, prompt: str, settings: Dict) -> Optional[str]:
+        """Call AgentRouter's OpenAI-compatible chat completion API."""
+        if not settings["agent_router_api_key"]:
+            self._warn_once("AgentRouter token not set; falling back to rule-based editing.")
+            return None
+
+        model = settings["model"] or self.agent_router_model
+        url = "https://agentrouter.org/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {settings['agent_router_api_key']}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a professional copy editor. Return only corrected manuscript text.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.3,
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=75)
+            if response.status_code == 200:
+                self._last_ai_warning = ""
+                return self._extract_corrected_text(self._extract_openrouter_text(response.json()))
+            if response.status_code in (401, 403):
+                self._warn_once("AgentRouter request unauthorized/forbidden; check token and model access.")
+            elif response.status_code == 429:
+                self._warn_once("AgentRouter rate-limited (429); falling back to rule-based editing.")
+            else:
+                self._warn_once(
+                    f"AgentRouter editing failed ({response.status_code}); falling back to rule-based editing."
+                )
+        except Exception as e:
+            self._warn_once(f"AgentRouter editing failed: {e}")
 
         return None
 
