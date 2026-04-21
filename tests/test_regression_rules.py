@@ -470,6 +470,46 @@ class ProcessorRegressionTests(unittest.TestCase):
         self.assertIn("Keyword:", result)
         self.assertEqual(processor._last_selection_note, "Rule-based correction applied.")
 
+    def test_ai_first_cmos_mode_skips_second_full_rule_language_pass(self):
+        processor = DocumentProcessor()
+        original_correct_all = processor.editor.correct_all
+
+        with patch.object(processor, "_call_ai_editor", return_value="The author may revise this later.") as mock_ai:
+            with patch.object(processor.editor, "correct_all", wraps=original_correct_all) as wrapped_correct_all:
+                result = processor.process_text(
+                    "The author may revise this later.",
+                    {
+                        "spelling": True,
+                        "sentence_case": True,
+                        "punctuation": True,
+                        "chicago_style": True,
+                        "ai": {"enabled": True, "ai_first_cmos": True},
+                    },
+                )
+
+        self.assertTrue(mock_ai.called)
+        self.assertEqual(wrapped_correct_all.call_count, 1)
+        self.assertIn("may revise", result)
+
+    def test_ai_first_cmos_mode_keeps_structural_postprocessing(self):
+        processor = DocumentProcessor()
+        with patch.object(processor, "_call_ai_editor", return_value="Text cites [1] [2].\nReferences\n[2] Beta AB. sample title. Journal of Testing. 2024;1(1):1-2.\n[1] Alpha CD. sample title. Journal of Testing. 2023;1(1):1-2.\n"):
+            result = processor.process_text(
+                "Text cites [1] [2].\nReferences\n[2] Beta AB. sample title. Journal of Testing. 2024;1(1):1-2.\n[1] Alpha CD. sample title. Journal of Testing. 2023;1(1):1-2.\n",
+                {
+                    "spelling": True,
+                    "sentence_case": True,
+                    "punctuation": True,
+                    "chicago_style": True,
+                    "ai": {"enabled": True, "ai_first_cmos": True},
+                },
+        )
+
+        self.assertIn("Text cites [1, 2].", result)
+        self.assertIn("[1] Alpha", result)
+        self.assertIn("[2] Beta", result)
+        self.assertIn("J Testing.", result)
+
     def test_processor_exposes_journal_profile_report_for_selected_profile(self):
         processor = DocumentProcessor()
         _ = processor.process_text(

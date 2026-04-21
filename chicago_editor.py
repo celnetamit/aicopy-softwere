@@ -256,6 +256,27 @@ class ChicagoEditor:
 
         return self._restore_invariant_tokens(result, protected_tokens)
 
+    def postprocess_ai_first_copyedit(self, text: str, options: Optional[Dict] = None) -> str:
+        """Apply only structure-safe normalization after AI-first language editing."""
+        safe_options = options if isinstance(options, dict) else {}
+        protected_text, protected_tokens = self._protect_invariant_tokens(text, safe_options)
+        result = protected_text
+
+        if safe_options.get('punctuation', True):
+            result = self.correct_punctuation(result)
+
+        if safe_options.get('chicago_style', True):
+            result = self.normalize_word_number_markers(result)
+            result = self.collapse_mixed_parenthetical_citations(result)
+            result = self.normalize_numeric_citations(result)
+            result = self.merge_adjacent_numeric_citations(result)
+            result = self.format_author_markers_as_superscript(result)
+            result = self.normalize_author_line_name_markers(result)
+            result = self.normalize_keywords_line(result)
+            result = self.format_references_vancouver_numbered(result, safe_options)
+
+        return self._restore_invariant_tokens(result, protected_tokens)
+
     def _normalize_domain_profile(self, options: Optional[Dict]) -> str:
         """Resolve requested domain profile."""
         if not isinstance(options, dict):

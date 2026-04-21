@@ -116,12 +116,15 @@ class DocumentProcessor:
         # Then enhance with AI for context-aware corrections
         ai_corrected = self._call_ai_editor(text, rules_corrected, options)
         if ai_corrected:
-            # Enforce deterministic house rules after AI so citation/author formats stay correct.
-            ai_post_processed = self.editor.correct_all(ai_corrected, options)
+            ai_first_cmos = self._is_ai_first_cmos_mode(options)
+            # In AI-first CMOS mode, keep AI as the language authority and only
+            # apply structure-safe normalization afterward.
+            ai_post_processed = self._postprocess_ai_output(ai_corrected, options)
             selected = self._select_best_correction(
                 original=text,
                 rules_corrected=rules_corrected,
-                ai_corrected=ai_post_processed
+                ai_corrected=ai_post_processed,
+                prefer_ai=ai_first_cmos,
             )
             if self._last_ai_pipeline_note:
                 self._last_selection_note = f"{self._last_ai_pipeline_note} {self._last_selection_note}".strip()
@@ -143,6 +146,17 @@ class DocumentProcessor:
         self._last_journal_profile_report = self.editor.build_reference_profile_report(rules_corrected, options)
         self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(rules_corrected, options)
         return rules_corrected
+
+    def _is_ai_first_cmos_mode(self, options: Dict) -> bool:
+        ai_options = options.get("ai", {}) if isinstance(options, dict) else {}
+        if not isinstance(ai_options, dict):
+            return False
+        return bool(ai_options.get("ai_first_cmos", False))
+
+    def _postprocess_ai_output(self, ai_text: str, options: Dict) -> str:
+        if self._is_ai_first_cmos_mode(options):
+            return self.editor.postprocess_ai_first_copyedit(ai_text, options)
+        return self.editor.correct_all(ai_text, options)
 
     def _attach_cmos_guardrails(self, original: str, corrected: str, options: Dict):
         """Attach CMOS workflow guardrails summary to processing audit."""
@@ -402,12 +416,14 @@ class DocumentProcessor:
         ai_candidate: str,
         tolerance: int = 3,
         stage: str = "section",
+        prefer_ai: bool = False,
     ) -> Tuple[str, bool, Dict]:
         """Choose safer text between baseline and AI candidate using risk scoring."""
         base_score, base_reasons = self._candidate_risk_score(original, baseline)
         detail: Dict = {
             "stage": stage,
             "tolerance": max(0, int(tolerance)),
+            "prefer_ai": bool(prefer_ai),
             "baseline_score": base_score,
             "baseline_reasons": base_reasons,
             "baseline_quality": self._quality_score(base_score),
@@ -435,15 +451,29 @@ class DocumentProcessor:
         detail["score_delta"] = ai_score - base_score
         detail["score_margin"] = (base_score + detail["tolerance"]) - ai_score
 
-        if ai_score <= base_score + max(0, int(tolerance)):
+        accept_tolerance = max(0, int(tolerance))
+        hard_risk_limit = 12 if prefer_ai else None
+        if hard_risk_limit is not None:
+            accept_tolerance = max(accept_tolerance, 6)
+
+        if ai_score <= base_score + accept_tolerance and (hard_risk_limit is None or ai_score <= hard_risk_limit):
             detail["decision"] = "accepted"
-            detail["decision_reason"] = f"ai score {ai_score} <= baseline {base_score} + tolerance {detail['tolerance']}"
+            if hard_risk_limit is not None:
+                detail["decision_reason"] = (
+                    f"ai-first mode accepted ai score {ai_score} with baseline {base_score}, "
+                    f"tolerance {accept_tolerance}, hard limit {hard_risk_limit}"
+                )
+            else:
+                detail["decision_reason"] = f"ai score {ai_score} <= baseline {base_score} + tolerance {detail['tolerance']}"
             detail["decision_confidence"] = "high" if ai_score <= base_score else "medium"
             detail["accepted_ai"] = True
             return ai_candidate, True, detail
 
         detail["decision"] = "fallback"
-        detail["decision_reason"] = f"ai score {ai_score} > baseline {base_score} + tolerance {detail['tolerance']}"
+        if hard_risk_limit is not None and ai_score > hard_risk_limit:
+            detail["decision_reason"] = f"ai-first mode rejected ai score {ai_score} > hard limit {hard_risk_limit}"
+        else:
+            detail["decision_reason"] = f"ai score {ai_score} > baseline {base_score} + tolerance {detail['tolerance']}"
         detail["decision_confidence"] = "high" if (detail["score_margin"] or 0) < -8 else "medium"
         return baseline, False, detail
 
@@ -456,9 +486,16 @@ class DocumentProcessor:
             domain_for_prompt = "general"
 
         journal_profile = self.editor.resolve_journal_profile(options)
+        ai_first_cmos = self._is_ai_first_cmos_mode(options)
         initials_rule = "without periods (Smith AB)" if not bool(journal_profile.get("initials_with_periods")) else "with periods (Smith A.B.)"
         title_rule = "sentence case" if str(journal_profile.get("title_case", "sentence")) == "sentence" else "title case"
         journal_rule = "NLM abbreviations" if str(journal_profile.get("journal_abbrev", "nlm")) == "nlm" else "full journal names"
+
+        extra_goal = (
+            "- Use professional CMOS judgment for grammar and capitalization; avoid unnecessary rewrites.\n"
+            if ai_first_cmos else
+            ""
+        )
 
         return f"""You are a senior copy editor doing a final consistency pass.
 The manuscript was already corrected section-by-section.
@@ -474,6 +511,7 @@ Goals:
 - In references, use initials {initials_rule}, titles in {title_rule}, and journal names as {journal_rule}.
 - Preserve URLs/DOIs/emails exactly.
 - Preserve {domain_for_prompt} technical terms.
+{extra_goal}
 
 Manuscript:
 {manuscript_text}
@@ -542,13 +580,14 @@ Final consistent manuscript:"""
             )
             ai_chunk = self._invoke_ai_provider(prompt, settings)
             if ai_chunk:
-                ai_chunk = self.editor.correct_all(ai_chunk, options)
+                ai_chunk = self._postprocess_ai_output(ai_chunk, options)
             selected_chunk, used_ai, decision = self._choose_candidate(
                 original=chunk["original"],
                 baseline=chunk["baseline"],
                 ai_candidate=ai_chunk or "",
-                tolerance=section_tolerance,
+                tolerance=section_tolerance + (2 if settings.get("ai_first_cmos") else 0),
                 stage="section",
+                prefer_ai=bool(settings.get("ai_first_cmos")),
             )
             decision["section_index"] = idx
             decision["section_total"] = total_chunks
@@ -609,13 +648,14 @@ Final consistent manuscript:"""
             consistency_prompt = self._build_consistency_prompt(merged, options)
             ai_consistent = self._invoke_ai_provider(consistency_prompt, settings)
             if ai_consistent:
-                ai_consistent = self.editor.correct_all(ai_consistent, options)
+                ai_consistent = self._postprocess_ai_output(ai_consistent, options)
             merged_selected, used_ai, consistency_decision = self._choose_candidate(
                 original=original,
                 baseline=merged,
                 ai_candidate=ai_consistent or "",
-                tolerance=consistency_tolerance,
+                tolerance=consistency_tolerance + (2 if settings.get("ai_first_cmos") else 0),
                 stage="global_consistency",
+                prefer_ai=bool(settings.get("ai_first_cmos")),
             )
             merged = merged_selected
             consistency_quality_before = consistency_decision.get("baseline_quality")
@@ -731,6 +771,7 @@ Final consistent manuscript:"""
             "model": model or default_model,
             "gemini_api_key": gemini_api_key,
             "openrouter_api_key": openrouter_api_key,
+            "ai_first_cmos": bool(ai_options.get("ai_first_cmos", False)),
         }
 
     def _call_ollama_editor(self, prompt: str, settings: Dict) -> Optional[str]:
@@ -969,7 +1010,13 @@ Final consistent manuscript:"""
 
         return penalties, reasons
 
-    def _select_best_correction(self, original: str, rules_corrected: str, ai_corrected: str) -> str:
+    def _select_best_correction(
+        self,
+        original: str,
+        rules_corrected: str,
+        ai_corrected: str,
+        prefer_ai: bool = False,
+    ) -> str:
         """Select the safest correction output between rule-only and AI-enhanced variants."""
         if not ai_corrected.strip():
             self._last_selection_note = "AI output empty; using rule-based correction."
@@ -984,16 +1031,23 @@ Final consistent manuscript:"""
         ai_score, ai_reasons = self._candidate_risk_score(original, ai_corrected)
         summary = self._last_processing_audit.setdefault("summary", {})
 
-        # AI candidate must be at least as stable as rule-based output (small tolerance).
-        if ai_score <= rule_score + 3:
-            self._last_selection_note = f"AI accepted (rule_score={rule_score}, ai_score={ai_score})."
+        tolerance = 6 if prefer_ai else 3
+        hard_risk_limit = 12 if prefer_ai else None
+
+        # AI candidate must be at least as stable as rule-based output, with a
+        # slightly wider lane in AI-first mode as long as structure-risk stays low.
+        if ai_score <= rule_score + tolerance and (hard_risk_limit is None or ai_score <= hard_risk_limit):
+            decision_label = "AI-first accepted" if prefer_ai else "AI accepted"
+            self._last_selection_note = f"{decision_label} (rule_score={rule_score}, ai_score={ai_score})."
             summary["final_selection"] = {
                 "decision": "ai_accepted",
                 "rule_score": rule_score,
                 "ai_score": ai_score,
                 "rule_reasons": rule_reasons,
                 "ai_reasons": ai_reasons,
-                "tolerance": 3,
+                "tolerance": tolerance,
+                "prefer_ai": bool(prefer_ai),
+                "hard_risk_limit": hard_risk_limit,
             }
             return ai_corrected
 
@@ -1011,7 +1065,9 @@ Final consistent manuscript:"""
             "ai_score": ai_score,
             "rule_reasons": rule_reasons,
             "ai_reasons": ai_reasons,
-            "tolerance": 3,
+            "tolerance": tolerance,
+            "prefer_ai": bool(prefer_ai),
+            "hard_risk_limit": hard_risk_limit,
         }
         return rules_corrected
 
@@ -1144,6 +1200,7 @@ Final consistent manuscript:"""
         if domain_for_prompt not in ("general", "medical", "engineering", "law"):
             domain_for_prompt = "general"
         journal_profile = self.editor.resolve_journal_profile(options)
+        ai_first_cmos = self._is_ai_first_cmos_mode(options)
         initials_rule = (
             "use author initials without periods (e.g., Smith AB)"
             if not bool(journal_profile.get("initials_with_periods"))
@@ -1186,6 +1243,16 @@ Final consistent manuscript:"""
   * Use em-dash (—) without spaces for interruptions
   * Keep keyword line in this style: Keyword: Key one, Key two, Key three
 """)
+        if ai_first_cmos:
+            instructions.append(
+                "- Work as a professional CMOS copy editor: use context-aware grammar, usage, and capitalization judgment instead of rigid pattern substitutions"
+            )
+            instructions.append(
+                "- Preserve meaning and technical claims; improve clarity and correctness without flattening the author's voice"
+            )
+            instructions.append(
+                "- Use the baseline draft as a safety reference only; do not repeat baseline mistakes if your professional judgment indicates a better CMOS correction"
+            )
 
         stage_instruction = ""
         if stage == "section" and section_total > 1:

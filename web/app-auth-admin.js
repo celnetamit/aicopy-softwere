@@ -228,6 +228,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
             api_key: '',
             gemini_api_key: '',
             openrouter_api_key: '',
+            ai_first_cmos: false,
             section_wise: true,
             section_threshold_chars: 12000,
             section_threshold_paragraphs: 90,
@@ -259,6 +260,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
             api_key: String(ai.gemini_api_key || ''),
             gemini_api_key: String(ai.gemini_api_key || ''),
             openrouter_api_key: String(ai.openrouter_api_key || ''),
+            ai_first_cmos: ai.ai_first_cmos === true,
             section_wise: ai.section_wise !== false,
             section_threshold_chars: Number(ai.section_threshold_chars || 12000),
             section_threshold_paragraphs: Number(ai.section_threshold_paragraphs || 90),
@@ -758,6 +760,7 @@ function applyAdminGlobalSettingsForm(settings) {
         authDom.adminSettingCustomTerms.value = appAuth.preview.normalizeCustomTermsText(terms.join('\n'));
     }
     if (authDom.adminSettingAiEnabled) authDom.adminSettingAiEnabled.checked = ai.enabled !== false;
+    if (authDom.adminSettingAiFirstCmos) authDom.adminSettingAiFirstCmos.checked = ai.ai_first_cmos === true;
     if (authDom.adminSettingAiProvider) authDom.adminSettingAiProvider.value = String(ai.provider || 'ollama');
     if (authDom.adminSettingAiModel) authDom.adminSettingAiModel.value = String(ai.model || '');
     if (authDom.adminSettingOllamaHost) authDom.adminSettingOllamaHost.value = String(ai.ollama_host || 'http://localhost:11434');
@@ -786,6 +789,7 @@ function collectAdminGlobalSettingsForm() {
         },
         ai: {
             enabled: authDom.adminSettingAiEnabled ? authDom.adminSettingAiEnabled.checked : true,
+            ai_first_cmos: authDom.adminSettingAiFirstCmos ? authDom.adminSettingAiFirstCmos.checked : false,
             provider: authDom.adminSettingAiProvider ? String(authDom.adminSettingAiProvider.value || 'ollama') : 'ollama',
             model: authDom.adminSettingAiModel ? String(authDom.adminSettingAiModel.value || '').trim() : '',
             ollama_host: authDom.adminSettingOllamaHost ? String(authDom.adminSettingOllamaHost.value || '').trim() : '',

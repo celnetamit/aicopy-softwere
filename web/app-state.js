@@ -173,6 +173,7 @@ app.dom = {
     adminSettingDomainProfile: document.getElementById('admin-setting-domain-profile'),
     adminSettingCustomTerms: document.getElementById('admin-setting-custom-terms'),
     adminSettingAiEnabled: document.getElementById('admin-setting-ai-enabled'),
+    adminSettingAiFirstCmos: document.getElementById('admin-setting-ai-first-cmos'),
     adminSettingAiProvider: document.getElementById('admin-setting-ai-provider'),
     adminSettingAiModel: document.getElementById('admin-setting-ai-model'),
     adminSettingAiModelList: document.getElementById('admin-setting-ai-model-list'),
