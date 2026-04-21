@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover - optional import if auth deps missing
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT_DIR, "web")
-WEB_ASSET_VERSION = "20260421r55"
+WEB_ASSET_VERSION = "20260421r56"
 REQUIRED_WEB_ASSETS = (
     "index.html",
     "tasks.html",
