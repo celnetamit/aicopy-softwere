@@ -446,6 +446,25 @@ function formatUnixTimestamp(ts) {
     }
 }
 
+function formatDurationSeconds(totalSeconds) {
+    const secondsValue = Number(totalSeconds || 0);
+    if (!Number.isFinite(secondsValue) || secondsValue <= 0) {
+        return '';
+    }
+    const rounded = Math.max(1, Math.round(secondsValue));
+    const hours = Math.floor(rounded / 3600);
+    const minutes = Math.floor((rounded % 3600) / 60);
+    const seconds = rounded % 60;
+
+    if (hours > 0) {
+        return `${hours}h ${minutes}m ${seconds}s`;
+    }
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
+}
+
 function normalizePathname(pathname) {
     const raw = String(pathname || '/').trim();
     if (!raw || raw === '/') {
@@ -476,6 +495,7 @@ app.helpers = {
     clampNumber,
     clampInt,
     formatUnixTimestamp,
+    formatDurationSeconds,
     normalizePathname,
     normalizeUserRole,
     isAdminUser

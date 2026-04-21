@@ -145,12 +145,22 @@ function renderTaskHistory() {
         const taskId = String(task.id || '');
         const activeClass = taskId && taskId === authState.fileContent.taskId ? ' active' : '';
         const status = authHelpers.escapeHtml(String(task.status || 'UPLOADED'));
+        const rawStatus = String(task.status || '').trim().toUpperCase();
         const words = Number(task.word_count || 0);
         const sourceType = String(task.source_type || 'text').toUpperCase();
+        const createdAt = Number(task.created_at || 0);
+        const processedAt = Number(task.processed_at || 0);
+        const updatedAt = Number(task.updated_at || 0);
+        let durationLabel = '';
+        if (rawStatus === 'PROCESSED' && createdAt > 0 && processedAt >= createdAt) {
+            durationLabel = `Processed in ${authHelpers.formatDurationSeconds(processedAt - createdAt)}`;
+        } else if (rawStatus === 'PROCESSING' && createdAt > 0 && updatedAt >= createdAt) {
+            durationLabel = `Processing for ${authHelpers.formatDurationSeconds(updatedAt - createdAt)}`;
+        }
         html += `<div class="task-history-item${activeClass}" data-task-id="${authHelpers.escapeHtml(taskId)}">`;
         html += `<div class="task-history-title">${authHelpers.escapeHtml(String(task.file_name || 'Untitled manuscript'))}</div>`;
         html += `<div class="task-history-badges"><span class="task-history-badge">${authHelpers.escapeHtml(sourceType)}</span><span class="task-history-badge task-history-badge-status">${status}</span></div>`;
-        html += `<div class="task-history-meta">${status} • ${words} words • ${authHelpers.escapeHtml(authHelpers.formatUnixTimestamp(task.updated_at))}</div>`;
+        html += `<div class="task-history-meta">${status} • ${words} words • ${authHelpers.escapeHtml(authHelpers.formatUnixTimestamp(task.updated_at))}${durationLabel ? ` • ${authHelpers.escapeHtml(durationLabel)}` : ''}</div>`;
         html += '</div>';
     });
     authDom.taskHistoryEl.innerHTML = html;
