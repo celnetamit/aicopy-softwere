@@ -40,6 +40,18 @@ function isAdminDashboardRoute() {
     return authHelpers.normalizePathname(window.location.pathname) === authConstants.ADMIN_DASHBOARD_PATH;
 }
 
+function isTasksDashboardRoute() {
+    return authHelpers.normalizePathname(window.location.pathname) === authConstants.TASKS_DASHBOARD_PATH;
+}
+
+function getCurrentTaskRouteId() {
+    return authHelpers.getTaskRouteIdFromPathname(window.location.pathname);
+}
+
+function isTaskDetailRoute() {
+    return !!getCurrentTaskRouteId();
+}
+
 function navigateToAdminDashboard() {
     if (isAdminDashboardRoute()) {
         return;
@@ -47,11 +59,32 @@ function navigateToAdminDashboard() {
     window.location.assign(authConstants.ADMIN_DASHBOARD_PATH);
 }
 
-function navigateToEditor() {
-    if (authHelpers.normalizePathname(window.location.pathname) === '/') {
+function navigateToTasksDashboard() {
+    if (isTasksDashboardRoute()) {
         return;
     }
-    window.location.assign('/');
+    window.location.assign(authConstants.TASKS_DASHBOARD_PATH);
+}
+
+function navigateToTask(taskId) {
+    const safeTaskId = String(taskId || '').trim();
+    if (!safeTaskId) {
+        navigateToTasksDashboard();
+        return;
+    }
+    const target = `${authConstants.TASKS_DASHBOARD_PATH}/${encodeURIComponent(safeTaskId)}`;
+    if (authHelpers.normalizePathname(window.location.pathname) === target) {
+        return;
+    }
+    window.location.assign(target);
+}
+
+function navigateToEditor() {
+    if (String(authState.fileContent.taskId || '').trim()) {
+        navigateToTask(authState.fileContent.taskId);
+        return;
+    }
+    navigateToTasksDashboard();
 }
 
 function setAdminDashboardVisible(visible) {
@@ -81,9 +114,16 @@ function resetAdminDashboardScroll() {
 
 function applyRouteViewMode() {
     const adminRoute = isAdminDashboardRoute();
+    const dashboardRoute = isTasksDashboardRoute();
+    const detailRoute = isTaskDetailRoute();
     document.body.classList.toggle('admin-dashboard-route', adminRoute);
+    document.body.classList.toggle('tasks-dashboard-route', dashboardRoute);
+    document.body.classList.toggle('task-detail-route', detailRoute);
     if (!adminRoute) {
         setAdminDashboardVisible(false);
+    }
+    if (authDom.openTasksDashboardBtn) {
+        authDom.openTasksDashboardBtn.classList.toggle('hidden', dashboardRoute || adminRoute);
     }
 }
 
@@ -169,7 +209,11 @@ function renderTaskHistory() {
         node.addEventListener('click', () => {
             const taskId = String(node.getAttribute('data-task-id') || '').trim();
             if (taskId) {
-                loadTaskIntoEditor(taskId);
+                if (isTaskDetailRoute() && getCurrentTaskRouteId() === taskId) {
+                    loadTaskIntoEditor(taskId);
+                    return;
+                }
+                navigateToTask(taskId);
             }
         });
     });
@@ -335,6 +379,14 @@ function loadTaskIntoEditor(taskId) {
     });
 }
 
+function hydrateCurrentRouteTaskIfNeeded() {
+    const routeTaskId = getCurrentTaskRouteId();
+    if (!routeTaskId) {
+        return;
+    }
+    loadTaskIntoEditor(routeTaskId);
+}
+
 function ensureGoogleSigninButton() {
     if (!window.google || !google.accounts || !google.accounts.id) {
         setLoginStatus('Google Sign-In script not ready. Retrying...', 'warning');
@@ -431,6 +483,7 @@ function submitLocalLogin() {
         refreshRuntimeSettings();
         appAuth.settings.maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
+        hydrateCurrentRouteTaskIfNeeded();
         if (authHelpers.isAdminUser(authState.currentUser)) {
             if (isAdminDashboardRoute()) {
                 openAdminPanel();
@@ -470,6 +523,7 @@ function onGoogleCredentialResponse(response) {
         refreshRuntimeSettings();
         appAuth.settings.maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
+        hydrateCurrentRouteTaskIfNeeded();
         if (authHelpers.isAdminUser(authState.currentUser)) {
             if (isAdminDashboardRoute()) {
                 openAdminPanel();
@@ -504,6 +558,7 @@ function checkAuthenticatedUser() {
         refreshRuntimeSettings();
         appAuth.settings.maybeShowSetupWizardOnFirstRun();
         refreshTaskHistory();
+        hydrateCurrentRouteTaskIfNeeded();
         if (authHelpers.isAdminUser(authState.currentUser)) {
             if (isAdminDashboardRoute()) {
                 openAdminPanel();
@@ -1110,6 +1165,11 @@ appAuth.authAdmin = {
     showAppView,
     isAdminDashboardRoute,
     navigateToAdminDashboard,
+    isTasksDashboardRoute,
+    getCurrentTaskRouteId,
+    isTaskDetailRoute,
+    navigateToTasksDashboard,
+    navigateToTask,
     navigateToEditor,
     setAdminDashboardVisible,
     resetAdminDashboardScroll,
@@ -1122,6 +1182,7 @@ appAuth.authAdmin = {
     buildProcessingOptionsFromRuntimeSettings,
     applyTaskDetailsToState,
     loadTaskIntoEditor,
+    hydrateCurrentRouteTaskIfNeeded,
     ensureGoogleSigninButton,
     loadAuthConfigThenRenderLogin,
     onGoogleCredentialResponse,

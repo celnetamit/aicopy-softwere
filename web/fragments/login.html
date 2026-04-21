@@ -1,0 +1,21 @@
+    <div class="login-view" id="login-view">
+        <div class="login-card">
+            <h1>Manuscript Editor</h1>
+            <p class="login-subtitle">Sign in with your Google Workspace account to continue.</p>
+            <div class="login-domains" id="login-domains">
+                Allowed domains: <code>celnet.in</code>, <code>conwiz.in</code>, <code>stmjournals.in</code>, <code>stmjournals.com</code>, <code>nanoschool.in</code>, <code>nstc.in</code>
+            </div>
+            <div id="google-signin-button"></div>
+            <div class="hidden" id="local-login-box" style="margin-top: 1rem; text-align: left;">
+                <p class="hint-text" id="local-login-help">Local manual login is enabled for this machine only.</p>
+                <label class="field-label" for="local-login-username">Username</label>
+                <input id="local-login-username" class="input-field" type="text" value="admin" autocomplete="username" />
+                <label class="field-label" for="local-login-password">Password</label>
+                <input id="local-login-password" class="input-field" type="password" value="password" autocomplete="current-password" />
+                <div class="inline-row" style="margin-top: 0.75rem;">
+                    <button class="btn-secondary btn-small" id="local-login-btn" type="button">Local Login</button>
+                </div>
+            </div>
+            <p class="login-status" id="login-status">Checking authentication status...</p>
+        </div>
+    </div>

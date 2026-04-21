@@ -10,15 +10,15 @@ const mainConstants = appMain.constants;
 function setStatus(message, type) {
     const statusEl = document.getElementById('status');
     const footerStatusEl = document.getElementById('footer-status');
-    statusEl.textContent = message;
-    footerStatusEl.textContent = message;
+    if (statusEl) statusEl.textContent = message;
+    if (footerStatusEl) footerStatusEl.textContent = message;
     const colors = {
         info: '#a0a0a0',
         success: '#4ecca3',
         warning: '#ffc107',
         error: '#e94560'
     };
-    statusEl.style.color = colors[type] || colors.info;
+    if (statusEl) statusEl.style.color = colors[type] || colors.info;
 }
 
 function refreshProcessButtonState() {
@@ -29,7 +29,10 @@ function refreshProcessButtonState() {
 }
 
 function setProgress(progress) {
-    document.getElementById('progress-fill').style.width = progress + '%';
+    const progressFill = document.getElementById('progress-fill');
+    if (progressFill) {
+        progressFill.style.width = progress + '%';
+    }
 }
 
 function formatProcessingDuration(totalSeconds) {
@@ -187,14 +190,20 @@ function handleLoadResponse(displayName) {
             mainState.fileContent.groupDecisions = null;
             mainState.fileContent.processingAudit = null;
             appMain.syncWindowFileContent();
-            document.getElementById('file-name').textContent = displayName;
-            document.getElementById('word-count').textContent = 'Words: ' + response.word_count;
+            const fileNameEl = document.getElementById('file-name');
+            const wordCountEl = document.getElementById('word-count');
+            if (fileNameEl) fileNameEl.textContent = displayName;
+            if (wordCountEl) wordCountEl.textContent = 'Words: ' + response.word_count;
             switch_tab('original');
-            document.getElementById('save-clean-btn').disabled = true;
-            document.getElementById('save-highlight-btn').disabled = true;
+            if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = true;
+            if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = true;
             refreshProcessButtonState();
             setStatus('File loaded successfully', 'success');
             mainAuth.refreshTaskHistory();
+            if (String(response.task_id || '').trim() && (!mainAuth.isTaskDetailRoute() || mainAuth.getCurrentTaskRouteId() !== String(response.task_id || '').trim())) {
+                mainAuth.navigateToTask(response.task_id);
+                return;
+            }
             if (mainState.pendingProcessAfterLoad) {
                 mainState.pendingProcessAfterLoad = false;
                 window.setTimeout(() => process_document(), 0);
@@ -407,9 +416,10 @@ function process_document() {
             clearServerTaskTracking();
             applyProcessResponseToState(response, { keepGroupDecisions: false });
             switch_tab('corrected');
-            document.getElementById('word-count').textContent = 'Words: ' + response.word_count;
-            document.getElementById('save-clean-btn').disabled = false;
-            document.getElementById('save-highlight-btn').disabled = false;
+            const wordCountEl = document.getElementById('word-count');
+            if (wordCountEl) wordCountEl.textContent = 'Words: ' + response.word_count;
+            if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
+            if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
             if (response.processing_note && response.processing_note.toLowerCase().includes('fallback')) {
                 setStatus('Processing complete (safe fallback applied)', 'warning');
             } else {
@@ -582,11 +592,13 @@ function clear_all() {
     stopProcessingPresence();
     appMain.syncWindowFileContent();
     mainAuth.renderAdminDocxStructureSummary();
-    document.getElementById('file-name').textContent = 'No file selected';
-    document.getElementById('word-count').textContent = 'Words: 0';
-    document.getElementById('save-clean-btn').disabled = true;
-    document.getElementById('save-highlight-btn').disabled = true;
-    document.getElementById('file-input').value = '';
+    const fileNameEl = document.getElementById('file-name');
+    const wordCountEl = document.getElementById('word-count');
+    if (fileNameEl) fileNameEl.textContent = 'No file selected';
+    if (wordCountEl) wordCountEl.textContent = 'Words: 0';
+    if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = true;
+    if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = true;
+    if (mainDom.fileInput) mainDom.fileInput.value = '';
     switch_tab('original');
     setStatus('Ready', 'info');
     setProgress(0);

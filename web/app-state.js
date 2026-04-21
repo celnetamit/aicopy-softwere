@@ -84,6 +84,7 @@ app.constants = {
     TASK_RECOVERY_SLOW_POLL_MS: 5_000,
     TASK_RECOVERY_HISTORY_REFRESH_EVERY: 3,
     FIXED_JOURNAL_PROFILE: 'vancouver_periods',
+    TASKS_DASHBOARD_PATH: '/tasks',
     ADMIN_DASHBOARD_PATH: '/admin-dashboard'
 };
 
@@ -139,6 +140,7 @@ app.dom = {
     localLoginBtn: document.getElementById('local-login-btn'),
     userNameEl: document.getElementById('user-name'),
     userRoleEl: document.getElementById('user-role'),
+    openTasksDashboardBtn: document.getElementById('open-tasks-dashboard-btn'),
     logoutBtn: document.getElementById('logout-btn'),
     refreshHistoryBtn: document.getElementById('refresh-history-btn'),
     taskHistoryEl: document.getElementById('task-history'),
@@ -474,6 +476,12 @@ function normalizePathname(pathname) {
     return withoutTrailing || '/';
 }
 
+function getTaskRouteIdFromPathname(pathname) {
+    const normalized = normalizePathname(pathname);
+    const match = normalized.match(/^\/tasks\/([^/]+)$/);
+    return match ? decodeURIComponent(String(match[1] || '').trim()) : '';
+}
+
 function normalizeUserRole(roleValue) {
     return String(roleValue || 'USER').trim().toUpperCase();
 }
@@ -497,6 +505,7 @@ app.helpers = {
     formatUnixTimestamp,
     formatDurationSeconds,
     normalizePathname,
+    getTaskRouteIdFromPathname,
     normalizeUserRole,
     isAdminUser
 };

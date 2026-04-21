@@ -34,7 +34,19 @@ except Exception:  # pragma: no cover - optional import if auth deps missing
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT_DIR, "web")
-REQUIRED_WEB_ASSETS = ("index.html", "style.css", "app.js", "eel_web_bridge.js")
+WEB_ASSET_VERSION = "20260421r55"
+REQUIRED_WEB_ASSETS = (
+    "index.html",
+    "tasks.html",
+    "task_detail.html",
+    "style.css",
+    "app.js",
+    "eel_web_bridge.js",
+    "fragments/login.html",
+    "fragments/app_header.html",
+    "fragments/app_footer.html",
+    "fragments/script_bundle.html",
+)
 
 SESSION_COOKIE_NAME = "manuscript_editor_sid"
 SESSION_COOKIE_ALT_NAME = "manuscript_editor_sid_v2"
@@ -135,6 +147,18 @@ def _ensure_web_assets():
     missing = [name for name in REQUIRED_WEB_ASSETS if not os.path.isfile(os.path.join(WEB_DIR, name))]
     if missing:
         raise FileNotFoundError(f"Missing web assets in {WEB_DIR}: {', '.join(missing)}")
+
+
+def _read_web_asset(relative_path: str) -> str:
+    with open(os.path.join(WEB_DIR, relative_path), "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _render_web_template(source: str, replacements: Dict[str, str]) -> str:
+    rendered = source
+    for key, value in replacements.items():
+        rendered = rendered.replace(f"{{{{{key}}}}}", value)
+    return rendered
 
 
 def _normalize_session_id(raw_value: str) -> str:
@@ -1134,23 +1158,40 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
     return False, f"Unsupported provider: {selected or 'unknown'}"
 
 
-def _render_index_html(admin_dashboard: bool = False) -> HTTPResponse:
+def _render_html_shell(
+    html_file: str,
+    admin_dashboard: bool = False,
+    route_classes: Optional[list[str]] = None,
+    task_route_id: str = "",
+) -> HTTPResponse:
     _ensure_web_assets()
-    index_path = os.path.join(WEB_DIR, "index.html")
-    with open(index_path, "r", encoding="utf-8") as handle:
-        html = handle.read()
+    fragment_values = {
+        "ASSET_VERSION": WEB_ASSET_VERSION,
+    }
+    fragment_values["LOGIN_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/login.html"), fragment_values)
+    fragment_values["APP_HEADER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_header.html"), fragment_values)
+    fragment_values["APP_FOOTER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_footer.html"), fragment_values)
+    fragment_values["SCRIPT_BUNDLE_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/script_bundle.html"), fragment_values)
+    shell_values = {
+        **fragment_values,
+        "HEADER_SUBTITLE": "Professional Copy Editing",
+    }
+    if html_file == "tasks.html":
+        shell_values["HEADER_SUBTITLE"] = "Task Dashboard"
 
+    html = _render_web_template(_read_web_asset(html_file), shell_values)
+
+    body_classes = list(route_classes or [])
     if admin_dashboard:
-        html = html.replace(
-            "<body>",
-            '<body class="admin-dashboard-route admin-dashboard-active">',
-            1,
-        )
+        body_classes.extend(["admin-dashboard-route", "admin-dashboard-active"])
         html = html.replace(
             'class="setup-wizard-backdrop hidden" id="admin-panel-backdrop"',
             'class="setup-wizard-backdrop" id="admin-panel-backdrop"',
             1,
         )
+    class_attr = f' class="{" ".join(dict.fromkeys(body_classes))}"' if body_classes else ""
+    task_attr = f' data-task-route-id="{task_route_id}"' if task_route_id else ""
+    html = html.replace("<body>", f"<body{class_attr}{task_attr}>", 1)
 
     return HTTPResponse(
         body=html,
@@ -1165,13 +1206,31 @@ def _render_index_html(admin_dashboard: bool = False) -> HTTPResponse:
 
 @app.get("/")
 def index():
-    return _render_index_html(admin_dashboard=False)
+    return HTTPResponse(status=302, headers={"Location": "/tasks"})
+
+
+@app.get("/tasks")
+@app.get("/tasks/")
+def tasks_dashboard_index():
+    return _render_html_shell("tasks.html", admin_dashboard=False, route_classes=["tasks-dashboard-route"])
+
+
+@app.get("/tasks/<task_id>")
+@app.get("/tasks/<task_id>/")
+def task_detail_index(task_id: str):
+    safe_task_id = re.sub(r"[^A-Za-z0-9_-]", "", str(task_id or ""))[:128]
+    return _render_html_shell(
+        "task_detail.html",
+        admin_dashboard=False,
+        route_classes=["task-detail-route"],
+        task_route_id=safe_task_id,
+    )
 
 
 @app.get("/admin-dashboard")
 @app.get("/admin-dashboard/")
 def admin_dashboard_index():
-    return _render_index_html(admin_dashboard=True)
+    return _render_html_shell("index.html", admin_dashboard=True)
 
 
 @app.get("/eel.js")

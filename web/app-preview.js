@@ -80,6 +80,9 @@ function sanitizeAiAdvancedSettings(settings) {
 }
 
 function readAiAdvancedSettingsFromInputs() {
+    if (!previewDom.aiSectionWiseInput) {
+        return sanitizeAiAdvancedSettings(previewConstants.AI_ADVANCED_DEFAULTS);
+    }
     return sanitizeAiAdvancedSettings({
         section_wise: previewDom.aiSectionWiseInput.checked,
         section_threshold_chars: previewDom.aiSectionThresholdCharsInput.value,
@@ -91,6 +94,9 @@ function readAiAdvancedSettingsFromInputs() {
 }
 
 function applyAiAdvancedSettingsToInputs(settings) {
+    if (!previewDom.aiSectionWiseInput) {
+        return;
+    }
     const safe = sanitizeAiAdvancedSettings(settings);
     previewDom.aiSectionWiseInput.checked = safe.section_wise;
     previewDom.aiSectionThresholdCharsInput.value = safe.section_threshold_chars;
@@ -124,6 +130,9 @@ function sanitizePageSettings(settings) {
 }
 
 function applyPageSettingsToInputs(settings) {
+    if (!previewDom.pagePresetSelect) {
+        return;
+    }
     previewDom.pagePresetSelect.value = settings.preset || 'custom';
     previewDom.pageFontSizeInput.value = settings.fontPt;
     previewDom.pageLineHeightInput.value = settings.lineHeight;
@@ -135,6 +144,9 @@ function applyPageSettingsToInputs(settings) {
 }
 
 function readPageSettingsFromInputs() {
+    if (!previewDom.pagePresetSelect) {
+        return sanitizePageSettings(previewState.pageSettings);
+    }
     return sanitizePageSettings({
         preset: previewDom.pagePresetSelect.value || 'custom',
         fontPt: previewDom.pageFontSizeInput.value,
@@ -149,6 +161,9 @@ function readPageSettingsFromInputs() {
 
 function applyPageStyleVariables() {
     const preview = document.getElementById('preview-text');
+    if (!preview) {
+        return;
+    }
     const fontSizePx = ptToPx(previewState.pageSettings.fontPt);
     const paraSpacingPx = ptToPx(previewState.pageSettings.paragraphSpacingPt);
     preview.style.setProperty('--page-width-px', `${previewConstants.A4_WIDTH_PX.toFixed(1)}px`);
@@ -178,7 +193,9 @@ function onPageSettingsEdited() {
     previewState.pageSettings = readPageSettingsFromInputs();
     if (previewState.pageSettings.preset !== 'custom') {
         previewState.pageSettings.preset = 'custom';
-        previewDom.pagePresetSelect.value = 'custom';
+        if (previewDom.pagePresetSelect) {
+            previewDom.pagePresetSelect.value = 'custom';
+        }
     }
     applyPageStyleVariables();
     appPreviewRoot.settings.saveAiSettings();
@@ -757,6 +774,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
 
 function renderCurrentPreview() {
     const preview = document.getElementById('preview-text');
+    if (!preview) {
+        return;
+    }
     if (previewState.currentTab === 'corrections') {
         preview.innerHTML = renderCorrectionsPanel(
             previewState.fileContent.corrections,

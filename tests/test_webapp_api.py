@@ -277,6 +277,48 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('admin-dashboard-active', html)
         self.assertIn('class="setup-wizard-backdrop" id="admin-panel-backdrop"', html)
         self.assertNotIn('class="setup-wizard-backdrop hidden" id="admin-panel-backdrop"', html)
+        self.assertNotIn("{{", html)
+
+    def test_root_redirects_to_tasks_dashboard(self):
+        environ = {}
+        setup_testing_defaults(environ)
+        environ["REQUEST_METHOD"] = "GET"
+        environ["PATH_INFO"] = "/"
+        meta = {}
+
+        def start_response(status, headers, exc_info=None):
+            meta["status"] = status
+            meta["headers"] = headers
+
+        result = webapp.app(environ, start_response)
+        body = b"".join(result)
+        if hasattr(result, "close"):
+            result.close()
+
+        self.assertEqual(int(str(meta.get("status", "500")).split(" ", 1)[0]), 302)
+        headers = dict(meta.get("headers", []))
+        self.assertEqual(headers.get("Location"), "/tasks")
+        self.assertEqual(body, b"")
+
+    def test_tasks_dashboard_route_renders_dashboard_shell(self):
+        status, html = self.client.request_text("GET", "/tasks")
+        self.assertEqual(status, 200)
+        self.assertIn('class="tasks-dashboard-route"', html)
+        self.assertIn("<title>Manuscript Editor - Tasks</title>", html)
+        self.assertIn("Task Dashboard", html)
+        self.assertNotIn('id="preview-text"', html)
+        self.assertNotIn('id="process-btn"', html)
+        self.assertNotIn("{{", html)
+
+    def test_task_detail_route_renders_task_detail_shell(self):
+        status, html = self.client.request_text("GET", "/tasks/example-task-id")
+        self.assertEqual(status, 200)
+        self.assertIn('class="task-detail-route"', html)
+        self.assertIn('data-task-route-id="example-task-id"', html)
+        self.assertIn("<title>Manuscript Editor - Task Detail</title>", html)
+        self.assertIn('id="preview-text"', html)
+        self.assertIn('id="process-btn"', html)
+        self.assertNotIn("{{", html)
 
     def test_json_response_sanitizes_non_finite_numbers(self):
         response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})

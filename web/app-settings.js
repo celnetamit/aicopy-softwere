@@ -7,6 +7,9 @@ const previewApi = appSettingsRoot.preview;
 const authApi = appSettingsRoot.authAdmin;
 
 function getCurrentAiModel() {
+    if (!settingsDom.aiProvider) {
+        return settingsConstants.DEFAULT_MODEL_BY_PROVIDER.ollama;
+    }
     if (settingsDom.aiProvider.value === 'ollama') {
         return (settingsDom.ollamaModelSelect.value || settingsState.pendingOllamaModelFromStorage || settingsConstants.DEFAULT_MODEL_BY_PROVIDER.ollama).trim();
     }
@@ -39,6 +42,9 @@ function normalizeOllamaHost(rawHost) {
 }
 
 function updateAiProviderUI() {
+    if (!settingsDom.aiProvider) {
+        return;
+    }
     const provider = settingsDom.aiProvider.value;
     settingsDom.ollamaSettings.classList.toggle('hidden', provider !== 'ollama');
     settingsDom.geminiSettings.classList.toggle('hidden', provider !== 'gemini');
@@ -61,6 +67,9 @@ function updateAiProviderUI() {
 }
 
 function applyOllamaHost(host, statusMessage) {
+    if (!settingsDom.ollamaHostInput || !settingsDom.aiProvider) {
+        return;
+    }
     const normalized = normalizeOllamaHost(host);
     if (!normalized) {
         alert('Invalid host. Use an IP or URL like 192.168.1.25 or http://192.168.1.25:11434');
@@ -79,6 +88,9 @@ function applyOllamaHost(host, statusMessage) {
 }
 
 function setOllamaModelOptions(models, preferredModel) {
+    if (!settingsDom.ollamaModelSelect) {
+        return;
+    }
     settingsDom.ollamaModelSelect.innerHTML = '';
     if (!models || models.length === 0) {
         const fallbackModel = (preferredModel || settingsConstants.DEFAULT_MODEL_BY_PROVIDER.ollama).trim();
@@ -101,6 +113,9 @@ function setOllamaModelOptions(models, preferredModel) {
 }
 
 function fetchOllamaModels(preferredModel) {
+    if (!settingsDom.ollamaModelHint || !settingsDom.ollamaHostInput || !settingsDom.ollamaModelSelect) {
+        return;
+    }
     if (typeof eel === 'undefined' || typeof eel.get_ollama_models !== 'function') {
         setOllamaModelOptions([], preferredModel || settingsState.pendingOllamaModelFromStorage || settingsConstants.DEFAULT_MODEL_BY_PROVIDER.ollama);
         settingsDom.ollamaModelHint.textContent = 'Could not detect models automatically. Using default.';
@@ -126,6 +141,9 @@ function fetchOllamaModels(preferredModel) {
 }
 
 function saveAiSettings() {
+    if (!settingsDom.ollamaHostInput || !settingsDom.aiEnabled || !settingsDom.aiProvider) {
+        return;
+    }
     const normalizedHost = normalizeOllamaHost(settingsDom.ollamaHostInput.value) || settingsDom.ollamaHostInput.value.trim();
     const aiAdvanced = previewApi.readAiAdvancedSettingsFromInputs();
     if (!isLocalOllamaHost(normalizedHost) && normalizedHost) {
@@ -162,6 +180,9 @@ function saveAiSettings() {
 }
 
 function loadAiSettings() {
+    if (!settingsDom.aiEnabled || !settingsDom.aiProvider || !settingsDom.ollamaHostInput) {
+        return false;
+    }
     let stored = null;
     try {
         stored = localStorage.getItem(settingsConstants.SETTINGS_STORAGE_KEY);
@@ -349,10 +370,12 @@ function bindSettingsEvents() {
             }
         });
     }
-    settingsDom.aiProvider.addEventListener('change', () => {
-        updateAiProviderUI();
-        saveAiSettings();
-    });
+    if (settingsDom.aiProvider) {
+        settingsDom.aiProvider.addEventListener('change', () => {
+            updateAiProviderUI();
+            saveAiSettings();
+        });
+    }
     if (settingsDom.setupWizardProvider) settingsDom.setupWizardProvider.addEventListener('change', updateSetupWizardProviderUI);
     if (settingsDom.openSetupWizardBtn) settingsDom.openSetupWizardBtn.addEventListener('click', openSetupWizard);
     if (settingsDom.setupWizardSaveBtn) settingsDom.setupWizardSaveBtn.addEventListener('click', saveSetupWizardSettings);
@@ -382,23 +405,23 @@ function bindSettingsEvents() {
             authApi.closeAdminPanel();
         }
     });
-    settingsDom.refreshModelsBtn.addEventListener('click', () => fetchOllamaModels(settingsDom.ollamaModelSelect.value));
-    settingsDom.ollamaHostInput.addEventListener('change', () => fetchOllamaModels(settingsDom.ollamaModelSelect.value));
-    settingsDom.ollamaModelSelect.addEventListener('change', saveAiSettings);
-    settingsDom.useLocalOllamaBtn.addEventListener('click', () => applyOllamaHost('http://localhost:11434', 'Using local Ollama on this PC'));
-    settingsDom.useRemoteOllamaBtn.addEventListener('click', () => {
+    if (settingsDom.refreshModelsBtn && settingsDom.ollamaModelSelect) settingsDom.refreshModelsBtn.addEventListener('click', () => fetchOllamaModels(settingsDom.ollamaModelSelect.value));
+    if (settingsDom.ollamaHostInput && settingsDom.ollamaModelSelect) settingsDom.ollamaHostInput.addEventListener('change', () => fetchOllamaModels(settingsDom.ollamaModelSelect.value));
+    if (settingsDom.ollamaModelSelect) settingsDom.ollamaModelSelect.addEventListener('change', saveAiSettings);
+    if (settingsDom.useLocalOllamaBtn) settingsDom.useLocalOllamaBtn.addEventListener('click', () => applyOllamaHost('http://localhost:11434', 'Using local Ollama on this PC'));
+    if (settingsDom.useRemoteOllamaBtn && settingsDom.ollamaHostInput) settingsDom.useRemoteOllamaBtn.addEventListener('click', () => {
         const seed = settingsState.remoteOllamaHostHint
             || (!isLocalOllamaHost(settingsDom.ollamaHostInput.value) ? (normalizeOllamaHost(settingsDom.ollamaHostInput.value) || settingsDom.ollamaHostInput.value.trim()) : '')
             || '192.168.1.25:11434';
         const entered = window.prompt('Enter remote Ollama IP/URL (example: 192.168.1.25 or http://192.168.1.25:11434):', seed);
         if (entered !== null) applyOllamaHost(entered, `Using remote Ollama: ${normalizeOllamaHost(entered) || entered}`);
     });
-    settingsDom.importCustomTermsBtn.addEventListener('click', () => settingsDom.customTermsFileInput.click());
-    settingsDom.clearCustomTermsBtn.addEventListener('click', () => {
+    if (settingsDom.importCustomTermsBtn && settingsDom.customTermsFileInput) settingsDom.importCustomTermsBtn.addEventListener('click', () => settingsDom.customTermsFileInput.click());
+    if (settingsDom.clearCustomTermsBtn && settingsDom.customTermsInput) settingsDom.clearCustomTermsBtn.addEventListener('click', () => {
         settingsDom.customTermsInput.value = '';
         saveAiSettings();
     });
-    settingsDom.customTermsFileInput.addEventListener('change', (e) => {
+    if (settingsDom.customTermsFileInput && settingsDom.customTermsInput) settingsDom.customTermsFileInput.addEventListener('change', (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
@@ -413,7 +436,7 @@ function bindSettingsEvents() {
         reader.readAsText(file);
         settingsDom.customTermsFileInput.value = '';
     });
-    settingsDom.pagePresetSelect.addEventListener('change', () => {
+    if (settingsDom.pagePresetSelect) settingsDom.pagePresetSelect.addEventListener('change', () => {
         const preset = settingsDom.pagePresetSelect.value;
         if (preset === 'custom') {
             previewApi.onPageSettingsEdited();
@@ -431,7 +454,7 @@ function bindSettingsEvents() {
         settingsDom.pageMarginBottomInput,
         settingsDom.pageMarginLeftInput,
         settingsDom.pageMarginRightInput
-    ].forEach((el) => {
+    ].filter(Boolean).forEach((el) => {
         el.addEventListener('change', previewApi.onPageSettingsEdited);
         el.addEventListener('input', previewApi.onPageSettingsEdited);
     });
@@ -465,6 +488,7 @@ function bindSettingsEvents() {
     if (settingsDom.saveHighlightBtn) settingsDom.saveHighlightBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('highlighted'));
     if (settingsDom.clearBtn) settingsDom.clearBtn.addEventListener('click', () => appSettingsRoot.actions.clear_all());
     if (settingsDom.logoutBtn) settingsDom.logoutBtn.addEventListener('click', authApi.logoutCurrentUser);
+    if (settingsDom.openTasksDashboardBtn) settingsDom.openTasksDashboardBtn.addEventListener('click', authApi.navigateToTasksDashboard);
     if (settingsDom.refreshHistoryBtn) settingsDom.refreshHistoryBtn.addEventListener('click', authApi.refreshTaskHistory);
     if (settingsDom.openAdminPanelBtn) settingsDom.openAdminPanelBtn.addEventListener('click', authApi.openAdminPanel);
     if (settingsDom.adminClosePanelBtn) settingsDom.adminClosePanelBtn.addEventListener('click', authApi.closeAdminPanel);
@@ -519,7 +543,7 @@ function bindSettingsEvents() {
 
 previewApi.applyAiAdvancedSettingsToInputs(settingsConstants.AI_ADVANCED_DEFAULTS);
 loadAiSettings();
-if (!settingsDom.pagePresetSelect.value) {
+if (settingsDom.pagePresetSelect && !settingsDom.pagePresetSelect.value) {
     previewApi.setPagePreset('manuscript_default');
 }
 updateAiProviderUI();

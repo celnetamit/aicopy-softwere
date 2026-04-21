@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manuscript Editor - Tasks</title>
+    <link rel="stylesheet" href="style.css?v={{ASSET_VERSION}}">
+</head>
+<body>
+{{LOGIN_FRAGMENT}}
+
+    <div class="app hidden" id="app-shell">
+{{APP_HEADER_FRAGMENT}}
+
+        <main class="dashboard-main">
+            <section class="dashboard-panel">
+                <div class="dashboard-hero">
+                    <div>
+                        <p class="dashboard-eyebrow">Workspace</p>
+                        <h2>Your Tasks</h2>
+                        <p class="dashboard-copy">Upload a manuscript, keep an eye on recent jobs, and jump into any processed task for full editing and export.</p>
+                    </div>
+                    <div class="dashboard-summary-card">
+                        <span class="dashboard-summary-label">Selected File</span>
+                        <strong class="dashboard-summary-value" id="file-name">No file selected</strong>
+                        <span class="dashboard-summary-meta" id="word-count">Words: 0</span>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <section class="dashboard-section">
+                        <div class="dashboard-section-head">
+                            <div>
+                                <p class="dashboard-section-kicker">Start New</p>
+                                <h3>Upload Manuscript</h3>
+                            </div>
+                        </div>
+                        <div class="upload-zone" id="drop-zone">
+                            <div class="upload-icon">📄</div>
+                            <p>Drop .txt or .docx file here<br>or click Browse</p>
+                            <input type="file" id="file-input" accept=".txt,.docx" hidden>
+                            <button class="btn-secondary" id="browse-file-btn" type="button">Browse Files</button>
+                        </div>
+                        <p class="hint-text">Uploading opens a dedicated task-detail workspace automatically.</p>
+                    </section>
+
+                    <section class="dashboard-section">
+                        <div class="dashboard-section-head">
+                            <div>
+                                <p class="dashboard-section-kicker">Recent Work</p>
+                                <h3>Task History</h3>
+                            </div>
+                        </div>
+                        <div class="task-history" id="task-history">
+                            <p class="task-empty">No tasks yet. Upload a manuscript to start.</p>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="dashboard-section dashboard-status-section">
+                    <div class="dashboard-section-head">
+                        <div>
+                            <p class="dashboard-section-kicker">Activity</p>
+                            <h3>Current Status</h3>
+                        </div>
+                    </div>
+                    <div class="dashboard-status-row">
+                        <span id="status">Ready</span>
+                        <span id="footer-status">Ready to edit</span>
+                    </div>
+                    <div class="processing-presence hidden" id="processing-presence" aria-live="polite">
+                        <div class="processing-presence-main">
+                            <span class="processing-orbit" id="processing-orbit" aria-hidden="true"></span>
+                            <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                        </div>
+                        <span class="processing-timer" id="processing-timer">00:00</span>
+                    </div>
+                    <div class="progress-bar dashboard-progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+{{SCRIPT_BUNDLE_FRAGMENT}}
+</body>
+</html>
