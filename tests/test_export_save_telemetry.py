@@ -95,6 +95,37 @@ class ExportSaveTelemetryTests(unittest.TestCase):
         finally:
             os.unlink(output_path)
 
+    def test_highlighted_template_docx_does_not_mark_shifted_unchanged_paragraphs_red(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
+            source_path = source_handle.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+
+        source_doc = Document()
+        source_doc.add_paragraph("First paragraph stays.")
+        source_doc.add_paragraph("Second paragraph gets revised.")
+        source_doc.add_paragraph("Third paragraph stays the same.")
+        source_doc.save(source_path)
+
+        corrected = (
+            "First paragraph stays.\n"
+            "A newly inserted paragraph appears here.\n"
+            "Second paragraph gets revised carefully.\n"
+            "Third paragraph stays the same."
+        )
+
+        try:
+            main.processor.generate_highlighted_docx("", corrected, output_path, source_docx_path=source_path)
+            doc = Document(output_path)
+            target = next(paragraph for paragraph in doc.paragraphs if paragraph.text == "Third paragraph stays the same.")
+            self.assertTrue(target.runs)
+            self.assertFalse(any(run.font.strike for run in target.runs))
+            self.assertFalse(any(run.font.underline for run in target.runs))
+            self.assertFalse(any(str(run.font.color.rgb) == "C80000" for run in target.runs if run.font.color.rgb))
+        finally:
+            os.unlink(source_path)
+            os.unlink(output_path)
+
     def test_clean_docx_renders_missing_placeholders_in_gray(self):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
             output_path = handle.name

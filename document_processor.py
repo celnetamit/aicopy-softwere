@@ -1996,11 +1996,42 @@ Corrected manuscript:"""
         doc = Document(source_docx_path)
         blocks = self._extract_docx_blocks(doc)
         corrected_lines = (text or "").split('\n')
+        source_lines = [block.get("text", "") for block in blocks if block.get("consumes_text", True)]
+        projected_lines: List[str] = corrected_lines
+        extra_lines: List[str] = []
+
+        if highlighted:
+            # Align template/source lines to corrected lines before token-level diffing.
+            # This avoids cascade redline when one line is inserted/deleted.
+            projected_lines = []
+            matcher = difflib.SequenceMatcher(a=source_lines, b=corrected_lines, autojunk=False)
+            for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+                if opcode == "equal":
+                    projected_lines.extend(corrected_lines[j1:j2])
+                    continue
+
+                if opcode == "delete":
+                    projected_lines.extend([""] * (i2 - i1))
+                    continue
+
+                if opcode == "insert":
+                    extra_lines.extend(corrected_lines[j1:j2])
+                    continue
+
+                left = source_lines[i1:i2]
+                right = corrected_lines[j1:j2]
+                pair_count = max(len(left), len(right))
+                for idx in range(pair_count):
+                    if idx < len(left):
+                        projected_lines.append(right[idx] if idx < len(right) else "")
+                    else:
+                        extra_lines.append(right[idx])
+
         corrected_index = 0
 
         for block in blocks:
             if block.get("consumes_text", True):
-                corrected_line = corrected_lines[corrected_index] if corrected_index < len(corrected_lines) else ""
+                corrected_line = projected_lines[corrected_index] if corrected_index < len(projected_lines) else ""
                 corrected_index += 1
             else:
                 corrected_line = block.get("text", "")
@@ -2018,7 +2049,10 @@ Corrected manuscript:"""
                 else:
                     self._rewrite_cell(cell, corrected_value)
 
-        for extra_line in corrected_lines[corrected_index:]:
+        tail_lines = projected_lines[corrected_index:]
+        if highlighted:
+            tail_lines = tail_lines + extra_lines
+        for extra_line in tail_lines:
             paragraph = doc.add_paragraph()
             paragraph.paragraph_format.space_after = Pt(0)
             paragraph.paragraph_format.line_spacing = 1.5
