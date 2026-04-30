@@ -4,6 +4,7 @@ import builtins
 import os
 import tempfile
 import unittest
+import zipfile
 
 from docx import Document
 
@@ -122,6 +123,27 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             self.assertFalse(any(run.font.strike for run in target.runs))
             self.assertFalse(any(run.font.underline for run in target.runs))
             self.assertFalse(any(str(run.font.color.rgb) == "C80000" for run in target.runs if run.font.color.rgb))
+        finally:
+            os.unlink(source_path)
+            os.unlink(output_path)
+
+    def test_highlighted_template_docx_without_special_parts_keeps_standard_package_layout(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
+            source_path = source_handle.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+
+        source_doc = Document()
+        source_doc.add_paragraph("Alpha")
+        source_doc.add_paragraph("Beta")
+        source_doc.save(source_path)
+
+        try:
+            main.processor.generate_highlighted_docx("Alpha\nBeta", "Alpha edited\nBeta", output_path, source_docx_path=source_path)
+            with zipfile.ZipFile(output_path, "r") as package:
+                names = package.namelist()
+                self.assertIn("[Content_Types].xml", names)
+                self.assertEqual(names[0], "[Content_Types].xml")
         finally:
             os.unlink(source_path)
             os.unlink(output_path)

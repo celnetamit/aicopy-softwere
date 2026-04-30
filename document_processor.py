@@ -1507,6 +1507,10 @@ Corrected manuscript:"""
 
         with zipfile.ZipFile(source_docx_path, "r") as source_zip, zipfile.ZipFile(output_path, "r") as output_zip:
             source_names = set(source_zip.namelist())
+            # Fast path: avoid package rebuild unless the source truly has special parts.
+            # Rebuild is only needed to preserve these parts and can affect strict readers.
+            if not any(part_name in source_names for part_name in special_parts):
+                return
             output_names = list(output_zip.namelist())
             replacement_parts = {part_name for part_name in special_parts if part_name in source_names}
             replacement_parts.update({"[Content_Types].xml", "word/_rels/document.xml.rels"})
