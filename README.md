@@ -103,6 +103,10 @@ Phase 2 runtime controls:
    - `serper_requested`, `serper_available`, `serper_enabled`
    - `lookup_metrics` (`cache_hits`, `cache_misses`, `crossref_requests`, `openalex_requests`, `serper_requests`, `serper_cache_hits`)
 
+Phase 3+4 UI/admin surfacing:
+1. Task option and Admin global setting each include an independent `Serper Fallback` toggle wired to `online_reference_serper_fallback`.
+2. Corrections tab `Online Reference Validation` card now displays Serper flags (`requested`, `available`, `enabled`) and lookup metrics for quick diagnostics.
+
 ## Week 3: Section Quality Audit
 
 For long manuscripts using section-wise AI mode, backend now emits per-section quality decisions:

@@ -552,6 +552,12 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                 : {};
             const onlineMessages = Array.isArray(onlineValidation.messages) ? onlineValidation.messages : [];
             const onlineEntries = Array.isArray(onlineValidation.entries) ? onlineValidation.entries : [];
+            const lookupMetrics = onlineValidation.lookup_metrics && typeof onlineValidation.lookup_metrics === 'object'
+                ? onlineValidation.lookup_metrics
+                : {};
+            const serperRequested = Boolean(onlineValidation.serper_requested);
+            const serperAvailable = Boolean(onlineValidation.serper_available);
+            const serperEnabled = Boolean(onlineValidation.serper_enabled);
             const flaggedEntries = onlineEntries
                 .filter((item) => ['mismatch', 'not_found', 'ambiguous', 'error'].includes(String(item && item.status || '')))
                 .slice(0, 8);
@@ -568,6 +574,18 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += `<div class="validator-item"><span>Likely Match</span><strong>${Number(onlineSummary.likely_match || 0)}</strong></div>`;
             html += `<div class="validator-item"><span>Not Found</span><strong>${Number(onlineSummary.not_found || 0)}</strong></div>`;
             html += `<div class="validator-item"><span>Skipped</span><strong>${Number(onlineSummary.skipped || 0)}</strong></div>`;
+            html += '</div>';
+
+            html += '<div class="validator-categories">';
+            html += `<span class="validator-chip">Serper Requested: ${serperRequested ? 'On' : 'Off'}</span>`;
+            html += `<span class="validator-chip">Serper Available: ${serperAvailable ? 'Yes' : 'No'}</span>`;
+            html += `<span class="validator-chip">Serper Enabled: ${serperEnabled ? 'On' : 'Off'}</span>`;
+            html += `<span class="validator-chip">Cache Hits: ${Number(lookupMetrics.cache_hits || 0)}</span>`;
+            html += `<span class="validator-chip">Cache Misses: ${Number(lookupMetrics.cache_misses || 0)}</span>`;
+            html += `<span class="validator-chip">Crossref Requests: ${Number(lookupMetrics.crossref_requests || 0)}</span>`;
+            html += `<span class="validator-chip">OpenAlex Requests: ${Number(lookupMetrics.openalex_requests || 0)}</span>`;
+            html += `<span class="validator-chip">Serper Requests: ${Number(lookupMetrics.serper_requests || 0)}</span>`;
+            html += `<span class="validator-chip">Serper Cache Hits: ${Number(lookupMetrics.serper_cache_hits || 0)}</span>`;
             html += '</div>';
 
             if (onlineMessages.length > 0) {
