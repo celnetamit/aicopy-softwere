@@ -285,6 +285,10 @@
             return getJson('/api/admin/audit-events' + suffix);
         }),
 
+        admin_get_reference_validation_diagnostics: callbackWrapper(function () {
+            return getJson('/api/admin/reference-validation-diagnostics');
+        }),
+
         admin_validate_ai_provider: callbackWrapper(function (payload) {
             var input = payload || {};
             return postJson('/api/admin/validate-ai-provider', {

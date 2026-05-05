@@ -107,6 +107,11 @@ Phase 3+4 UI/admin surfacing:
 1. Task option and Admin global setting each include an independent `Serper Fallback` toggle wired to `online_reference_serper_fallback`.
 2. Corrections tab `Online Reference Validation` card now displays Serper flags (`requested`, `available`, `enabled`) and lookup metrics for quick diagnostics.
 
+Phase 5 observability + cache hardening:
+1. Online reference lookup cache is process-wide and thread-safe, improving cache reuse across processing jobs in the web runtime.
+2. Admin Dashboard includes `Reference Validation Diagnostics` with safe JSON diagnostics from `/api/admin/reference-validation-diagnostics`.
+3. Diagnostics include Serper configured/effective state, lookup limits, cache health, and last-run lookup metrics without exposing secret values.
+
 ## Week 3: Section Quality Audit
 
 For long manuscripts using section-wise AI mode, backend now emits per-section quality decisions:

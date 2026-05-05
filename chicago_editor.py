@@ -5,6 +5,7 @@ import os
 import time
 import json
 import copy
+import threading
 from urllib.parse import quote
 from typing import List, Tuple, Dict, Optional, Any
 
@@ -23,6 +24,8 @@ class ChicagoEditor:
     SERPER_RESULTS_LIMIT = 5
     SERPER_MAX_TITLE_TERMS = 14
     SERPER_MAX_JOURNAL_TERMS = 6
+    _SHARED_ONLINE_VALIDATION_CACHE: Dict[str, Dict[str, Any]] = {}
+    _SHARED_ONLINE_VALIDATION_CACHE_LOCK = threading.Lock()
 
     # American vs British spelling preferences (Chicago prefers American)
     PREFERRED_SPELLINGS = {
@@ -245,7 +248,8 @@ class ChicagoEditor:
         self.last_domain_scores: Dict[str, int] = {"medical": 0, "engineering": 0, "law": 0}
         self.last_protected_domain_terms: int = 0
         self.last_custom_terms_count: int = 0
-        self._online_validation_cache: Dict[str, Dict[str, Any]] = {}
+        self._online_validation_cache = self.__class__._SHARED_ONLINE_VALIDATION_CACHE
+        self._online_validation_cache_lock = self.__class__._SHARED_ONLINE_VALIDATION_CACHE_LOCK
         self._online_lookup_metrics: Dict[str, int] = {}
 
     def _reset_online_lookup_metrics(self):
@@ -265,6 +269,43 @@ class ChicagoEditor:
             return
         current = int(self._online_lookup_metrics.get(key, 0) or 0)
         self._online_lookup_metrics[key] = current + int(value)
+
+    def get_online_validation_diagnostics(self) -> Dict[str, Any]:
+        """Return safe process-level diagnostics for online reference validation."""
+        now = time.time()
+        with self._online_validation_cache_lock:
+            cache_items = list(self._online_validation_cache.items())
+        namespaces: Dict[str, int] = {}
+        active_entries = 0
+        expired_entries = 0
+        for key, payload in cache_items:
+            namespace = str(key or "").split(":", 1)[0] or "unknown"
+            namespaces[namespace] = int(namespaces.get(namespace, 0)) + 1
+            expires_at = float((payload or {}).get("expires_at") or 0)
+            if expires_at > now:
+                active_entries += 1
+            else:
+                expired_entries += 1
+        return {
+            "serper_configured": bool(self._get_serper_api_key()),
+            "serper_endpoint": self.SERPER_SEARCH_ENDPOINT,
+            "limits": {
+                "max_references": self.ONLINE_VALIDATION_MAX_REFERENCES,
+                "timeout_seconds": self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
+                "serper_results_limit": self.SERPER_RESULTS_LIMIT,
+                "serper_max_title_terms": self.SERPER_MAX_TITLE_TERMS,
+                "serper_max_journal_terms": self.SERPER_MAX_JOURNAL_TERMS,
+            },
+            "cache": {
+                "entries_total": len(cache_items),
+                "entries_active": active_entries,
+                "entries_expired": expired_entries,
+                "max_entries": self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES,
+                "ttl_seconds": self.ONLINE_VALIDATION_CACHE_TTL_SECONDS,
+                "namespaces": namespaces,
+            },
+            "lookup_metrics": dict(self._online_lookup_metrics),
+        }
 
     def correct_all(self, text: str, options: Dict) -> str:
         """Apply all selected corrections."""
@@ -2159,13 +2200,15 @@ class ChicagoEditor:
         if not key:
             return None
         now = time.time()
-        cached = self._online_validation_cache.get(key)
+        with self._online_validation_cache_lock:
+            cached = self._online_validation_cache.get(key)
         if not cached:
             self._increment_online_lookup_metric("cache_misses")
             return None
         expires_at = float(cached.get("expires_at") or 0)
         if expires_at <= now:
-            self._online_validation_cache.pop(key, None)
+            with self._online_validation_cache_lock:
+                self._online_validation_cache.pop(key, None)
             self._increment_online_lookup_metric("cache_misses")
             return None
         self._increment_online_lookup_metric("cache_hits")
@@ -2176,20 +2219,21 @@ class ChicagoEditor:
         if not key:
             return
         now = time.time()
-        self._online_validation_cache[key] = {
-            "expires_at": now + self.ONLINE_VALIDATION_CACHE_TTL_SECONDS,
-            "value": copy.deepcopy(value),
-        }
-        if len(self._online_validation_cache) <= self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES:
-            return
-        # Drop the oldest-expiring keys first to keep cache bounded.
-        stale_first = sorted(
-            self._online_validation_cache.items(),
-            key=lambda item: float(item[1].get("expires_at") or 0),
-        )
-        overflow = len(self._online_validation_cache) - self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES
-        for idx in range(max(overflow, 0)):
-            self._online_validation_cache.pop(stale_first[idx][0], None)
+        with self._online_validation_cache_lock:
+            self._online_validation_cache[key] = {
+                "expires_at": now + self.ONLINE_VALIDATION_CACHE_TTL_SECONDS,
+                "value": copy.deepcopy(value),
+            }
+            if len(self._online_validation_cache) <= self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES:
+                return
+            # Drop the oldest-expiring keys first to keep cache bounded.
+            stale_first = sorted(
+                self._online_validation_cache.items(),
+                key=lambda item: float(item[1].get("expires_at") or 0),
+            )
+            overflow = len(self._online_validation_cache) - self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES
+            for idx in range(max(overflow, 0)):
+                self._online_validation_cache.pop(stale_first[idx][0], None)
 
     def _cache_key(self, namespace: str, payload: Dict[str, Any]) -> str:
         """Build a stable cache key for remote lookups."""

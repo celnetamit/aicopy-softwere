@@ -672,6 +672,35 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
         self.assertEqual(user_settings.get("ai", {}).get("agent_router_api_key", ""), "")
 
+    def test_admin_reference_validation_diagnostics_requires_admin(self):
+        self._login("member@conwiz.in")
+        status, payload = self.client.request("GET", "/api/admin/reference-validation-diagnostics")
+        self.assertEqual(status, 403)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "FORBIDDEN")
+
+    def test_admin_reference_validation_diagnostics_is_safe_and_structured(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        with patch.dict("os.environ", {"SERPER_API_KEY": "serper-secret-test-key"}, clear=False):
+            status, payload = admin_client.request("GET", "/api/admin/reference-validation-diagnostics")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        diagnostics = payload.get("diagnostics", {})
+        self.assertIsInstance(diagnostics, dict)
+        self.assertIn("generated_at", diagnostics)
+        self.assertIn("global_runtime", diagnostics)
+        self.assertIn("serper", diagnostics)
+        self.assertIn("cache", diagnostics)
+        self.assertIn("lookup_metrics_last_run", diagnostics)
+        self.assertTrue(bool(diagnostics.get("serper", {}).get("configured")))
+        serialized = json.dumps(payload)
+        self.assertNotIn("serper-secret-test-key", serialized)
+
     def test_deactivated_user_cannot_access_api(self):
         admin_client = WsgiTestClient(webapp.app)
         user_client = WsgiTestClient(webapp.app)

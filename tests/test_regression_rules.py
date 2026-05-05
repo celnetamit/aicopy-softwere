@@ -10,6 +10,8 @@ from document_processor import DocumentProcessor
 
 class ChicagoEditorRegressionTests(unittest.TestCase):
     def setUp(self):
+        with ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE_LOCK:
+            ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE.clear()
         self.editor = ChicagoEditor()
 
     def test_mixed_parenthetical_citation_collapses_to_numeric(self):
@@ -474,6 +476,55 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         metrics = online_two.get("lookup_metrics", {})
         self.assertGreaterEqual(int(metrics.get("cache_hits", 0)), 1)
         self.assertGreaterEqual(int(metrics.get("serper_cache_hits", 0)), 1)
+
+    @patch("chicago_editor.requests.post")
+    def test_online_reference_validation_cache_reuse_across_editor_instances(self, mock_post):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Kaplan S. The restorative benefits of nature toward an integrative framework. "
+            "J Environ Psychol. 1995 ;15(3):169-182.\n"
+        )
+        crossref_empty = Mock()
+        crossref_empty.status_code = 200
+        crossref_empty.raise_for_status.return_value = None
+        crossref_empty.json.return_value = {"message": {"items": []}}
+
+        serper_response = Mock()
+        serper_response.status_code = 200
+        serper_response.raise_for_status.return_value = None
+        serper_response.json.return_value = {
+            "organic": [
+                {
+                    "title": "The restorative benefits of nature toward an integrative framework",
+                    "snippet": "Kaplan 1995 Journal of Environmental Psychology",
+                    "link": "https://example.org/paper",
+                }
+            ]
+        }
+        mock_post.return_value = serper_response
+
+        editor_two = ChicagoEditor()
+        with patch.dict("os.environ", {"SERPER_API_KEY": "serper-test-key"}, clear=False):
+            with patch("chicago_editor.requests.get", return_value=crossref_empty) as mock_get:
+                report_one = self.editor.build_citation_reference_validator_report(
+                    source,
+                    {"online_reference_validation": True},
+                )
+                report_two = editor_two.build_citation_reference_validator_report(
+                    source,
+                    {"online_reference_validation": True},
+                )
+
+        online_one = report_one.get("online_validation", {})
+        online_two = report_two.get("online_validation", {})
+        self.assertEqual(online_one.get("entries", [])[0].get("source"), "serper")
+        self.assertEqual(online_two.get("entries", [])[0].get("source"), "serper")
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(mock_get.call_count, 1)
+        metrics_two = online_two.get("lookup_metrics", {})
+        self.assertGreaterEqual(int(metrics_two.get("cache_hits", 0)), 1)
+        self.assertGreaterEqual(int(metrics_two.get("serper_cache_hits", 0)), 1)
 
     @patch("chicago_editor.requests.post")
     def test_online_reference_validation_serper_fallback_can_be_disabled(self, mock_post):

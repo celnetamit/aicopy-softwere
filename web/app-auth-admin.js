@@ -1029,6 +1029,64 @@ function refreshAdminAudit() {
     });
 }
 
+function renderAdminReferenceValidationDiagnostics(payload) {
+    if (!authDom.adminReferenceDiagnosticsOutput) {
+        return;
+    }
+    const safe = payload && typeof payload === 'object' ? payload : {};
+    try {
+        authDom.adminReferenceDiagnosticsOutput.textContent = JSON.stringify(safe, null, 2);
+    } catch (_err) {
+        authDom.adminReferenceDiagnosticsOutput.textContent = String(safe);
+    }
+}
+
+function refreshAdminReferenceValidationDiagnostics() {
+    if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        return;
+    }
+    if (typeof eel === 'undefined' || typeof eel.admin_get_reference_validation_diagnostics !== 'function') {
+        return;
+    }
+    if (authDom.adminReferenceDiagnosticsStatus) {
+        authDom.adminReferenceDiagnosticsStatus.textContent = 'Loading reference diagnostics...';
+        authDom.adminReferenceDiagnosticsStatus.style.color = '#ffd58d';
+    }
+    if (authDom.adminRefreshReferenceDiagnosticsBtn) {
+        authDom.adminRefreshReferenceDiagnosticsBtn.disabled = true;
+    }
+    eel.admin_get_reference_validation_diagnostics()(function (response) {
+        if (authDom.adminRefreshReferenceDiagnosticsBtn) {
+            authDom.adminRefreshReferenceDiagnosticsBtn.disabled = false;
+        }
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Could not load reference diagnostics';
+            if (authDom.adminReferenceDiagnosticsStatus) {
+                authDom.adminReferenceDiagnosticsStatus.textContent = message;
+                authDom.adminReferenceDiagnosticsStatus.style.color = '#ffb8c2';
+            }
+            return;
+        }
+        const diagnostics = response.diagnostics && typeof response.diagnostics === 'object'
+            ? response.diagnostics
+            : {};
+        renderAdminReferenceValidationDiagnostics(diagnostics);
+        const serper = diagnostics.serper && typeof diagnostics.serper === 'object'
+            ? diagnostics.serper
+            : {};
+        const effective = serper.effective_enabled === true;
+        const configured = serper.configured === true;
+        if (authDom.adminReferenceDiagnosticsStatus) {
+            authDom.adminReferenceDiagnosticsStatus.textContent = configured
+                ? (effective ? 'Serper fallback is effectively enabled by current settings.' : 'Serper key is configured, but runtime settings currently disable fallback.')
+                : 'SERPER_API_KEY is not configured in server runtime.';
+            authDom.adminReferenceDiagnosticsStatus.style.color = configured
+                ? (effective ? '#a9f2d3' : '#ffd58d')
+                : '#ffb8c2';
+        }
+    });
+}
+
 function updateAdminUserStatus(userId, nextStatus) {
     if (typeof eel === 'undefined' || typeof eel.admin_set_user_status !== 'function') {
         return;
@@ -1156,6 +1214,7 @@ function openAdminPanel() {
     loadAdminGlobalSettings();
     refreshAdminUsers();
     refreshAdminAudit();
+    refreshAdminReferenceValidationDiagnostics();
     renderAdminDocxStructureSummary();
     resetAdminDashboardScroll();
 }
@@ -1214,6 +1273,8 @@ appAuth.authAdmin = {
     saveAdminGlobalSettings,
     refreshAdminUsers,
     refreshAdminAudit,
+    renderAdminReferenceValidationDiagnostics,
+    refreshAdminReferenceValidationDiagnostics,
     updateAdminUserStatus,
     updateAdminAiValidationHint,
     validateAdminAiProvider,

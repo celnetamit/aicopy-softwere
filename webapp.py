@@ -1165,6 +1165,40 @@ def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollam
     return False, f"Unsupported provider: {selected or 'unknown'}"
 
 
+def _build_reference_validation_diagnostics_payload() -> Dict:
+    """Build safe admin diagnostics for online reference validation and Serper fallback."""
+    settings = _read_global_runtime_settings()
+    editing = settings.get("editing", {}) if isinstance(settings.get("editing"), dict) else {}
+    online_validation_enabled = bool(editing.get("online_reference_validation", True))
+    serper_requested = bool(editing.get("online_reference_serper_fallback", True))
+
+    processor = DocumentProcessor()
+    editor = getattr(processor, "editor", None)
+    raw_diagnostics = {}
+    if editor is not None and hasattr(editor, "get_online_validation_diagnostics"):
+        try:
+            raw_diagnostics = editor.get_online_validation_diagnostics()
+        except Exception:
+            raw_diagnostics = {}
+
+    serper_configured = bool(raw_diagnostics.get("serper_configured"))
+    return {
+        "generated_at": int(time.time()),
+        "global_runtime": {
+            "online_reference_validation": online_validation_enabled,
+            "online_reference_serper_fallback": serper_requested,
+        },
+        "serper": {
+            "configured": serper_configured,
+            "effective_enabled": bool(online_validation_enabled and serper_requested and serper_configured),
+            "endpoint": str(raw_diagnostics.get("serper_endpoint") or ""),
+        },
+        "lookup_limits": raw_diagnostics.get("limits", {}),
+        "cache": raw_diagnostics.get("cache", {}),
+        "lookup_metrics_last_run": raw_diagnostics.get("lookup_metrics", {}),
+    }
+
+
 def _render_html_shell(
     html_file: str,
     admin_dashboard: bool = False,
@@ -2073,6 +2107,22 @@ def api_admin_update_global_settings():
         },
     )
     return _json_response({"success": True, "settings": normalized}, session_id=context.session_id)
+
+
+@app.get("/api/admin/reference-validation-diagnostics")
+@require_admin
+def api_admin_reference_validation_diagnostics():
+    context = _auth_context_from_request()
+    diagnostics = _build_reference_validation_diagnostics_payload()
+    _record_audit(
+        event_type="admin_reference_validation_diagnostics_viewed",
+        actor_user_id=context.user_id,
+        metadata={
+            "serper_configured": bool((diagnostics.get("serper", {}) or {}).get("configured")),
+            "serper_effective_enabled": bool((diagnostics.get("serper", {}) or {}).get("effective_enabled")),
+        },
+    )
+    return _json_response({"success": True, "diagnostics": diagnostics}, session_id=context.session_id)
 
 
 @app.post("/api/admin/validate-ai-provider")

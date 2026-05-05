@@ -1782,6 +1782,21 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     margin-top: 8px;
 }
 
+.admin-diagnostics-json {
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(7, 18, 38, 0.75);
+    color: #d6e3f8;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 280px;
+    overflow: auto;
+}
+
 .admin-api-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

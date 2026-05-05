@@ -521,6 +521,7 @@ function bindSettingsEvents() {
     if (settingsDom.adminClosePanelBtn) settingsDom.adminClosePanelBtn.addEventListener('click', authApi.closeAdminPanel);
     if (settingsDom.adminRefreshUsersBtn) settingsDom.adminRefreshUsersBtn.addEventListener('click', authApi.refreshAdminUsers);
     if (settingsDom.adminRefreshAuditBtn) settingsDom.adminRefreshAuditBtn.addEventListener('click', authApi.refreshAdminAudit);
+    if (settingsDom.adminRefreshReferenceDiagnosticsBtn) settingsDom.adminRefreshReferenceDiagnosticsBtn.addEventListener('click', authApi.refreshAdminReferenceValidationDiagnostics);
     if (settingsDom.adminLoadGlobalSettingsBtn) settingsDom.adminLoadGlobalSettingsBtn.addEventListener('click', authApi.loadAdminGlobalSettings);
     if (settingsDom.adminSaveGlobalSettingsBtn) settingsDom.adminSaveGlobalSettingsBtn.addEventListener('click', authApi.saveAdminGlobalSettings);
     if (settingsDom.adminSettingAiProvider) settingsDom.adminSettingAiProvider.addEventListener('change', () => authApi.updateAdminGlobalAiProviderUI(true));
