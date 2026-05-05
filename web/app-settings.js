@@ -167,6 +167,7 @@ function saveAiSettings() {
         domain_profile: settingsDom.domainProfileSelect.value || 'auto',
         cmos_strict_mode: settingsDom.cmosStrictInput ? settingsDom.cmosStrictInput.checked : true,
         online_reference_validation: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
+        online_reference_serper_fallback: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
         custom_terms_text: previewApi.normalizeCustomTermsText(settingsDom.customTermsInput.value),
         journal_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: settingsConstants.FIXED_JOURNAL_PROFILE,

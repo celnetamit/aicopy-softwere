@@ -97,6 +97,12 @@ Safety controls in this phase:
 1. Redacted lookup query building (no full manuscript text, URLs, emails, or raw DOI literals sent to Serper).
 2. In-memory TTL caching for remote lookup results to reduce repeated external calls.
 
+Phase 2 runtime controls:
+1. `online_reference_serper_fallback` (processing/global runtime option, default `true`) controls whether Serper is used as a fallback when `SERPER_API_KEY` exists.
+2. Online validation payload now includes:
+   - `serper_requested`, `serper_available`, `serper_enabled`
+   - `lookup_metrics` (`cache_hits`, `cache_misses`, `crossref_requests`, `openalex_requests`, `serper_requests`, `serper_cache_hits`)
+
 ## Week 3: Section Quality Audit
 
 For long manuscripts using section-wise AI mode, backend now emits per-section quality decisions:

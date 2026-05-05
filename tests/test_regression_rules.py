@@ -471,6 +471,46 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         post_payload = mock_post.call_args.kwargs.get("json", {})
         self.assertNotIn("https://", str(post_payload.get("q", "")))
         self.assertNotIn("@", str(post_payload.get("q", "")))
+        metrics = online_two.get("lookup_metrics", {})
+        self.assertGreaterEqual(int(metrics.get("cache_hits", 0)), 1)
+        self.assertGreaterEqual(int(metrics.get("serper_cache_hits", 0)), 1)
+
+    @patch("chicago_editor.requests.post")
+    def test_online_reference_validation_serper_fallback_can_be_disabled(self, mock_post):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Kaplan S. The restorative benefits of nature toward an integrative framework. "
+            "J Environ Psychol. 1995 ;15(3):169-182.\n"
+        )
+        crossref_empty = Mock()
+        crossref_empty.status_code = 200
+        crossref_empty.raise_for_status.return_value = None
+        crossref_empty.json.return_value = {"message": {"items": []}}
+
+        openalex_empty = Mock()
+        openalex_empty.status_code = 200
+        openalex_empty.raise_for_status.return_value = None
+        openalex_empty.json.return_value = {"results": []}
+
+        with patch.dict("os.environ", {"SERPER_API_KEY": "serper-test-key"}, clear=False):
+            with patch("chicago_editor.requests.get", side_effect=[crossref_empty, openalex_empty]):
+                report = self.editor.build_citation_reference_validator_report(
+                    source,
+                    {
+                        "online_reference_validation": True,
+                        "online_reference_serper_fallback": False,
+                    },
+                )
+
+        online = report.get("online_validation", {})
+        self.assertTrue(online.get("serper_available"))
+        self.assertFalse(online.get("serper_enabled"))
+        self.assertIn("Serper fallback is disabled", " ".join(online.get("messages", [])))
+        self.assertEqual(online.get("entries", [])[0].get("status"), "not_found")
+        metrics = online.get("lookup_metrics", {})
+        self.assertEqual(int(metrics.get("serper_requests", 0)), 0)
+        mock_post.assert_not_called()
 
     def test_source_type_missing_placeholders_are_injected(self):
         source = (

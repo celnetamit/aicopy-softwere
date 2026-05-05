@@ -246,6 +246,25 @@ class ChicagoEditor:
         self.last_protected_domain_terms: int = 0
         self.last_custom_terms_count: int = 0
         self._online_validation_cache: Dict[str, Dict[str, Any]] = {}
+        self._online_lookup_metrics: Dict[str, int] = {}
+
+    def _reset_online_lookup_metrics(self):
+        """Reset per-run counters for external lookup observability."""
+        self._online_lookup_metrics = {
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "crossref_requests": 0,
+            "openalex_requests": 0,
+            "serper_requests": 0,
+            "serper_cache_hits": 0,
+        }
+
+    def _increment_online_lookup_metric(self, key: str, value: int = 1):
+        """Increment one lookup metric counter."""
+        if not key:
+            return
+        current = int(self._online_lookup_metrics.get(key, 0) or 0)
+        self._online_lookup_metrics[key] = current + int(value)
 
     def correct_all(self, text: str, options: Dict) -> str:
         """Apply all selected corrections."""
@@ -2046,6 +2065,10 @@ class ChicagoEditor:
     ) -> Dict[str, Any]:
         """Validate journal references against public metadata services when enabled."""
         enabled = bool((options or {}).get("online_reference_validation", False))
+        serper_requested = bool((options or {}).get("online_reference_serper_fallback", True))
+        serper_available = bool(self._get_serper_api_key())
+        serper_enabled = bool(serper_requested and serper_available)
+        self._reset_online_lookup_metrics()
         summary = {
             "checked": 0,
             "attempted": 0,
@@ -2059,11 +2082,14 @@ class ChicagoEditor:
         }
         report = {
             "enabled": enabled,
-            "serper_enabled": bool(self._get_serper_api_key()),
+            "serper_enabled": serper_enabled,
+            "serper_requested": serper_requested,
+            "serper_available": serper_available,
             "limit": self.ONLINE_VALIDATION_MAX_REFERENCES,
             "summary": summary,
             "entries": [],
             "messages": [],
+            "lookup_metrics": self._online_lookup_metrics,
         }
         if not enabled:
             report["messages"] = ["Online reference validation was disabled for this run."]
@@ -2100,7 +2126,7 @@ class ChicagoEditor:
                 continue
 
             checked += 1
-            result = self._validate_reference_online(number, entry, metadata)
+            result = self._validate_reference_online(number, entry, metadata, allow_serper=serper_enabled)
             summary["checked"] += 1
             status = str(result.get("status") or "error")
             if status != "skipped":
@@ -2118,8 +2144,10 @@ class ChicagoEditor:
             report["messages"].append("Review references marked not found, mismatch, or ambiguous before final submission.")
         if summary["attempted"] == 0:
             report["messages"].append("No eligible journal references were available for online validation.")
-        if not report["serper_enabled"]:
+        if serper_requested and not serper_available:
             report["messages"].append("SERPER_API_KEY not set; Serper fallback remained disabled.")
+        if not serper_requested:
+            report["messages"].append("Serper fallback is disabled by runtime settings.")
         return report
 
     def _get_serper_api_key(self) -> str:
@@ -2133,11 +2161,14 @@ class ChicagoEditor:
         now = time.time()
         cached = self._online_validation_cache.get(key)
         if not cached:
+            self._increment_online_lookup_metric("cache_misses")
             return None
         expires_at = float(cached.get("expires_at") or 0)
         if expires_at <= now:
             self._online_validation_cache.pop(key, None)
+            self._increment_online_lookup_metric("cache_misses")
             return None
+        self._increment_online_lookup_metric("cache_hits")
         return copy.deepcopy(cached.get("value"))
 
     def _cache_set(self, key: str, value: Any):
@@ -2239,8 +2270,10 @@ class ChicagoEditor:
         key = self._cache_key("serper_search", {"q": query, "num": self.SERPER_RESULTS_LIMIT})
         cached = self._cache_get(key)
         if isinstance(cached, list):
+            self._increment_online_lookup_metric("serper_cache_hits")
             return cached
 
+        self._increment_online_lookup_metric("serper_requests")
         response = requests.post(
             self.SERPER_SEARCH_ENDPOINT,
             headers={
@@ -2261,7 +2294,13 @@ class ChicagoEditor:
         self._cache_set(key, normalized)
         return normalized
 
-    def _validate_reference_online(self, number: int, entry: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_reference_online(
+        self,
+        number: int,
+        entry: str,
+        metadata: Dict[str, Any],
+        allow_serper: bool = True,
+    ) -> Dict[str, Any]:
         """Run conservative online validation for one journal reference."""
         base = {
             "number": number,
@@ -2288,7 +2327,7 @@ class ChicagoEditor:
 
             candidates: List[Dict[str, Any]] = []
             candidates.extend(self._search_crossref_works(metadata))
-            if not candidates:
+            if allow_serper and not candidates:
                 candidates.extend(self._search_serper_works(metadata))
             if not candidates:
                 candidates.extend(self._search_openalex_works(metadata))
@@ -2331,6 +2370,7 @@ class ChicagoEditor:
             return cached
 
         url = f"https://api.crossref.org/works/{quote(normalized_doi, safe='')}"
+        self._increment_online_lookup_metric("crossref_requests")
         response = requests.get(
             url,
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
@@ -2360,6 +2400,7 @@ class ChicagoEditor:
         if isinstance(cached, list):
             return cached
 
+        self._increment_online_lookup_metric("crossref_requests")
         response = requests.get(
             "https://api.crossref.org/works",
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
@@ -2388,6 +2429,7 @@ class ChicagoEditor:
         if isinstance(cached, list):
             return cached
 
+        self._increment_online_lookup_metric("openalex_requests")
         response = requests.get(
             "https://api.openalex.org/works",
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},

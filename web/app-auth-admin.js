@@ -263,6 +263,9 @@ function buildProcessingOptionsFromRuntimeSettings() {
     const onlineReferenceValidationEnabled = settings
         ? editing.online_reference_validation !== false
         : (authDom.onlineReferenceValidationInput ? authDom.onlineReferenceValidationInput.checked !== false : true);
+    const serperFallbackEnabled = settings
+        ? editing.online_reference_serper_fallback !== false
+        : onlineReferenceValidationEnabled;
     const defaults = {
         spelling: true,
         sentence_case: true,
@@ -270,6 +273,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
         chicago_style: true,
         cmos_strict_mode: true,
         online_reference_validation: onlineReferenceValidationEnabled,
+        online_reference_serper_fallback: serperFallbackEnabled,
         domain_profile: 'auto',
         custom_terms: [],
         journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
@@ -303,6 +307,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
         chicago_style: editing.chicago_style !== false,
         cmos_strict_mode: editing.cmos_strict_mode !== false,
         online_reference_validation: onlineReferenceValidationEnabled,
+        online_reference_serper_fallback: serperFallbackEnabled,
         domain_profile: String(editing.domain_profile || 'auto'),
         custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
         journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
@@ -904,6 +909,7 @@ function collectAdminGlobalSettingsForm() {
             chicago_style: authDom.adminSettingChicagoStyle ? authDom.adminSettingChicagoStyle.checked : true,
             cmos_strict_mode: authDom.adminSettingCmosStrict ? authDom.adminSettingCmosStrict.checked : true,
             online_reference_validation: authDom.adminSettingOnlineReferenceValidation ? authDom.adminSettingOnlineReferenceValidation.checked : true,
+            online_reference_serper_fallback: authDom.adminSettingOnlineReferenceValidation ? authDom.adminSettingOnlineReferenceValidation.checked : true,
             domain_profile: authDom.adminSettingDomainProfile ? String(authDom.adminSettingDomainProfile.value || 'auto') : 'auto',
             custom_terms: authDom.adminSettingCustomTerms ? appAuth.preview.parseCustomTerms(authDom.adminSettingCustomTerms.value) : []
         },
