@@ -409,6 +409,69 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(online.get("summary", {}).get("verified"), 1)
         self.assertEqual(online.get("entries", [])[0].get("source"), "crossref")
 
+    def test_serper_query_builder_redacts_sensitive_literals(self):
+        metadata = {
+            "title": "Deep Learning at https://example.com with doi:10.1000/secret and user@example.com",
+            "authors": "Alpha AB",
+            "journal": "Journal of Testing",
+            "year": "2024",
+        }
+        query = self.editor._build_serper_query(metadata)
+        self.assertIn("Deep Learning", query)
+        self.assertNotIn("https://", query)
+        self.assertNotIn("10.1000/secret", query)
+        self.assertNotIn("user@example.com", query)
+
+    @patch("chicago_editor.requests.post")
+    def test_online_reference_validation_serper_fallback_uses_env_and_cache(self, mock_post):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Kaplan S. The restorative benefits of nature toward an integrative framework. "
+            "J Environ Psychol. 1995 ;15(3):169-182.\n"
+        )
+        crossref_empty = Mock()
+        crossref_empty.status_code = 200
+        crossref_empty.raise_for_status.return_value = None
+        crossref_empty.json.return_value = {"message": {"items": []}}
+
+        serper_response = Mock()
+        serper_response.status_code = 200
+        serper_response.raise_for_status.return_value = None
+        serper_response.json.return_value = {
+            "organic": [
+                {
+                    "title": "The restorative benefits of nature toward an integrative framework",
+                    "snippet": "Kaplan 1995 Journal of Environmental Psychology",
+                    "link": "https://example.org/paper",
+                }
+            ]
+        }
+        mock_post.return_value = serper_response
+
+        with patch.dict("os.environ", {"SERPER_API_KEY": "serper-test-key"}, clear=False):
+            with patch("chicago_editor.requests.get", return_value=crossref_empty) as mock_get:
+                report_one = self.editor.build_citation_reference_validator_report(
+                    source,
+                    {"online_reference_validation": True},
+                )
+                report_two = self.editor.build_citation_reference_validator_report(
+                    source,
+                    {"online_reference_validation": True},
+                )
+
+        online_one = report_one.get("online_validation", {})
+        online_two = report_two.get("online_validation", {})
+        self.assertTrue(online_one.get("serper_enabled"))
+        self.assertEqual(online_one.get("summary", {}).get("checked"), 1)
+        self.assertEqual(online_one.get("entries", [])[0].get("source"), "serper")
+        self.assertEqual(online_two.get("entries", [])[0].get("source"), "serper")
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(mock_get.call_count, 1)
+        post_payload = mock_post.call_args.kwargs.get("json", {})
+        self.assertNotIn("https://", str(post_payload.get("q", "")))
+        self.assertNotIn("@", str(post_payload.get("q", "")))
+
     def test_source_type_missing_placeholders_are_injected(self):
         source = (
             "References\n"

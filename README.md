@@ -85,6 +85,18 @@ Eel exposed helpers:
 
 Save/export failures also include stable `error_code` values for user-facing handling.
 
+## Online Reference Validation (Phase 1 Serper)
+
+Reference validation remains references-only (journal entries) and can use Serper as a safe fallback.
+
+1. Keep `online_reference_validation` enabled in app settings/options.
+2. Set `SERPER_API_KEY` in the runtime environment to enable Serper fallback.
+3. If `SERPER_API_KEY` is missing, Crossref/OpenAlex validation continues and Serper stays disabled.
+
+Safety controls in this phase:
+1. Redacted lookup query building (no full manuscript text, URLs, emails, or raw DOI literals sent to Serper).
+2. In-memory TTL caching for remote lookup results to reduce repeated external calls.
+
 ## Week 3: Section Quality Audit
 
 For long manuscripts using section-wise AI mode, backend now emits per-section quality decisions:

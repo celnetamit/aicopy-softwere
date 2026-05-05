@@ -1,6 +1,10 @@
 """Chicago Manual of Style editing rules and corrections."""
 
 import re
+import os
+import time
+import json
+import copy
 from urllib.parse import quote
 from typing import List, Tuple, Dict, Optional, Any
 
@@ -13,6 +17,12 @@ class ChicagoEditor:
     MISSING_PLACEHOLDER_RE = re.compile(r'\[[A-Za-z][A-Za-z ]* missing\]', flags=re.IGNORECASE)
     ONLINE_VALIDATION_MAX_REFERENCES = 25
     ONLINE_VALIDATION_TIMEOUT_SECONDS = 5
+    ONLINE_VALIDATION_CACHE_TTL_SECONDS = 6 * 60 * 60
+    ONLINE_VALIDATION_CACHE_MAX_ENTRIES = 512
+    SERPER_SEARCH_ENDPOINT = "https://google.serper.dev/search"
+    SERPER_RESULTS_LIMIT = 5
+    SERPER_MAX_TITLE_TERMS = 14
+    SERPER_MAX_JOURNAL_TERMS = 6
 
     # American vs British spelling preferences (Chicago prefers American)
     PREFERRED_SPELLINGS = {
@@ -235,6 +245,7 @@ class ChicagoEditor:
         self.last_domain_scores: Dict[str, int] = {"medical": 0, "engineering": 0, "law": 0}
         self.last_protected_domain_terms: int = 0
         self.last_custom_terms_count: int = 0
+        self._online_validation_cache: Dict[str, Dict[str, Any]] = {}
 
     def correct_all(self, text: str, options: Dict) -> str:
         """Apply all selected corrections."""
@@ -2048,6 +2059,7 @@ class ChicagoEditor:
         }
         report = {
             "enabled": enabled,
+            "serper_enabled": bool(self._get_serper_api_key()),
             "limit": self.ONLINE_VALIDATION_MAX_REFERENCES,
             "summary": summary,
             "entries": [],
@@ -2106,7 +2118,148 @@ class ChicagoEditor:
             report["messages"].append("Review references marked not found, mismatch, or ambiguous before final submission.")
         if summary["attempted"] == 0:
             report["messages"].append("No eligible journal references were available for online validation.")
+        if not report["serper_enabled"]:
+            report["messages"].append("SERPER_API_KEY not set; Serper fallback remained disabled.")
         return report
+
+    def _get_serper_api_key(self) -> str:
+        """Return Serper API key from environment."""
+        return str(os.getenv("SERPER_API_KEY", "") or "").strip()
+
+    def _cache_get(self, key: str) -> Optional[Any]:
+        """Get a non-expired cached online validation payload."""
+        if not key:
+            return None
+        now = time.time()
+        cached = self._online_validation_cache.get(key)
+        if not cached:
+            return None
+        expires_at = float(cached.get("expires_at") or 0)
+        if expires_at <= now:
+            self._online_validation_cache.pop(key, None)
+            return None
+        return copy.deepcopy(cached.get("value"))
+
+    def _cache_set(self, key: str, value: Any):
+        """Store one online validation payload in bounded in-memory cache."""
+        if not key:
+            return
+        now = time.time()
+        self._online_validation_cache[key] = {
+            "expires_at": now + self.ONLINE_VALIDATION_CACHE_TTL_SECONDS,
+            "value": copy.deepcopy(value),
+        }
+        if len(self._online_validation_cache) <= self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES:
+            return
+        # Drop the oldest-expiring keys first to keep cache bounded.
+        stale_first = sorted(
+            self._online_validation_cache.items(),
+            key=lambda item: float(item[1].get("expires_at") or 0),
+        )
+        overflow = len(self._online_validation_cache) - self.ONLINE_VALIDATION_CACHE_MAX_ENTRIES
+        for idx in range(max(overflow, 0)):
+            self._online_validation_cache.pop(stale_first[idx][0], None)
+
+    def _cache_key(self, namespace: str, payload: Dict[str, Any]) -> str:
+        """Build a stable cache key for remote lookups."""
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+        return f"{namespace}:{raw}"
+
+    def _sanitize_lookup_fragment(self, value: str, max_terms: int) -> str:
+        """Remove sensitive/noisy tokens and keep concise lookup-safe terms."""
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        # Never send URLs/emails/raw DOI literals to search query text.
+        text = re.sub(r'(?i)\b(?:https?|ftp)://\S+', ' ', text)
+        text = re.sub(r'(?i)\bwww\.\S+', ' ', text)
+        text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', ' ', text)
+        text = re.sub(r'(?i)\bdoi:\s*10\.\d{4,9}/[^\s<>"\']+', ' ', text)
+        text = re.sub(r'(?i)\b10\.\d{4,9}/[^\s<>"\']+', ' ', text)
+
+        tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9'/-]*", text)
+        compact = [token for token in tokens if len(token) >= 2]
+        if max_terms > 0:
+            compact = compact[:max_terms]
+        return " ".join(compact)
+
+    def _build_serper_query(self, metadata: Dict[str, Any]) -> str:
+        """Build a redacted references-only search query for Serper."""
+        title_part = self._sanitize_lookup_fragment(
+            str(metadata.get("title") or ""),
+            self.SERPER_MAX_TITLE_TERMS,
+        )
+        author_part = self._sanitize_lookup_fragment(
+            self._extract_reference_first_author(str(metadata.get("authors") or "")),
+            1,
+        )
+        journal_part = self._sanitize_lookup_fragment(
+            str(metadata.get("journal") or ""),
+            self.SERPER_MAX_JOURNAL_TERMS,
+        )
+        year_match = re.search(r'\b(?:19|20)\d{2}\b', str(metadata.get("year") or ""))
+        year_part = year_match.group(0) if year_match else ""
+        parts = [part for part in [title_part, author_part, year_part, journal_part] if part]
+        return " ".join(parts).strip()
+
+    def _normalize_serper_candidate(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Convert one Serper organic result into internal matching metadata."""
+        if not isinstance(item, dict):
+            return None
+        title = str(item.get("title") or "").strip()
+        snippet = str(item.get("snippet") or "").strip()
+        link = str(item.get("link") or "").strip()
+        if not title and not snippet:
+            return None
+
+        year_match = re.search(r'\b(?:19|20)\d{2}\b', f"{title} {snippet}")
+        doi_match = re.search(r'(?i)\b10\.\d{4,9}/[^\s<>"\')\]]+', f"{title} {snippet} {link}")
+
+        return {
+            "source": "serper",
+            "title": title or snippet,
+            "journal": "",
+            "year": year_match.group(0) if year_match else "",
+            "pages": "",
+            "volume": "",
+            "issue": "",
+            "doi": doi_match.group(0).rstrip(".,;") if doi_match else "",
+            "first_author": "",
+        }
+
+    def _search_serper_works(self, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search Serper using redacted reference metadata when configured."""
+        api_key = self._get_serper_api_key()
+        if not api_key:
+            return []
+        query = self._build_serper_query(metadata)
+        if not query:
+            return []
+
+        key = self._cache_key("serper_search", {"q": query, "num": self.SERPER_RESULTS_LIMIT})
+        cached = self._cache_get(key)
+        if isinstance(cached, list):
+            return cached
+
+        response = requests.post(
+            self.SERPER_SEARCH_ENDPOINT,
+            headers={
+                "X-API-KEY": api_key,
+                "Content-Type": "application/json",
+            },
+            json={"q": query, "num": self.SERPER_RESULTS_LIMIT},
+            timeout=self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        organic = payload.get("organic") if isinstance(payload, dict) else []
+        normalized: List[Dict[str, Any]] = []
+        for item in organic if isinstance(organic, list) else []:
+            candidate = self._normalize_serper_candidate(item)
+            if candidate:
+                normalized.append(candidate)
+        self._cache_set(key, normalized)
+        return normalized
 
     def _validate_reference_online(self, number: int, entry: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Run conservative online validation for one journal reference."""
@@ -2135,6 +2288,8 @@ class ChicagoEditor:
 
             candidates: List[Dict[str, Any]] = []
             candidates.extend(self._search_crossref_works(metadata))
+            if not candidates:
+                candidates.extend(self._search_serper_works(metadata))
             if not candidates:
                 candidates.extend(self._search_openalex_works(metadata))
             if not candidates:
@@ -2167,7 +2322,15 @@ class ChicagoEditor:
 
     def _fetch_crossref_work_by_doi(self, doi: str) -> Optional[Dict[str, Any]]:
         """Return Crossref metadata for a DOI when available."""
-        url = f"https://api.crossref.org/works/{quote(doi, safe='')}"
+        normalized_doi = str(doi or "").strip().rstrip(".").lower()
+        if not normalized_doi:
+            return None
+        key = self._cache_key("crossref_doi", {"doi": normalized_doi})
+        cached = self._cache_get(key)
+        if isinstance(cached, dict):
+            return cached
+
+        url = f"https://api.crossref.org/works/{quote(normalized_doi, safe='')}"
         response = requests.get(
             url,
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
@@ -2178,7 +2341,10 @@ class ChicagoEditor:
         response.raise_for_status()
         payload = response.json()
         message = payload.get("message") if isinstance(payload, dict) else None
-        return self._normalize_crossref_candidate(message) if isinstance(message, dict) else None
+        candidate = self._normalize_crossref_candidate(message) if isinstance(message, dict) else None
+        if candidate:
+            self._cache_set(key, candidate)
+        return candidate
 
     def _search_crossref_works(self, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search Crossref by bibliographic metadata."""
@@ -2189,6 +2355,11 @@ class ChicagoEditor:
         query = " ".join(part for part in [title, first_author, year, journal] if part).strip()
         if not query:
             return []
+        key = self._cache_key("crossref_search", {"query": query, "rows": 5})
+        cached = self._cache_get(key)
+        if isinstance(cached, list):
+            return cached
+
         response = requests.get(
             "https://api.crossref.org/works",
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
@@ -2204,6 +2375,7 @@ class ChicagoEditor:
             candidate = self._normalize_crossref_candidate(item)
             if candidate:
                 normalized.append(candidate)
+        self._cache_set(key, normalized)
         return normalized
 
     def _search_openalex_works(self, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -2211,6 +2383,11 @@ class ChicagoEditor:
         title = str(metadata.get("title") or "").strip()
         if not title:
             return []
+        key = self._cache_key("openalex_search", {"title": title, "per_page": 5})
+        cached = self._cache_get(key)
+        if isinstance(cached, list):
+            return cached
+
         response = requests.get(
             "https://api.openalex.org/works",
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
@@ -2225,6 +2402,7 @@ class ChicagoEditor:
             candidate = self._normalize_openalex_candidate(item)
             if candidate:
                 normalized.append(candidate)
+        self._cache_set(key, normalized)
         return normalized
 
     def _normalize_crossref_candidate(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
