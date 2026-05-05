@@ -1817,6 +1817,19 @@ Corrected manuscript:"""
             self._append_text_segments_to_paragraph(paragraph, segment_text, segment_type=segment_type)
         self._sync_textboxes(paragraph, corrected, original_text=original, highlighted=True)
 
+    def _insert_highlighted_paragraph_before_block(self, block: Dict, text: str):
+        """Insert a highlighted paragraph before a paragraph block when possible."""
+        if block.get("type") != "paragraph":
+            return False
+        anchor = block.get("paragraph")
+        if anchor is None:
+            return False
+        inserted = anchor.insert_paragraph_before("")
+        inserted.paragraph_format.space_after = Pt(0)
+        inserted.paragraph_format.line_spacing = 1.5
+        self._write_paragraph_diff(inserted, "", text)
+        return True
+
     def _split_table_line(self, line: str, cell_count: int) -> List[str]:
         """Split a flat table-row line back into cell values."""
         if cell_count <= 1:
@@ -2002,7 +2015,13 @@ Corrected manuscript:"""
         corrected_lines = (text or "").split('\n')
         source_lines = [block.get("text", "") for block in blocks if block.get("consumes_text", True)]
         projected_lines: List[str] = corrected_lines
-        extra_lines: List[str] = []
+        insertions_before: Dict[int, List[str]] = {}
+
+        def _append_insertions(boundary_index: int, values: List[str]):
+            if not values:
+                return
+            bucket = insertions_before.setdefault(boundary_index, [])
+            bucket.extend(values)
 
         if highlighted:
             # Align template/source lines to corrected lines before token-level diffing.
@@ -2019,22 +2038,28 @@ Corrected manuscript:"""
                     continue
 
                 if opcode == "insert":
-                    extra_lines.extend(corrected_lines[j1:j2])
+                    _append_insertions(i1, corrected_lines[j1:j2])
                     continue
 
                 left = source_lines[i1:i2]
                 right = corrected_lines[j1:j2]
-                pair_count = max(len(left), len(right))
-                for idx in range(pair_count):
-                    if idx < len(left):
-                        projected_lines.append(right[idx] if idx < len(right) else "")
-                    else:
-                        extra_lines.append(right[idx])
+                shared_count = min(len(left), len(right))
+                if shared_count:
+                    projected_lines.extend(right[:shared_count])
+                if len(left) > shared_count:
+                    projected_lines.extend([""] * (len(left) - shared_count))
+                if len(right) > shared_count:
+                    _append_insertions(i2, right[shared_count:])
 
         corrected_index = 0
+        pending_appended_insertions: List[str] = []
 
         for block in blocks:
             if block.get("consumes_text", True):
+                if highlighted:
+                    for inserted_line in insertions_before.get(corrected_index, []):
+                        if not self._insert_highlighted_paragraph_before_block(block, inserted_line):
+                            pending_appended_insertions.append(inserted_line)
                 corrected_line = projected_lines[corrected_index] if corrected_index < len(projected_lines) else ""
                 corrected_index += 1
             else:
@@ -2055,7 +2080,7 @@ Corrected manuscript:"""
 
         tail_lines = projected_lines[corrected_index:]
         if highlighted:
-            tail_lines = tail_lines + extra_lines
+            tail_lines = tail_lines + insertions_before.get(corrected_index, []) + pending_appended_insertions
         for extra_line in tail_lines:
             paragraph = doc.add_paragraph()
             paragraph.paragraph_format.space_after = Pt(0)

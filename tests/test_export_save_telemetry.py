@@ -127,6 +127,32 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             os.unlink(source_path)
             os.unlink(output_path)
 
+    def test_highlighted_template_docx_keeps_inserted_paragraph_position(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
+            source_path = source_handle.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+            output_path = output_handle.name
+
+        source_doc = Document()
+        source_doc.add_paragraph("P1")
+        source_doc.add_paragraph("P2")
+        source_doc.add_paragraph("P3")
+        source_doc.save(source_path)
+
+        corrected = "P1\nINSERTED MID\nP2\nP3"
+
+        try:
+            main.processor.generate_highlighted_docx("P1\nP2\nP3", corrected, output_path, source_docx_path=source_path)
+            doc = Document(output_path)
+            texts = [paragraph.text for paragraph in doc.paragraphs]
+            self.assertEqual(texts[:4], ["P1", "INSERTED MID", "P2", "P3"])
+            inserted = doc.paragraphs[1]
+            self.assertTrue(any(run.font.underline for run in inserted.runs))
+            self.assertFalse(any(run.font.strike for run in inserted.runs))
+        finally:
+            os.unlink(source_path)
+            os.unlink(output_path)
+
     def test_highlighted_template_docx_without_special_parts_keeps_standard_package_layout(self):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
             source_path = source_handle.name
