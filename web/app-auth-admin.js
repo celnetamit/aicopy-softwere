@@ -265,7 +265,9 @@ function buildProcessingOptionsFromRuntimeSettings() {
         : (authDom.onlineReferenceValidationInput ? authDom.onlineReferenceValidationInput.checked !== false : true);
     const serperFallbackEnabled = settings
         ? editing.online_reference_serper_fallback !== false
-        : onlineReferenceValidationEnabled;
+        : (authDom.onlineReferenceSerperFallbackInput
+            ? authDom.onlineReferenceSerperFallbackInput.checked !== false
+            : onlineReferenceValidationEnabled);
     const defaults = {
         spelling: true,
         sentence_case: true,
@@ -878,6 +880,7 @@ function applyAdminGlobalSettingsForm(settings) {
     if (authDom.adminSettingChicagoStyle) authDom.adminSettingChicagoStyle.checked = editing.chicago_style !== false;
     if (authDom.adminSettingCmosStrict) authDom.adminSettingCmosStrict.checked = editing.cmos_strict_mode !== false;
     if (authDom.adminSettingOnlineReferenceValidation) authDom.adminSettingOnlineReferenceValidation.checked = editing.online_reference_validation !== false;
+    if (authDom.adminSettingOnlineReferenceSerperFallback) authDom.adminSettingOnlineReferenceSerperFallback.checked = editing.online_reference_serper_fallback !== false;
     if (authDom.adminSettingDomainProfile) authDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
     if (authDom.adminSettingCustomTerms) {
         const terms = Array.isArray(editing.custom_terms) ? editing.custom_terms : [];
@@ -909,7 +912,7 @@ function collectAdminGlobalSettingsForm() {
             chicago_style: authDom.adminSettingChicagoStyle ? authDom.adminSettingChicagoStyle.checked : true,
             cmos_strict_mode: authDom.adminSettingCmosStrict ? authDom.adminSettingCmosStrict.checked : true,
             online_reference_validation: authDom.adminSettingOnlineReferenceValidation ? authDom.adminSettingOnlineReferenceValidation.checked : true,
-            online_reference_serper_fallback: authDom.adminSettingOnlineReferenceValidation ? authDom.adminSettingOnlineReferenceValidation.checked : true,
+            online_reference_serper_fallback: authDom.adminSettingOnlineReferenceSerperFallback ? authDom.adminSettingOnlineReferenceSerperFallback.checked : true,
             domain_profile: authDom.adminSettingDomainProfile ? String(authDom.adminSettingDomainProfile.value || 'auto') : 'auto',
             custom_terms: authDom.adminSettingCustomTerms ? appAuth.preview.parseCustomTerms(authDom.adminSettingCustomTerms.value) : []
         },

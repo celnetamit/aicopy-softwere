@@ -66,6 +66,17 @@ function updateAiProviderUI() {
     }
 }
 
+function syncReferenceValidationToggleState() {
+    if (!settingsDom.onlineReferenceSerperFallbackInput || !settingsDom.onlineReferenceValidationInput) {
+        return;
+    }
+    const validationEnabled = settingsDom.onlineReferenceValidationInput.checked !== false;
+    settingsDom.onlineReferenceSerperFallbackInput.disabled = !validationEnabled;
+    if (!validationEnabled) {
+        settingsDom.onlineReferenceSerperFallbackInput.checked = false;
+    }
+}
+
 function applyOllamaHost(host, statusMessage) {
     if (!settingsDom.ollamaHostInput || !settingsDom.aiProvider) {
         return;
@@ -167,7 +178,7 @@ function saveAiSettings() {
         domain_profile: settingsDom.domainProfileSelect.value || 'auto',
         cmos_strict_mode: settingsDom.cmosStrictInput ? settingsDom.cmosStrictInput.checked : true,
         online_reference_validation: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
-        online_reference_serper_fallback: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
+        online_reference_serper_fallback: settingsDom.onlineReferenceSerperFallbackInput ? settingsDom.onlineReferenceSerperFallbackInput.checked !== false : true,
         custom_terms_text: previewApi.normalizeCustomTermsText(settingsDom.customTermsInput.value),
         journal_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
@@ -250,6 +261,14 @@ function loadAiSettings() {
     }
     settingsDom.cmosStrictInput.checked = typeof parsed.cmos_strict_mode === 'boolean' ? parsed.cmos_strict_mode : true;
     settingsDom.onlineReferenceValidationInput.checked = typeof parsed.online_reference_validation === 'boolean' ? parsed.online_reference_validation : true;
+    if (settingsDom.onlineReferenceSerperFallbackInput) {
+        if (typeof parsed.online_reference_serper_fallback === 'boolean') {
+            settingsDom.onlineReferenceSerperFallbackInput.checked = parsed.online_reference_serper_fallback;
+        } else {
+            settingsDom.onlineReferenceSerperFallbackInput.checked = settingsDom.onlineReferenceValidationInput.checked;
+        }
+    }
+    syncReferenceValidationToggleState();
     if (typeof parsed.custom_terms_text === 'string') {
         settingsDom.customTermsInput.value = previewApi.normalizeCustomTermsText(parsed.custom_terms_text);
     }
@@ -377,6 +396,12 @@ function bindSettingsEvents() {
             saveAiSettings();
         });
     }
+    if (settingsDom.onlineReferenceValidationInput) {
+        settingsDom.onlineReferenceValidationInput.addEventListener('change', () => {
+            syncReferenceValidationToggleState();
+            saveAiSettings();
+        });
+    }
     if (settingsDom.setupWizardProvider) settingsDom.setupWizardProvider.addEventListener('change', updateSetupWizardProviderUI);
     if (settingsDom.openSetupWizardBtn) settingsDom.openSetupWizardBtn.addEventListener('click', openSetupWizard);
     if (settingsDom.setupWizardSaveBtn) settingsDom.setupWizardSaveBtn.addEventListener('click', saveSetupWizardSettings);
@@ -477,7 +502,8 @@ function bindSettingsEvents() {
         settingsDom.domainProfileSelect,
         settingsDom.customTermsInput,
         settingsDom.cmosStrictInput,
-        settingsDom.onlineReferenceValidationInput
+        settingsDom.onlineReferenceValidationInput,
+        settingsDom.onlineReferenceSerperFallbackInput
     ].forEach((el) => {
         if (!el) return;
         el.addEventListener('change', saveAiSettings);
@@ -544,6 +570,7 @@ function bindSettingsEvents() {
 
 previewApi.applyAiAdvancedSettingsToInputs(settingsConstants.AI_ADVANCED_DEFAULTS);
 loadAiSettings();
+syncReferenceValidationToggleState();
 if (settingsDom.pagePresetSelect && !settingsDom.pagePresetSelect.value) {
     previewApi.setPagePreset('manuscript_default');
 }
