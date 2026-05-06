@@ -1199,6 +1199,23 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
     }
 
 
+def _reset_reference_validation_diagnostics_payload() -> Dict:
+    """Reset shared online reference cache and return refreshed safe diagnostics."""
+    processor = DocumentProcessor()
+    editor = getattr(processor, "editor", None)
+    removed_entries = 0
+    if editor is not None and hasattr(editor, "reset_online_validation_cache"):
+        try:
+            removed_entries = int(editor.reset_online_validation_cache() or 0)
+        except Exception:
+            removed_entries = 0
+    diagnostics = _build_reference_validation_diagnostics_payload()
+    return {
+        "removed_cache_entries": removed_entries,
+        "diagnostics": diagnostics,
+    }
+
+
 def _render_html_shell(
     html_file: str,
     admin_dashboard: bool = False,
@@ -2123,6 +2140,32 @@ def api_admin_reference_validation_diagnostics():
         },
     )
     return _json_response({"success": True, "diagnostics": diagnostics}, session_id=context.session_id)
+
+
+@app.post("/api/admin/reference-validation-diagnostics/reset")
+@require_admin
+def api_admin_reference_validation_diagnostics_reset():
+    context = _auth_context_from_request()
+    result = _reset_reference_validation_diagnostics_payload()
+    diagnostics = result.get("diagnostics", {}) if isinstance(result, dict) else {}
+    removed_cache_entries = int((result or {}).get("removed_cache_entries", 0))
+    _record_audit(
+        event_type="admin_reference_validation_diagnostics_reset",
+        actor_user_id=context.user_id,
+        metadata={
+            "removed_cache_entries": removed_cache_entries,
+            "serper_configured": bool((diagnostics.get("serper", {}) or {}).get("configured")),
+            "serper_effective_enabled": bool((diagnostics.get("serper", {}) or {}).get("effective_enabled")),
+        },
+    )
+    return _json_response(
+        {
+            "success": True,
+            "removed_cache_entries": removed_cache_entries,
+            "diagnostics": diagnostics,
+        },
+        session_id=context.session_id,
+    )
 
 
 @app.post("/api/admin/validate-ai-provider")

@@ -14,6 +14,8 @@ from wsgiref.util import setup_testing_defaults
 
 from docx import Document
 
+from chicago_editor import ChicagoEditor
+
 
 os.environ.setdefault("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "1")
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/manuscript_editor_test.sqlite3")
@@ -204,6 +206,8 @@ class WsgiTestClient:
 class AuthenticatedWebAppApiTests(unittest.TestCase):
     def setUp(self):
         webapp._STORE.clear_all_for_tests()
+        with ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE_LOCK:
+            ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE.clear()
         self.client = WsgiTestClient(webapp.app)
         self._old_local_login_enabled = webapp.ENABLE_LOCAL_MANUAL_LOGIN
 
@@ -679,6 +683,13 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(payload.get("success"))
         self.assertEqual(payload.get("error_code"), "FORBIDDEN")
 
+    def test_admin_reference_validation_diagnostics_reset_requires_admin(self):
+        self._login("member@conwiz.in")
+        status, payload = self.client.request("POST", "/api/admin/reference-validation-diagnostics/reset")
+        self.assertEqual(status, 403)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "FORBIDDEN")
+
     def test_admin_reference_validation_diagnostics_is_safe_and_structured(self):
         admin_client = WsgiTestClient(webapp.app)
         status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
@@ -700,6 +711,25 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(bool(diagnostics.get("serper", {}).get("configured")))
         serialized = json.dumps(payload)
         self.assertNotIn("serper-secret-test-key", serialized)
+
+    def test_admin_reference_validation_diagnostics_reset_clears_cache(self):
+        with ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE_LOCK:
+            ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE["serper_search:{\"q\":\"test\"}"] = {
+                "expires_at": 9999999999,
+                "value": [{"title": "cached"}],
+            }
+
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = admin_client.request("POST", "/api/admin/reference-validation-diagnostics/reset")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertGreaterEqual(int(payload.get("removed_cache_entries", 0)), 1)
+        diagnostics = payload.get("diagnostics", {})
+        self.assertEqual(int((diagnostics.get("cache", {}) or {}).get("entries_total", -1)), 0)
 
     def test_deactivated_user_cannot_access_api(self):
         admin_client = WsgiTestClient(webapp.app)

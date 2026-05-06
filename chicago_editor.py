@@ -307,6 +307,13 @@ class ChicagoEditor:
             "lookup_metrics": dict(self._online_lookup_metrics),
         }
 
+    def reset_online_validation_cache(self) -> int:
+        """Clear shared online validation cache and return removed entry count."""
+        with self._online_validation_cache_lock:
+            removed = len(self._online_validation_cache)
+            self._online_validation_cache.clear()
+        return removed
+
     def correct_all(self, text: str, options: Dict) -> str:
         """Apply all selected corrections."""
         self.corrections = []

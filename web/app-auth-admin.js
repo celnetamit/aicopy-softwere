@@ -1087,6 +1087,50 @@ function refreshAdminReferenceValidationDiagnostics() {
     });
 }
 
+function resetAdminReferenceValidationDiagnostics() {
+    if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        return;
+    }
+    if (typeof eel === 'undefined' || typeof eel.admin_reset_reference_validation_diagnostics !== 'function') {
+        return;
+    }
+    if (authDom.adminReferenceDiagnosticsStatus) {
+        authDom.adminReferenceDiagnosticsStatus.textContent = 'Resetting reference diagnostics cache...';
+        authDom.adminReferenceDiagnosticsStatus.style.color = '#ffd58d';
+    }
+    if (authDom.adminResetReferenceDiagnosticsBtn) {
+        authDom.adminResetReferenceDiagnosticsBtn.disabled = true;
+    }
+    if (authDom.adminRefreshReferenceDiagnosticsBtn) {
+        authDom.adminRefreshReferenceDiagnosticsBtn.disabled = true;
+    }
+    eel.admin_reset_reference_validation_diagnostics()(function (response) {
+        if (authDom.adminResetReferenceDiagnosticsBtn) {
+            authDom.adminResetReferenceDiagnosticsBtn.disabled = false;
+        }
+        if (authDom.adminRefreshReferenceDiagnosticsBtn) {
+            authDom.adminRefreshReferenceDiagnosticsBtn.disabled = false;
+        }
+        if (!response || !response.success) {
+            const message = response && response.error ? String(response.error) : 'Could not reset reference diagnostics cache';
+            if (authDom.adminReferenceDiagnosticsStatus) {
+                authDom.adminReferenceDiagnosticsStatus.textContent = message;
+                authDom.adminReferenceDiagnosticsStatus.style.color = '#ffb8c2';
+            }
+            return;
+        }
+        const diagnostics = response.diagnostics && typeof response.diagnostics === 'object'
+            ? response.diagnostics
+            : {};
+        renderAdminReferenceValidationDiagnostics(diagnostics);
+        const removed = Number(response.removed_cache_entries || 0);
+        if (authDom.adminReferenceDiagnosticsStatus) {
+            authDom.adminReferenceDiagnosticsStatus.textContent = `Diagnostics cache reset completed. Removed ${removed} entr${removed === 1 ? 'y' : 'ies'}.`;
+            authDom.adminReferenceDiagnosticsStatus.style.color = '#a9f2d3';
+        }
+    });
+}
+
 function updateAdminUserStatus(userId, nextStatus) {
     if (typeof eel === 'undefined' || typeof eel.admin_set_user_status !== 'function') {
         return;
@@ -1275,6 +1319,7 @@ appAuth.authAdmin = {
     refreshAdminAudit,
     renderAdminReferenceValidationDiagnostics,
     refreshAdminReferenceValidationDiagnostics,
+    resetAdminReferenceValidationDiagnostics,
     updateAdminUserStatus,
     updateAdminAiValidationHint,
     validateAdminAiProvider,

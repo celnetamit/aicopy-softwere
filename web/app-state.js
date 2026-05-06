@@ -163,6 +163,7 @@ app.dom = {
     adminAiValidationResult: document.getElementById('admin-ai-validation-result'),
     adminAiKeyToggleBtn: document.getElementById('admin-ai-key-toggle'),
     adminRefreshReferenceDiagnosticsBtn: document.getElementById('admin-refresh-reference-diagnostics-btn'),
+    adminResetReferenceDiagnosticsBtn: document.getElementById('admin-reset-reference-diagnostics-btn'),
     adminReferenceDiagnosticsStatus: document.getElementById('admin-reference-diagnostics-status'),
     adminReferenceDiagnosticsOutput: document.getElementById('admin-reference-diagnostics-output'),
     editingOptionsSection: document.getElementById('editing-options-section'),
