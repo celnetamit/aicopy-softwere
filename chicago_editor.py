@@ -2340,6 +2340,7 @@ class ChicagoEditor:
             "volume": "",
             "issue": "",
             "doi": doi_match.group(0).rstrip(".,;") if doi_match else "",
+            "source_url": link,
             "first_author": "",
         }
 
@@ -2397,6 +2398,9 @@ class ChicagoEditor:
             "status": "not_found",
             "reason": "No matching record was found online.",
             "source": "",
+            "source_url": "",
+            "matched_doi": "",
+            "matched_source_url": "",
         }
 
         try:
@@ -2560,6 +2564,7 @@ class ChicagoEditor:
             "volume": str(item.get("volume") or "").strip(),
             "issue": str(item.get("issue") or "").strip(),
             "doi": str(item.get("DOI") or "").strip(),
+            "source_url": str(item.get("URL") or "").strip(),
             "first_author": first_author,
         }
 
@@ -2586,6 +2591,7 @@ class ChicagoEditor:
             "volume": str(biblio.get("volume") or "").strip(),
             "issue": str(biblio.get("issue") or "").strip(),
             "doi": doi.strip(),
+            "source_url": str(item.get("id") or "").strip(),
             "first_author": first_author,
         }
 
@@ -2630,6 +2636,8 @@ class ChicagoEditor:
             "matched_year": str(candidate.get("year") or ""),
             "matched_pages": str(candidate.get("pages") or ""),
             "matched_doi": str(candidate.get("doi") or ""),
+            "matched_source_url": str(candidate.get("source_url") or ""),
+            "source_url": str(candidate.get("source_url") or ""),
             "matched_first_author": str(candidate.get("first_author") or ""),
         }
 

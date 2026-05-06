@@ -597,6 +597,36 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                 html += '</ul></div>';
             }
 
+            const checkedEntries = onlineEntries
+                .filter((item) => {
+                    const status = String(item && item.status || '');
+                    return status !== 'skipped';
+                })
+                .slice(0, 25);
+            if (checkedEntries.length > 0) {
+                html += '<div class="validator-messages">';
+                html += '<div class="validator-messages-title">Validated References</div><ul>';
+                checkedEntries.forEach((item) => {
+                    const number = Number(item && item.number || 0);
+                    const status = statusLabel(item && item.status);
+                    const source = String(item && item.source || '');
+                    const matchedDoi = String(item && (item.matched_doi || item.doi) || '').trim();
+                    const matchedUrl = String(item && (item.matched_source_url || item.source_url) || '').trim();
+                    let line = `[${number}] ${status}`;
+                    if (source) {
+                        line += ` | Source: ${source}`;
+                    }
+                    if (matchedDoi) {
+                        line += ` | DOI: ${matchedDoi}`;
+                    }
+                    if (matchedUrl) {
+                        line += ` | URL: ${matchedUrl}`;
+                    }
+                    html += `<li>${previewHelpers.escapeHtml(line)}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
             if (flaggedEntries.length > 0) {
                 html += '<div class="validator-messages">';
                 html += '<div class="validator-messages-title">References To Review</div><ul>';

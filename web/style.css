@@ -894,22 +894,22 @@ section h2 {
 }
 
 .page-sheet .redline-del {
-    color: #c80000;
+    color: #ff9aa8;
     text-decoration: line-through;
 }
 
 .page-sheet .redline-add {
-    color: #c80000;
+    color: #2fbf71;
     text-decoration: underline;
 }
 
 .redline-del {
-    color: #c80000;
+    color: #ff9aa8;
     text-decoration: line-through;
 }
 
 .redline-add {
-    color: #c80000;
+    color: #2fbf71;
     text-decoration: underline;
 }
 

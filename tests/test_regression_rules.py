@@ -375,6 +375,8 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(online.get("summary", {}).get("verified"), 1)
         self.assertEqual(online.get("summary", {}).get("checked"), 1)
         self.assertEqual(online.get("entries", [])[0].get("status"), "verified")
+        self.assertEqual(online.get("entries", [])[0].get("matched_doi"), "10.1000/alpha")
+        self.assertIn("doi.org", str(online.get("entries", [])[0].get("matched_source_url") or ""))
 
     @patch("chicago_editor.requests.get")
     def test_online_reference_validation_search_fallback_finds_match(self, mock_get):
@@ -413,6 +415,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(online.get("summary", {}).get("checked"), 1)
         self.assertEqual(online.get("summary", {}).get("verified"), 1)
         self.assertEqual(online.get("entries", [])[0].get("source"), "crossref")
+        self.assertEqual(online.get("entries", [])[0].get("matched_doi"), "10.1000/restorative")
 
     def test_serper_query_builder_redacts_sensitive_literals(self):
         metadata = {
