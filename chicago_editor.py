@@ -26,6 +26,16 @@ class ChicagoEditor:
     SERPER_MAX_JOURNAL_TERMS = 6
     _SHARED_ONLINE_VALIDATION_CACHE: Dict[str, Dict[str, Any]] = {}
     _SHARED_ONLINE_VALIDATION_CACHE_LOCK = threading.Lock()
+    _SHARED_ONLINE_LOOKUP_METRICS: Dict[str, int] = {
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "crossref_requests": 0,
+        "openalex_requests": 0,
+        "serper_requests": 0,
+        "serper_cache_hits": 0,
+    }
+    _SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT: int = 0
+    _SHARED_ONLINE_LOOKUP_METRICS_LOCK = threading.Lock()
 
     # American vs British spelling preferences (Chicago prefers American)
     PREFERRED_SPELLINGS = {
@@ -250,11 +260,13 @@ class ChicagoEditor:
         self.last_custom_terms_count: int = 0
         self._online_validation_cache = self.__class__._SHARED_ONLINE_VALIDATION_CACHE
         self._online_validation_cache_lock = self.__class__._SHARED_ONLINE_VALIDATION_CACHE_LOCK
+        self._online_lookup_metrics_lock = self.__class__._SHARED_ONLINE_LOOKUP_METRICS_LOCK
         self._online_lookup_metrics: Dict[str, int] = {}
 
-    def _reset_online_lookup_metrics(self):
-        """Reset per-run counters for external lookup observability."""
-        self._online_lookup_metrics = {
+    @staticmethod
+    def _default_online_lookup_metrics() -> Dict[str, int]:
+        """Default zeroed lookup metrics schema."""
+        return {
             "cache_hits": 0,
             "cache_misses": 0,
             "crossref_requests": 0,
@@ -263,6 +275,10 @@ class ChicagoEditor:
             "serper_cache_hits": 0,
         }
 
+    def _reset_online_lookup_metrics(self):
+        """Reset per-run counters for external lookup observability."""
+        self._online_lookup_metrics = self._default_online_lookup_metrics()
+
     def _increment_online_lookup_metric(self, key: str, value: int = 1):
         """Increment one lookup metric counter."""
         if not key:
@@ -270,11 +286,23 @@ class ChicagoEditor:
         current = int(self._online_lookup_metrics.get(key, 0) or 0)
         self._online_lookup_metrics[key] = current + int(value)
 
+    def _publish_online_lookup_metrics(self):
+        """Publish this run's lookup metrics to process-shared diagnostics state."""
+        shared = self._default_online_lookup_metrics()
+        for key, value in (self._online_lookup_metrics or {}).items():
+            shared[key] = int(value or 0)
+        with self._online_lookup_metrics_lock:
+            self.__class__._SHARED_ONLINE_LOOKUP_METRICS = dict(shared)
+            self.__class__._SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT = int(time.time())
+
     def get_online_validation_diagnostics(self) -> Dict[str, Any]:
         """Return safe process-level diagnostics for online reference validation."""
         now = time.time()
         with self._online_validation_cache_lock:
             cache_items = list(self._online_validation_cache.items())
+        with self._online_lookup_metrics_lock:
+            shared_lookup_metrics = dict(self.__class__._SHARED_ONLINE_LOOKUP_METRICS)
+            shared_lookup_metrics_updated_at = int(self.__class__._SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT or 0)
         namespaces: Dict[str, int] = {}
         active_entries = 0
         expired_entries = 0
@@ -304,7 +332,8 @@ class ChicagoEditor:
                 "ttl_seconds": self.ONLINE_VALIDATION_CACHE_TTL_SECONDS,
                 "namespaces": namespaces,
             },
-            "lookup_metrics": dict(self._online_lookup_metrics),
+            "lookup_metrics": shared_lookup_metrics,
+            "lookup_metrics_updated_at": shared_lookup_metrics_updated_at,
         }
 
     def reset_online_validation_cache(self) -> int:
@@ -312,6 +341,9 @@ class ChicagoEditor:
         with self._online_validation_cache_lock:
             removed = len(self._online_validation_cache)
             self._online_validation_cache.clear()
+        with self._online_lookup_metrics_lock:
+            self.__class__._SHARED_ONLINE_LOOKUP_METRICS = self._default_online_lookup_metrics()
+            self.__class__._SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT = int(time.time())
         return removed
 
     def correct_all(self, text: str, options: Dict) -> str:
@@ -2141,6 +2173,7 @@ class ChicagoEditor:
         }
         if not enabled:
             report["messages"] = ["Online reference validation was disabled for this run."]
+            self._publish_online_lookup_metrics()
             return report
 
         checked = 0
@@ -2196,6 +2229,7 @@ class ChicagoEditor:
             report["messages"].append("SERPER_API_KEY not set; Serper fallback remained disabled.")
         if not serper_requested:
             report["messages"].append("Serper fallback is disabled by runtime settings.")
+        self._publish_online_lookup_metrics()
         return report
 
     def _get_serper_api_key(self) -> str:

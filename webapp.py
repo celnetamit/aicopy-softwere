@@ -1196,6 +1196,7 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
         "lookup_limits": raw_diagnostics.get("limits", {}),
         "cache": raw_diagnostics.get("cache", {}),
         "lookup_metrics_last_run": raw_diagnostics.get("lookup_metrics", {}),
+        "lookup_metrics_last_run_at": int(raw_diagnostics.get("lookup_metrics_updated_at", 0) or 0),
     }
 
 

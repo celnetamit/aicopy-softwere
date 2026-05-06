@@ -12,6 +12,9 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
     def setUp(self):
         with ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE_LOCK:
             ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE.clear()
+        with ChicagoEditor._SHARED_ONLINE_LOOKUP_METRICS_LOCK:
+            ChicagoEditor._SHARED_ONLINE_LOOKUP_METRICS = ChicagoEditor._default_online_lookup_metrics()
+            ChicagoEditor._SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT = 0
         self.editor = ChicagoEditor()
 
     def test_mixed_parenthetical_citation_collapses_to_numeric(self):
@@ -525,6 +528,39 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         metrics_two = online_two.get("lookup_metrics", {})
         self.assertGreaterEqual(int(metrics_two.get("cache_hits", 0)), 1)
         self.assertGreaterEqual(int(metrics_two.get("serper_cache_hits", 0)), 1)
+
+    @patch("chicago_editor.requests.get")
+    def test_online_reference_validation_diagnostics_share_last_run_metrics(self, mock_get):
+        source = (
+            "Introduction cites [1].\n"
+            "References\n"
+            "[1] Kaplan S. The restorative benefits of nature toward an integrative framework. "
+            "J Environ Psychol. 1995 ;15(3):169-182.\n"
+        )
+        crossref_empty = Mock()
+        crossref_empty.status_code = 200
+        crossref_empty.raise_for_status.return_value = None
+        crossref_empty.json.return_value = {"message": {"items": []}}
+        openalex_empty = Mock()
+        openalex_empty.status_code = 200
+        openalex_empty.raise_for_status.return_value = None
+        openalex_empty.json.return_value = {"results": []}
+        mock_get.side_effect = [crossref_empty, openalex_empty]
+
+        report = self.editor.build_citation_reference_validator_report(
+            source,
+            {"online_reference_validation": True, "online_reference_serper_fallback": False},
+        )
+        online = report.get("online_validation", {})
+        self.assertEqual(int(online.get("lookup_metrics", {}).get("crossref_requests", 0)), 1)
+        self.assertEqual(int(online.get("lookup_metrics", {}).get("openalex_requests", 0)), 1)
+
+        other_editor = ChicagoEditor()
+        diagnostics = other_editor.get_online_validation_diagnostics()
+        shared_metrics = diagnostics.get("lookup_metrics", {})
+        self.assertEqual(int(shared_metrics.get("crossref_requests", 0)), 1)
+        self.assertEqual(int(shared_metrics.get("openalex_requests", 0)), 1)
+        self.assertGreater(int(diagnostics.get("lookup_metrics_updated_at", 0) or 0), 0)
 
     @patch("chicago_editor.requests.post")
     def test_online_reference_validation_serper_fallback_can_be_disabled(self, mock_post):

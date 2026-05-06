@@ -117,6 +117,11 @@ Phase 6 diagnostics operations:
 2. New admin endpoint: `POST /api/admin/reference-validation-diagnostics/reset`.
 3. Admin Diagnostics UI now includes `Reset Cache` action and reports removed cache-entry count.
 
+Phase 7 diagnostics accuracy:
+1. Online lookup metrics are now published as process-shared `last run` diagnostics after each validation run.
+2. Admin diagnostics payload now includes `lookup_metrics_last_run_at` timestamp.
+3. This ensures admin diagnostics reflects real recent validation activity (not just a fresh instance snapshot).
+
 ## Week 3: Section Quality Audit
 
 For long manuscripts using section-wise AI mode, backend now emits per-section quality decisions:

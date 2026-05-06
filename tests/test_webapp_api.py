@@ -208,6 +208,9 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         webapp._STORE.clear_all_for_tests()
         with ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE_LOCK:
             ChicagoEditor._SHARED_ONLINE_VALIDATION_CACHE.clear()
+        with ChicagoEditor._SHARED_ONLINE_LOOKUP_METRICS_LOCK:
+            ChicagoEditor._SHARED_ONLINE_LOOKUP_METRICS = ChicagoEditor._default_online_lookup_metrics()
+            ChicagoEditor._SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT = 0
         self.client = WsgiTestClient(webapp.app)
         self._old_local_login_enabled = webapp.ENABLE_LOCAL_MANUAL_LOGIN
 
@@ -730,6 +733,56 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertGreaterEqual(int(payload.get("removed_cache_entries", 0)), 1)
         diagnostics = payload.get("diagnostics", {})
         self.assertEqual(int((diagnostics.get("cache", {}) or {}).get("entries_total", -1)), 0)
+
+    @patch("chicago_editor.requests.get")
+    def test_admin_reference_validation_diagnostics_include_last_run_lookup_metrics(self, mock_get):
+        crossref_empty = Mock()
+        crossref_empty.status_code = 200
+        crossref_empty.raise_for_status.return_value = None
+        crossref_empty.json.return_value = {"message": {"items": []}}
+        openalex_empty = Mock()
+        openalex_empty.status_code = 200
+        openalex_empty.raise_for_status.return_value = None
+        openalex_empty.json.return_value = {"results": []}
+        mock_get.side_effect = [crossref_empty, openalex_empty]
+
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {
+                "file_name": "refs.txt",
+                "content": (
+                    "Introduction cites [1].\n"
+                    "References\n"
+                    "[1] Kaplan S. The restorative benefits of nature toward an integrative framework. "
+                    "J Environ Psychol. 1995 ;15(3):169-182.\n"
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
+        task_id = payload.get("task_id")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {"options": {"ai": {"enabled": False}}},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = admin_client.request("GET", "/api/admin/reference-validation-diagnostics")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        diagnostics = payload.get("diagnostics", {})
+        self.assertGreater(int((diagnostics.get("lookup_metrics_last_run", {}) or {}).get("crossref_requests", 0)), 0)
+        self.assertGreater(int(diagnostics.get("lookup_metrics_last_run_at", 0) or 0), 0)
 
     def test_deactivated_user_cannot_access_api(self):
         admin_client = WsgiTestClient(webapp.app)
