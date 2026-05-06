@@ -13,6 +13,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -99,7 +100,28 @@ class AppStore:
             self._conn = conn
             return
 
-        self._conn = psycopg.connect(self.database_url, autocommit=True, row_factory=dict_row)
+        try:
+            self._conn = psycopg.connect(self.database_url, autocommit=True, row_factory=dict_row)
+        except Exception as exc:
+            raise RuntimeError(self._build_db_connect_error(exc)) from exc
+
+    def _build_db_connect_error(self, exc: Exception) -> str:
+        parsed = urlparse(self.database_url or "")
+        host = (parsed.hostname or "").strip() or "<unknown-host>"
+        port = parsed.port or 5432
+        db_name = (parsed.path or "").lstrip("/") or "<unknown-db>"
+        base = (
+            f"Database connection failed during startup (host={host}, port={port}, database={db_name}). "
+            "Verify DATABASE_URL is reachable from this container."
+        )
+        if host in ("127.0.0.1", "localhost"):
+            base += (
+                " Detected loopback host in DATABASE_URL. Inside Docker, loopback points to the app container "
+                "itself, not your Postgres service. Use your DB service/container hostname instead."
+            )
+        if str(exc):
+            base += f" Original error: {exc}"
+        return base
 
     def _execute(self, sql: str, params: Sequence[Any] = ()):
         with self._lock:
