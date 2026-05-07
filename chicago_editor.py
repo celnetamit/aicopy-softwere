@@ -1787,14 +1787,19 @@ class ChicagoEditor:
         return '\n'.join(output)
 
     def _append_reference_identifiers(self, entry_text: str, doi: str = "", source_url: str = "") -> str:
-        """Append DOI and source URL to one reference line without duplicating existing identifiers."""
+        """Append reference identifiers without duplication.
+
+        Policy: prefer DOI when available; append source URL only when DOI is absent.
+        """
         entry = str(entry_text or "").strip()
         if not entry:
             return entry
 
         normalized_entry = self._normalize_match_text(entry)
         needs_doi = bool(doi) and self._normalize_match_text(doi) not in normalized_entry
-        needs_source = bool(source_url) and source_url.lower() not in entry.lower()
+        # Keep references concise for journal workflows:
+        # if a DOI is available, do not append an additional source URL.
+        needs_source = (not needs_doi) and bool(source_url) and source_url.lower() not in entry.lower()
 
         if not (needs_doi or needs_source):
             return entry

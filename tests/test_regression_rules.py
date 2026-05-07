@@ -613,7 +613,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertRegex(out, r"\[place missing\]\s*:\s*Academic Press;\s*2020")
         self.assertRegex(out, r"2022\s*\[cited date missing\]\.\s*Available from:")
 
-    def test_append_online_reference_links_adds_verified_doi_and_source_url(self):
+    def test_append_online_reference_links_prefers_doi_over_source_url(self):
         source = (
             "Body cites [1].\n"
             "References\n"
@@ -644,7 +644,8 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
             report,
             {"online_reference_validation": True},
         )
-        self.assertIn("[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110. doi: 10.1000/alpha. Available from: https://doi.org/10.1000/alpha.", out)
+        self.assertIn("[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110. doi: 10.1000/alpha.", out)
+        self.assertNotIn("Available from: https://doi.org/10.1000/alpha", out)
         self.assertIn("[2] Beta CD. Another title. J Test. 2023;9(1):90-99.", out)
 
 
@@ -869,7 +870,7 @@ class ProcessorRegressionTests(unittest.TestCase):
                         )
 
         self.assertIn("doi: 10.1000/alpha.", out)
-        self.assertIn("Available from: https://doi.org/10.1000/alpha.", out)
+        self.assertNotIn("Available from: https://doi.org/10.1000/alpha.", out)
 
 
 if __name__ == "__main__":
