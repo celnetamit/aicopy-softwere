@@ -26,6 +26,8 @@ class DocumentProcessor:
     """Handles document loading, AI processing, and DOCX output."""
 
     MISSING_PLACEHOLDER_COLOR = RGBColor(128, 128, 128)
+    REDLINE_DELETE_COLOR = RGBColor(255, 154, 168)
+    REDLINE_INSERT_COLOR = RGBColor(47, 191, 113)
     CELL_PARAGRAPH_MARKER = "[[CELL_PARA]]"
     CELL_BLOCK_MARKER = "[[CELL_BLOCK]]"
     CELL_TABLE_ROW_MARKER = "[[CELL_TABLE_ROW]]"
@@ -2284,8 +2286,10 @@ Corrected manuscript:"""
 
         if is_missing:
             run.font.color.rgb = self.MISSING_PLACEHOLDER_COLOR
-        elif segment_type in ("delete", "insert"):
-            run.font.color.rgb = RGBColor(200, 0, 0)
+        elif segment_type == "delete":
+            run.font.color.rgb = self.REDLINE_DELETE_COLOR
+        elif segment_type == "insert":
+            run.font.color.rgb = self.REDLINE_INSERT_COLOR
         return run
 
     def _build_annotated_html(self, text: str, include_foreign: bool = True) -> str:

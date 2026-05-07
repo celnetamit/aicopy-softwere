@@ -48,7 +48,7 @@ class ExportSaveTelemetryTests(unittest.TestCase):
         self.assertTrue(response["success"])
         self.assertEqual(response["file_name"], "highlighted_sample.docx")
 
-    def test_highlighted_docx_uses_red_change_text(self):
+    def test_highlighted_docx_uses_green_insert_and_light_red_delete_text(self):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
             output_path = handle.name
 
@@ -62,8 +62,8 @@ class ExportSaveTelemetryTests(unittest.TestCase):
 
             self.assertTrue(deleted_runs)
             self.assertTrue(inserted_runs)
-            self.assertEqual(str(deleted_runs[0].font.color.rgb), "C80000")
-            self.assertEqual(str(inserted_runs[0].font.color.rgb), "C80000")
+            self.assertEqual(str(deleted_runs[0].font.color.rgb), "FF9AA8")
+            self.assertEqual(str(inserted_runs[0].font.color.rgb), "2FBF71")
             self.assertIsNone(deleted_runs[0].font.highlight_color)
             self.assertIsNone(inserted_runs[0].font.highlight_color)
         finally:
