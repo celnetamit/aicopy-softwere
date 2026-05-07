@@ -361,6 +361,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
                 "volume": "10",
                 "issue": "2",
                 "DOI": "10.1000/alpha",
+                "URL": "https://doi.org/10.1000/alpha",
                 "author": [{"family": "Alpha"}],
             }
         }
@@ -612,6 +613,40 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertRegex(out, r"\[place missing\]\s*:\s*Academic Press;\s*2020")
         self.assertRegex(out, r"2022\s*\[cited date missing\]\.\s*Available from:")
 
+    def test_append_online_reference_links_adds_verified_doi_and_source_url(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110.\n"
+            "[2] Beta CD. Another title. J Test. 2023;9(1):90-99.\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "matched_doi": "10.1000/alpha",
+                        "matched_source_url": "https://doi.org/10.1000/alpha",
+                    },
+                    {
+                        "number": 2,
+                        "status": "not_found",
+                        "matched_doi": "",
+                        "matched_source_url": "",
+                    },
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(
+            source,
+            report,
+            {"online_reference_validation": True},
+        )
+        self.assertIn("[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110. doi: 10.1000/alpha. Available from: https://doi.org/10.1000/alpha.", out)
+        self.assertIn("[2] Beta CD. Another title. J Test. 2023;9(1):90-99.", out)
+
 
 class ProcessorRegressionTests(unittest.TestCase):
     def test_redline_highlights_only_changed_tokens(self):
@@ -798,6 +833,43 @@ class ProcessorRegressionTests(unittest.TestCase):
             {key: True for key in ("spelling", "capitalization", "punctuation", "citation", "reference", "style")},
         )
         self.assertEqual(all_accepted, corrected)
+
+    def test_process_text_appends_validated_reference_links_to_corrected_output(self):
+        processor = DocumentProcessor()
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110.\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "matched_doi": "10.1000/alpha",
+                        "matched_source_url": "https://doi.org/10.1000/alpha",
+                    }
+                ],
+            }
+        }
+
+        with patch.object(processor.editor, "correct_all", return_value=source):
+            with patch.object(processor, "_call_ai_editor", return_value=""):
+                with patch.object(processor.editor, "build_reference_profile_report", return_value={}):
+                    with patch.object(processor.editor, "build_citation_reference_validator_report", return_value=report):
+                        out = processor.process_text(
+                            source,
+                            {
+                                "chicago_style": True,
+                                "online_reference_validation": True,
+                                "ai": {"enabled": False},
+                            },
+                        )
+
+        self.assertIn("doi: 10.1000/alpha.", out)
+        self.assertIn("Available from: https://doi.org/10.1000/alpha.", out)
 
 
 if __name__ == "__main__":

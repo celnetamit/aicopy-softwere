@@ -133,6 +133,7 @@ class DocumentProcessor:
             self._attach_cmos_guardrails(original=text, corrected=selected, options=options)
             self._last_journal_profile_report = self.editor.build_reference_profile_report(selected, options)
             self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(selected, options)
+            selected = self.editor.append_online_reference_links(selected, self._last_citation_reference_report, options)
             return selected
 
         if self._last_ai_pipeline_note:
@@ -147,7 +148,7 @@ class DocumentProcessor:
         self._attach_cmos_guardrails(original=text, corrected=rules_corrected, options=options)
         self._last_journal_profile_report = self.editor.build_reference_profile_report(rules_corrected, options)
         self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(rules_corrected, options)
-        return rules_corrected
+        return self.editor.append_online_reference_links(rules_corrected, self._last_citation_reference_report, options)
 
     def _is_ai_first_cmos_mode(self, options: Dict) -> bool:
         ai_options = options.get("ai", {}) if isinstance(options, dict) else {}

@@ -1705,6 +1705,131 @@ class ChicagoEditor:
 
         return entries
 
+    def append_online_reference_links(
+        self,
+        text: str,
+        citation_report: Optional[Dict[str, Any]],
+        options: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Append validated DOI/source links to numbered references when available."""
+        content = str(text or "")
+        if not content.strip():
+            return content
+
+        online = {}
+        if isinstance(citation_report, dict):
+            online = citation_report.get("online_validation") if isinstance(citation_report.get("online_validation"), dict) else {}
+        if not online or not bool(online.get("enabled", False)):
+            return content
+        if not bool((options or {}).get("online_reference_validation", False)):
+            return content
+
+        validated_by_number: Dict[int, Dict[str, Any]] = {}
+        for entry in online.get("entries", []) if isinstance(online.get("entries"), list) else []:
+            if not isinstance(entry, dict):
+                continue
+            status = str(entry.get("status") or "").strip().lower()
+            if status not in {"verified", "likely_match"}:
+                continue
+            try:
+                number = int(entry.get("number") or 0)
+            except Exception:
+                number = 0
+            if number <= 0:
+                continue
+            validated_by_number[number] = entry
+        if not validated_by_number:
+            return content
+
+        lines = content.split('\n')
+        output: List[str] = []
+        in_references = False
+        heading_re = re.compile(r'^\s*references?\s*:?\s*$', flags=re.IGNORECASE)
+        section_break_re = re.compile(
+            r'^\s*(?:appendix|acknowledg(?:e)?ments?|funding|conflicts?\s+of\s+interest|author\s+contributions?)\s*:?\s*$',
+            flags=re.IGNORECASE,
+        )
+        numbered_reference_re = re.compile(r'^(\s*\[\s*(\d+)\s*\]\s*)(.*)$')
+
+        for line in lines:
+            if heading_re.match(line):
+                in_references = True
+                output.append(line)
+                continue
+            if in_references and section_break_re.match(line):
+                in_references = False
+                output.append(line)
+                continue
+            if not in_references:
+                output.append(line)
+                continue
+
+            match = numbered_reference_re.match(line)
+            if not match:
+                output.append(line)
+                continue
+
+            prefix = match.group(1)
+            number = int(match.group(2))
+            entry_text = str(match.group(3) or "").strip()
+            validated = validated_by_number.get(number)
+            if not validated:
+                output.append(line)
+                continue
+
+            doi = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
+            source_url = self._normalize_source_url_value(
+                str(validated.get("matched_source_url") or validated.get("source_url") or "")
+            )
+            updated_entry = self._append_reference_identifiers(entry_text, doi=doi, source_url=source_url)
+            output.append(f"{prefix}{updated_entry}")
+
+        return '\n'.join(output)
+
+    def _append_reference_identifiers(self, entry_text: str, doi: str = "", source_url: str = "") -> str:
+        """Append DOI and source URL to one reference line without duplicating existing identifiers."""
+        entry = str(entry_text or "").strip()
+        if not entry:
+            return entry
+
+        normalized_entry = self._normalize_match_text(entry)
+        needs_doi = bool(doi) and self._normalize_match_text(doi) not in normalized_entry
+        needs_source = bool(source_url) and source_url.lower() not in entry.lower()
+
+        if not (needs_doi or needs_source):
+            return entry
+
+        base = entry.rstrip()
+        if base and base[-1] not in ".!?":
+            base += "."
+
+        if needs_doi:
+            base += f" doi: {doi}."
+        if needs_source:
+            base += f" Available from: {source_url}."
+        return base
+
+    def _normalize_doi_value(self, value: str) -> str:
+        """Normalize DOI token to canonical value without URL prefix."""
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        text = re.sub(r'(?i)^https?://(?:dx\.)?doi\.org/', '', text)
+        text = re.sub(r'(?i)^doi:\s*', '', text)
+        text = text.strip().rstrip(".,;")
+        if not re.match(r'^10\.\d{4,9}/\S+$', text, flags=re.IGNORECASE):
+            return ""
+        return text
+
+    def _normalize_source_url_value(self, value: str) -> str:
+        """Return a safe source URL candidate for reference tail append."""
+        text = str(value or "").strip().rstrip(".,;")
+        if not text:
+            return ""
+        if not re.match(r'(?i)^https?://', text):
+            return ""
+        return text
+
     def build_reference_profile_report(self, text: str, options: Optional[Dict] = None) -> Dict[str, Any]:
         """Return profile details + profile-aware validation messages."""
         profile = self.resolve_journal_profile(options)
