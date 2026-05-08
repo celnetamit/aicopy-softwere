@@ -487,6 +487,22 @@ section h2 {
     resize: vertical;
 }
 
+.assistant-banner {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(233, 69, 96, 0.8);
+    border-radius: 6px;
+    background: rgba(233, 69, 96, 0.12);
+    color: #ffd5dd;
+    font-size: 12px;
+}
+
+.assistant-dashboard-hint {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: #ffd58d;
+}
+
 .assistant-actions {
     display: grid;
     grid-template-columns: 1fr;
@@ -512,6 +528,34 @@ section h2 {
     font-size: 11px;
     line-height: 1.35;
     margin-bottom: 4px;
+}
+
+.processing-mode-pill {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid #35517f;
+    color: #c3d6f5;
+    font-size: 11px;
+    line-height: 1.4;
+    background: rgba(53, 81, 127, 0.22);
+}
+
+.processing-mode-pill.mode-ai {
+    border-color: rgba(78, 204, 163, 0.65);
+    color: #b7f2dd;
+    background: rgba(78, 204, 163, 0.12);
+}
+
+.processing-mode-pill.mode-fallback {
+    border-color: rgba(255, 193, 7, 0.65);
+    color: #ffe6a1;
+    background: rgba(255, 193, 7, 0.13);
+}
+
+.processing-mode-pill.mode-unknown {
+    border-color: #35517f;
+    color: #c3d6f5;
 }
 
 .right-panel {

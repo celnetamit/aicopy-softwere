@@ -207,6 +207,12 @@
 
                 <section class="options-section assistant-section">
                     <h2>Assistant</h2>
+                    <div class="assistant-banner hidden" id="assistant-unavailable-banner" role="alert">
+                        Assistant unavailable right now. Please retry in a moment.
+                    </div>
+                    <p class="assistant-dashboard-hint hidden" id="assistant-dashboard-hint">
+                        You are on dashboard. Open a task to use assistant actions on that task.
+                    </p>
                     <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask about this task: spelling, references, citations, or diagnostics."></textarea>
                     <label class="checkbox-item">
                         <input type="checkbox" id="assistant-include-admin-activity">
@@ -296,6 +302,7 @@
                 <div class="status-bar">
                     <span id="word-count">Words: 0</span>
                     <span id="status">Ready</span>
+                    <span id="processing-mode-indicator" class="processing-mode-pill">Mode: Unknown</span>
                 </div>
                 <div class="processing-presence hidden" id="processing-presence" aria-live="polite">
                     <div class="processing-presence-main">

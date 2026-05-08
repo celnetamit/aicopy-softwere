@@ -317,6 +317,57 @@ function applyProcessResponseToState(response, options = {}) {
         ? mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions)
         : mainPreview.buildDefaultGroupDecisions();
     appMain.syncWindowFileContent();
+    updateProcessingModeIndicatorFromPayload(response);
+}
+
+function updateAssistantRouteHint() {
+    if (!mainDom.assistantDashboardHint) return;
+    const isDashboard = !!(mainAuth && typeof mainAuth.isTasksDashboardRoute === 'function' && mainAuth.isTasksDashboardRoute());
+    mainDom.assistantDashboardHint.classList.toggle('hidden', !isDashboard);
+}
+
+function setAssistantUnavailable(visible, detailMessage) {
+    if (!mainDom.assistantUnavailableBanner) return;
+    const show = visible === true;
+    mainDom.assistantUnavailableBanner.classList.toggle('hidden', !show);
+    if (show && detailMessage) {
+        mainDom.assistantUnavailableBanner.textContent = `Assistant unavailable: ${String(detailMessage)}`;
+    } else if (show) {
+        mainDom.assistantUnavailableBanner.textContent = 'Assistant unavailable right now. Please retry in a moment.';
+    }
+}
+
+function detectProcessingMode(payload) {
+    const audit = payload && typeof payload.processing_audit === 'object' ? payload.processing_audit : {};
+    const summary = audit && typeof audit.summary === 'object' ? audit.summary : {};
+    const note = String((payload && payload.processing_note) || '').toLowerCase();
+    const mode = String((audit && audit.mode) || '').toLowerCase();
+    const finalDecision = String(((summary.final_selection || {}).decision) || '').toLowerCase();
+    if (note.includes('fallback') || finalDecision.includes('fallback') || mode === 'rule_only') {
+        return 'fallback';
+    }
+    if (mode === 'full' || mode === 'sectioned') {
+        return 'ai';
+    }
+    return 'unknown';
+}
+
+function updateProcessingModeIndicatorFromPayload(payload) {
+    if (!mainDom.processingModeIndicator) return;
+    const mode = detectProcessingMode(payload);
+    mainDom.processingModeIndicator.classList.remove('mode-ai', 'mode-fallback', 'mode-unknown');
+    if (mode === 'ai') {
+        mainDom.processingModeIndicator.classList.add('mode-ai');
+        mainDom.processingModeIndicator.textContent = 'Mode: AI';
+        return;
+    }
+    if (mode === 'fallback') {
+        mainDom.processingModeIndicator.classList.add('mode-fallback');
+        mainDom.processingModeIndicator.textContent = 'Mode: Fallback';
+        return;
+    }
+    mainDom.processingModeIndicator.classList.add('mode-unknown');
+    mainDom.processingModeIndicator.textContent = 'Mode: Unknown';
 }
 
 function pollTaskUntilProcessed(taskId) {
@@ -518,12 +569,15 @@ function askAssistantQuestion() {
     })(function (response) {
         if (!(response && response.success)) {
             setStatus('Assistant query failed', 'error');
+            const errorMessage = response && response.error ? String(response.error) : 'Request failed';
+            setAssistantUnavailable(true, errorMessage);
             if (mainDom.assistantOutput) {
-                mainDom.assistantOutput.textContent = response && response.error ? String(response.error) : 'Assistant query failed.';
+                mainDom.assistantOutput.textContent = errorMessage;
             }
             renderAssistantSuggestions([]);
             return;
         }
+        setAssistantUnavailable(false);
         const assistant = response.assistant || {};
         if (mainDom.assistantOutput) {
             mainDom.assistantOutput.textContent = String(assistant.message || 'No assistant response available.');
@@ -545,9 +599,11 @@ function assistantReprocessCurrentTask() {
     eel.assistant_reprocess_task(taskId, options)(function (response) {
         if (!(response && response.success && response.result && response.result.success)) {
             setStatus('Assistant reprocess failed', 'error');
+            setAssistantUnavailable(true, response && response.error ? String(response.error) : 'Request failed');
             alert('Assistant reprocess error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
             return;
         }
+        setAssistantUnavailable(false);
         applyProcessResponseToState(response.result, { keepGroupDecisions: false });
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
@@ -571,9 +627,11 @@ function assistantApplyCurrentDecisions() {
     )(function (response) {
         if (!(response && response.success && response.result && response.result.success)) {
             setStatus('Assistant decision apply failed', 'error');
+            setAssistantUnavailable(true, response && response.error ? String(response.error) : 'Request failed');
             alert('Assistant decision apply error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
             return;
         }
+        setAssistantUnavailable(false);
         applyProcessResponseToState(response.result, { keepGroupDecisions: true });
         mainPreview.renderCurrentPreview();
         mainAuth.refreshTaskHistory();
@@ -696,6 +754,8 @@ function clear_all() {
     if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = true;
     if (mainDom.fileInput) mainDom.fileInput.value = '';
     if (mainDom.assistantOutput) mainDom.assistantOutput.textContent = 'Assistant output appears here.';
+    setAssistantUnavailable(false);
+    updateProcessingModeIndicatorFromPayload({});
     renderAssistantSuggestions([]);
     switch_tab('original');
     setStatus('Ready', 'info');
@@ -733,11 +793,13 @@ window.applyAllGroupDecisions = applyAllGroupDecisions;
 mainAuth.updateAdminGlobalAiProviderUI(false);
 mainAuth.updateAdminAiValidationHint();
 mainAuth.applyRouteViewMode();
+updateAssistantRouteHint();
 mainAuth.checkAuthenticatedUser();
 refreshProcessButtonState();
 
 window.addEventListener('pageshow', () => {
     mainAuth.applyRouteViewMode();
+    updateAssistantRouteHint();
     mainAuth.syncAdminDashboardRouteState();
     mainAuth.resetAdminDashboardScroll();
 });

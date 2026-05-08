@@ -359,8 +359,29 @@ function applyTaskDetailsToState(task) {
 
     const fileNameEl = document.getElementById('file-name');
     const wordCountEl = document.getElementById('word-count');
+    const processingModeEl = document.getElementById('processing-mode-indicator');
     if (fileNameEl) fileNameEl.textContent = authState.fileContent.fileName || 'No file selected';
     if (wordCountEl) wordCountEl.textContent = 'Words: ' + Number(task.word_count || 0);
+    if (processingModeEl) {
+        const note = String(reports.processing_note || '').toLowerCase();
+        const audit = reports.processing_audit && typeof reports.processing_audit === 'object' ? reports.processing_audit : {};
+        const summary = audit.summary && typeof audit.summary === 'object' ? audit.summary : {};
+        const mode = String(audit.mode || '').toLowerCase();
+        const finalDecision = String(((summary.final_selection || {}).decision) || '').toLowerCase();
+        const isFallback = note.includes('fallback') || finalDecision.includes('fallback') || mode === 'rule_only';
+        const isAi = mode === 'full' || mode === 'sectioned';
+        processingModeEl.classList.remove('mode-ai', 'mode-fallback', 'mode-unknown');
+        if (isFallback) {
+            processingModeEl.classList.add('mode-fallback');
+            processingModeEl.textContent = 'Mode: Fallback';
+        } else if (isAi) {
+            processingModeEl.classList.add('mode-ai');
+            processingModeEl.textContent = 'Mode: AI';
+        } else {
+            processingModeEl.classList.add('mode-unknown');
+            processingModeEl.textContent = 'Mode: Unknown';
+        }
+    }
 
     const processed = String(task.status || '').toUpperCase() === 'PROCESSED';
     if (authDom.saveCleanBtn) authDom.saveCleanBtn.disabled = !processed;
