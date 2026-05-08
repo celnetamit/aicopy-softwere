@@ -475,6 +475,45 @@ section h2 {
     flex: 1;
 }
 
+.assistant-section {
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.assistant-question-input {
+    min-height: 72px;
+    resize: vertical;
+}
+
+.assistant-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.assistant-output {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #d6e0f5;
+    white-space: pre-wrap;
+}
+
+.assistant-suggestions ul {
+    margin: 8px 0 0;
+    padding-left: 18px;
+}
+
+.assistant-suggestions li {
+    color: #9fc4ff;
+    font-size: 11px;
+    line-height: 1.35;
+    margin-bottom: 4px;
+}
+
 .right-panel {
     flex: 1;
     display: flex;

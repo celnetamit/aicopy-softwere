@@ -238,6 +238,37 @@
             return getJson('/api/tasks/' + encodeURIComponent(taskId));
         }),
 
+        assistant_query: callbackWrapper(function (payload) {
+            var input = payload || {};
+            return postJson('/api/assistant', {
+                mode: 'qna',
+                message: String(input.message || ''),
+                task_id: String(input.task_id || ''),
+                include_admin_activity: Boolean(input.include_admin_activity)
+            });
+        }),
+
+        assistant_reprocess_task: callbackWrapper(function (taskId, options) {
+            return postJson('/api/assistant', {
+                mode: 'action',
+                action: 'reprocess_task',
+                task_id: String(taskId || ''),
+                options: options || {},
+                confirm: true
+            });
+        }),
+
+        assistant_apply_group_decisions: callbackWrapper(function (taskId, groupDecisions, fullCorrectedText) {
+            return postJson('/api/assistant', {
+                mode: 'action',
+                action: 'apply_correction_group_decisions',
+                task_id: String(taskId || ''),
+                group_decisions: groupDecisions || {},
+                full_corrected_text: String(fullCorrectedText || ''),
+                confirm: true
+            });
+        }),
+
         admin_list_users: callbackWrapper(function (limit) {
             var safeLimit = Number(limit || 200);
             if (!Number.isFinite(safeLimit) || safeLimit <= 0) {

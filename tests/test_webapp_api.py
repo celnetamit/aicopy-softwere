@@ -582,6 +582,221 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(payload.get("success"))
         self.assertEqual(payload.get("error_code"), "TASK_NOT_FOUND")
 
+    def test_assistant_requires_auth(self):
+        status, payload = self.client.request(
+            "POST",
+            "/api/assistant",
+            {"mode": "qna", "message": "help"},
+        )
+        self.assertEqual(status, 401)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "AUTH_REQUIRED")
+
+    def test_assistant_qna_returns_read_only_diagnostics(self):
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/assistant",
+            {"mode": "qna", "task_id": task_id, "message": "show spelling and citation diagnostics"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("mode"), "qna")
+        assistant = payload.get("assistant") or {}
+        self.assertIsInstance(assistant.get("message"), str)
+        self.assertTrue(assistant.get("message"))
+        self.assertIsInstance(assistant.get("suggestions"), list)
+        diagnostics = assistant.get("task_diagnostics") or {}
+        self.assertEqual((diagnostics.get("task") or {}).get("id"), task_id)
+
+    def test_assistant_qna_admin_activity_summary_requires_admin_role(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request(
+            "POST",
+            "/api/auth/google-login",
+            {"id_token": "test:amit@conwiz.in"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = admin_client.request(
+            "POST",
+            "/api/assistant",
+            {
+                "mode": "qna",
+                "message": "show all activity",
+                "include_admin_activity": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        assistant = payload.get("assistant") or {}
+        admin_activity = assistant.get("admin_activity") or {}
+        self.assertIsInstance(admin_activity.get("user_counts"), dict)
+        self.assertIn("top_event_types", admin_activity)
+
+        member_client = WsgiTestClient(webapp.app)
+        status, payload = member_client.request(
+            "POST",
+            "/api/auth/google-login",
+            {"id_token": "test:member@conwiz.in"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        status, payload = member_client.request(
+            "POST",
+            "/api/assistant",
+            {
+                "mode": "qna",
+                "message": "show all activity",
+                "include_admin_activity": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        assistant = payload.get("assistant") or {}
+        self.assertNotIn("admin_activity", assistant)
+
+    def test_assistant_action_reprocess_task(self):
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/assistant",
+            {
+                "mode": "action",
+                "action": "reprocess_task",
+                "task_id": task_id,
+                "options": {"ai": {"enabled": False}},
+                "confirm": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("mode"), "action")
+        self.assertEqual(payload.get("action"), "reprocess_task")
+        result = payload.get("result") or {}
+        self.assertTrue(result.get("success"))
+        self.assertEqual(result.get("task_id"), task_id)
+        self.assertTrue(str(result.get("text") or "").strip())
+
+    def test_assistant_action_reprocess_respects_task_ownership(self):
+        owner = WsgiTestClient(webapp.app)
+        other = WsgiTestClient(webapp.app)
+        status, _ = owner.request("POST", "/api/auth/google-login", {"id_token": "test:owner@conwiz.in"})
+        self.assertEqual(status, 200)
+        status, payload = owner.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "alpha.txt", "content": "Alpha manuscript."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        status, _ = other.request("POST", "/api/auth/google-login", {"id_token": "test:other@conwiz.in"})
+        self.assertEqual(status, 200)
+        status, payload = other.request(
+            "POST",
+            "/api/assistant",
+            {
+                "mode": "action",
+                "action": "reprocess_task",
+                "task_id": task_id,
+                "options": {"ai": {"enabled": False}},
+                "confirm": True,
+            },
+        )
+        self.assertEqual(status, 404)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "TASK_NOT_FOUND")
+
+    def test_assistant_action_requires_explicit_confirmation(self):
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/assistant",
+            {
+                "mode": "action",
+                "action": "reprocess_task",
+                "task_id": task_id,
+                "options": {"ai": {"enabled": False}},
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "ASSISTANT_CONFIRMATION_REQUIRED")
+
+    def test_assistant_action_apply_group_decisions(self):
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {"options": {"ai": {"enabled": False}}},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/assistant",
+            {
+                "mode": "action",
+                "action": "apply_correction_group_decisions",
+                "task_id": task_id,
+                "group_decisions": {
+                    "spelling": True,
+                    "capitalization": True,
+                    "punctuation": True,
+                    "citation": True,
+                    "reference": True,
+                    "style": True,
+                },
+                "confirm": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("action"), "apply_correction_group_decisions")
+        result = payload.get("result") or {}
+        self.assertTrue(result.get("success"))
+        self.assertEqual(result.get("task_id"), task_id)
+
     def test_admin_can_view_users_and_non_admin_cannot(self):
         # Non-admin user should be blocked from admin endpoints.
         self._login("member@conwiz.in")

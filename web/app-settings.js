@@ -514,6 +514,17 @@ function bindSettingsEvents() {
     if (settingsDom.saveCleanBtn) settingsDom.saveCleanBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('clean'));
     if (settingsDom.saveHighlightBtn) settingsDom.saveHighlightBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('highlighted'));
     if (settingsDom.clearBtn) settingsDom.clearBtn.addEventListener('click', () => appSettingsRoot.actions.clear_all());
+    if (settingsDom.assistantAskBtn) settingsDom.assistantAskBtn.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuestion());
+    if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.assistantReprocessCurrentTask());
+    if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
+    if (settingsDom.assistantQuestionInput) {
+        settingsDom.assistantQuestionInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                appSettingsRoot.actions.askAssistantQuestion();
+            }
+        });
+    }
     if (settingsDom.logoutBtn) settingsDom.logoutBtn.addEventListener('click', authApi.logoutCurrentUser);
     if (settingsDom.openTasksDashboardBtn) settingsDom.openTasksDashboardBtn.addEventListener('click', authApi.navigateToTasksDashboard);
     if (settingsDom.refreshHistoryBtn) settingsDom.refreshHistoryBtn.addEventListener('click', authApi.refreshTaskHistory);

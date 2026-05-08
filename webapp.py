@@ -1010,6 +1010,132 @@ def _read_task_download_payload(context: SessionContext, task_id: str, file_type
     }
 
 
+def _task_diagnostics_snapshot(task: Dict) -> Dict:
+    reports = task.get("reports") if isinstance(task.get("reports"), dict) else {}
+    citation_report = reports.get("citation_reference_report") if isinstance(reports.get("citation_reference_report"), dict) else {}
+    issue_counts = citation_report.get("issue_counts") if isinstance(citation_report.get("issue_counts"), dict) else {}
+    processing_note = str(reports.get("processing_note") or "")
+    processing_audit = reports.get("processing_audit") if isinstance(reports.get("processing_audit"), dict) else {}
+    summary = processing_audit.get("summary") if isinstance(processing_audit.get("summary"), dict) else {}
+    return {
+        "task": _task_summary(task),
+        "has_corrected_text": bool(str(task.get("corrected_text") or "").strip()),
+        "processing_note": processing_note,
+        "citation_issue_total": int(citation_report.get("summary", {}).get("issue_total", 0) or 0)
+        if isinstance(citation_report.get("summary"), dict)
+        else 0,
+        "citation_issue_counts": issue_counts,
+        "cmos_guardrails": summary.get("cmos_guardrails") if isinstance(summary.get("cmos_guardrails"), dict) else {},
+    }
+
+
+def _assistant_admin_activity_snapshot() -> Dict:
+    users = _STORE.list_users(limit=500)
+    events = _STORE.list_audit_events(limit=200)
+    active_users = 0
+    inactive_users = 0
+    for user in users:
+        if str(user.get("status") or STATUS_ACTIVE).upper() == STATUS_ACTIVE:
+            active_users += 1
+        else:
+            inactive_users += 1
+
+    event_counts: Dict[str, int] = {}
+    for event in events:
+        code = str(event.get("event_type") or "unknown").strip() or "unknown"
+        event_counts[code] = int(event_counts.get(code, 0)) + 1
+
+    top_events = sorted(event_counts.items(), key=lambda item: item[1], reverse=True)[:8]
+    recent = []
+    for event in events[:10]:
+        recent.append(
+            {
+                "event_type": str(event.get("event_type") or ""),
+                "actor_email": str(event.get("actor_email") or ""),
+                "target_email": str(event.get("target_email") or ""),
+                "entity_type": str(event.get("entity_type") or ""),
+                "entity_id": str(event.get("entity_id") or ""),
+                "created_at": int(event.get("created_at") or 0),
+            }
+        )
+
+    return {
+        "user_counts": {
+            "total": len(users),
+            "active": active_users,
+            "inactive": inactive_users,
+        },
+        "recent_event_count": len(events),
+        "top_event_types": [{"event_type": key, "count": value} for key, value in top_events],
+        "recent_events": recent,
+    }
+
+
+def _assistant_qna_response(
+    context: SessionContext,
+    message: str,
+    task: Optional[Dict],
+    include_admin_activity: bool = False,
+) -> Dict:
+    runtime = _read_global_runtime_settings()
+    editing = runtime.get("editing", {}) if isinstance(runtime.get("editing"), dict) else {}
+    ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
+    lower = str(message or "").strip().lower()
+
+    lines = [
+        "Assistant Phase 1 is active with read-only diagnostics and one safe action: reprocess task.",
+        f"Runtime editing: spelling={bool(editing.get('spelling', True))}, sentence_case={bool(editing.get('sentence_case', True))}, punctuation={bool(editing.get('punctuation', True))}, chicago_style={bool(editing.get('chicago_style', True))}.",
+        f"Runtime AI: enabled={bool(ai.get('enabled', True))}, provider={str(ai.get('provider', 'ollama'))}, model={str(ai.get('model', 'llama3.1'))}.",
+    ]
+
+    suggestions: list[str] = []
+    if "spell" in lower or "grammar" in lower:
+        suggestions.append("If spelling/grammar corrections look weak, reprocess with AI enabled and keep spelling + sentence_case + punctuation enabled.")
+    if "reference" in lower or "citation" in lower:
+        suggestions.append("For references, keep chicago_style enabled and verify citation/reference issues after processing.")
+    if "reprocess" in lower or "process" in lower:
+        suggestions.append("Use mode=action with action=reprocess_task and task_id to execute the safe processing action.")
+    if "decision" in lower or "accept" in lower or "reject" in lower:
+        suggestions.append("Use mode=action with action=apply_correction_group_decisions and pass group_decisions to apply accept/reject choices safely.")
+
+    task_snapshot = {}
+    if task is not None:
+        task_snapshot = _task_diagnostics_snapshot(task)
+        lines.append(
+            f"Task {task_snapshot.get('task', {}).get('id', '')}: status={task_snapshot.get('task', {}).get('status', '')}, "
+            f"word_count={task_snapshot.get('task', {}).get('word_count', 0)}, citation_issues={task_snapshot.get('citation_issue_total', 0)}."
+        )
+        guardrails = task_snapshot.get("cmos_guardrails", {})
+        if isinstance(guardrails, dict) and guardrails:
+            lines.append(
+                f"CMOS guardrails: status={guardrails.get('status', 'unknown')}, compliance_score={guardrails.get('compliance_score', 0)}."
+            )
+        if task_snapshot.get("processing_note"):
+            lines.append(f"Last processing note: {task_snapshot.get('processing_note')}")
+
+    admin_activity = {}
+    if include_admin_activity and context.role == ROLE_ADMIN:
+        admin_activity = _assistant_admin_activity_snapshot()
+        counts = admin_activity.get("user_counts", {}) if isinstance(admin_activity, dict) else {}
+        lines.append(
+            f"Admin activity snapshot: users total={int(counts.get('total', 0) or 0)}, "
+            f"active={int(counts.get('active', 0) or 0)}, inactive={int(counts.get('inactive', 0) or 0)}."
+        )
+        suggestions.append("Review top event types and recent events to spot recurring operational issues.")
+
+    if not suggestions:
+        suggestions.append("Ask about spelling, references, citations, or request reprocess_task/apply_correction_group_decisions for a specific task.")
+
+    payload = {
+        "message": " ".join(lines),
+        "suggestions": suggestions,
+        "task_diagnostics": task_snapshot,
+    }
+    if admin_activity:
+        payload["admin_activity"] = admin_activity
+    return payload
+
+
 def _run_retention_cleanup(force: bool = False):
     global _LAST_CLEANUP_AT
     now = time.time()
@@ -1684,6 +1810,138 @@ def api_tasks_apply_group_decisions(task_id: str):
         return _json_response(process_payload, session_id=context.session_id)
     except Exception as exc:
         return _json_response(_error_payload("TASK_DECISION_APPLY_FAILED", str(exc)), status=500, session_id=context.session_id)
+
+
+@app.post("/api/assistant")
+@require_auth
+def api_assistant():
+    context = _auth_context_from_request()
+    payload = _read_json_payload()
+    mode = str(payload.get("mode", "qna") or "qna").strip().lower()
+    message = str(payload.get("message", "") or "").strip()
+    task_id = str(payload.get("task_id", "") or "").strip()
+    include_admin_activity = bool(payload.get("include_admin_activity", False))
+
+    task = None
+    if task_id:
+        task, error = _get_owned_task_or_error(context, task_id)
+        if error is not None:
+            return error
+
+    if mode == "qna":
+        answer = _assistant_qna_response(context, message, task, include_admin_activity=include_admin_activity)
+        _record_audit(
+            event_type="assistant_qna",
+            actor_user_id=context.user_id,
+            entity_type="task" if task_id else "",
+            entity_id=task_id,
+            metadata={
+                "has_message": bool(message),
+                "has_task": bool(task_id),
+                "include_admin_activity": bool(include_admin_activity and context.role == ROLE_ADMIN),
+            },
+        )
+        return _json_response(
+            {
+                "success": True,
+                "mode": "qna",
+                "assistant": answer,
+            },
+            session_id=context.session_id,
+        )
+
+    if mode == "action":
+        confirmed = bool(payload.get("confirm", False))
+        if not confirmed:
+            return _json_response(
+                _error_payload(
+                    "ASSISTANT_CONFIRMATION_REQUIRED",
+                    "Assistant action requires explicit confirmation. Send confirm=true to continue.",
+                ),
+                status=400,
+                session_id=context.session_id,
+            )
+        action = str(payload.get("action", "") or "").strip().lower()
+        if action not in {"reprocess_task", "apply_correction_group_decisions"}:
+            return _json_response(
+                _error_payload("ASSISTANT_ACTION_UNSUPPORTED", "Unsupported assistant action"),
+                status=400,
+                session_id=context.session_id,
+            )
+        if not task_id:
+            return _json_response(
+                _error_payload("TASK_REQUIRED", "No task selected"),
+                status=400,
+                session_id=context.session_id,
+            )
+        if task is None:
+            task, error = _get_owned_task_or_error(context, task_id)
+            if error is not None:
+                return error
+
+        try:
+            if action == "reprocess_task":
+                raw_options = payload.get("options", {})
+                options = raw_options
+                if not isinstance(options, dict):
+                    options = {}
+                options = _apply_global_runtime_settings(options, _read_global_runtime_settings())
+                # Assistant action must honor caller-provided AI overrides for safe execution.
+                if isinstance(raw_options, dict):
+                    ai_in = raw_options.get("ai", {})
+                    if isinstance(ai_in, dict):
+                        ai_out = options.get("ai", {}) if isinstance(options.get("ai"), dict) else {}
+                        if "enabled" in ai_in:
+                            ai_out["enabled"] = bool(ai_in.get("enabled"))
+                        if "provider" in ai_in and str(ai_in.get("provider") or "").strip():
+                            ai_out["provider"] = str(ai_in.get("provider") or "").strip()
+                        if "model" in ai_in and str(ai_in.get("model") or "").strip():
+                            ai_out["model"] = str(ai_in.get("model") or "").strip()
+                        options["ai"] = ai_out
+                process_payload = _process_task(context, task, options)
+            else:
+                group_decisions = payload.get("group_decisions", {})
+                if not isinstance(group_decisions, dict):
+                    group_decisions = {}
+                process_payload = _apply_group_decisions(
+                    context,
+                    task,
+                    group_decisions,
+                    fallback_full_corrected=str(payload.get("full_corrected_text", "") or ""),
+                )
+        except Exception as exc:
+            _record_audit(
+                event_type="assistant_action_failed",
+                actor_user_id=context.user_id,
+                entity_type="task",
+                entity_id=task_id,
+                metadata={"action": action, "error": str(exc)},
+            )
+            error_code = "TASK_PROCESS_FAILED" if action == "reprocess_task" else "TASK_DECISION_APPLY_FAILED"
+            return _json_response(_error_payload(error_code, str(exc)), status=500, session_id=context.session_id)
+        _record_audit(
+            event_type="assistant_action_executed",
+            actor_user_id=context.user_id,
+            entity_type="task",
+            entity_id=task_id,
+            metadata={"action": action},
+        )
+        return _json_response(
+            {
+                "success": True,
+                "mode": "action",
+                "action": action,
+                "task_id": task_id,
+                "result": process_payload,
+            },
+            session_id=context.session_id,
+        )
+
+    return _json_response(
+        _error_payload("ASSISTANT_MODE_UNSUPPORTED", "Unsupported assistant mode"),
+        status=400,
+        session_id=context.session_id,
+    )
 
 
 @app.get("/api/tasks/<task_id>/download")

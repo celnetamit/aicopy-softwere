@@ -485,6 +485,102 @@ function applyCurrentGroupDecisions() {
     });
 }
 
+function renderAssistantSuggestions(suggestions) {
+    if (!mainDom.assistantSuggestions) return;
+    const items = Array.isArray(suggestions) ? suggestions : [];
+    if (!items.length) {
+        mainDom.assistantSuggestions.innerHTML = '';
+        return;
+    }
+    const html = items
+        .slice(0, 4)
+        .map((item) => `<li>${appMain.helpers.escapeHtml(String(item || ''))}</li>`)
+        .join('');
+    mainDom.assistantSuggestions.innerHTML = `<ul>${html}</ul>`;
+}
+
+function askAssistantQuestion() {
+    if (typeof eel === 'undefined' || typeof eel.assistant_query !== 'function') return;
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    const message = mainDom.assistantQuestionInput ? String(mainDom.assistantQuestionInput.value || '').trim() : '';
+    const includeAdminActivity = !!(mainDom.assistantIncludeAdminActivityInput && mainDom.assistantIncludeAdminActivityInput.checked);
+    if (!taskId && !message) {
+        setStatus('Select a task or enter a question for assistant diagnostics.', 'warning');
+        return;
+    }
+    if (mainDom.assistantOutput) {
+        mainDom.assistantOutput.textContent = 'Assistant is preparing diagnostics...';
+    }
+    eel.assistant_query({
+        task_id: taskId,
+        message,
+        include_admin_activity: includeAdminActivity
+    })(function (response) {
+        if (!(response && response.success)) {
+            setStatus('Assistant query failed', 'error');
+            if (mainDom.assistantOutput) {
+                mainDom.assistantOutput.textContent = response && response.error ? String(response.error) : 'Assistant query failed.';
+            }
+            renderAssistantSuggestions([]);
+            return;
+        }
+        const assistant = response.assistant || {};
+        if (mainDom.assistantOutput) {
+            mainDom.assistantOutput.textContent = String(assistant.message || 'No assistant response available.');
+        }
+        renderAssistantSuggestions(assistant.suggestions || []);
+        setStatus('Assistant diagnostics ready', 'success');
+    });
+}
+
+function assistantReprocessCurrentTask() {
+    if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    if (!taskId) {
+        setStatus('Load a task before assistant reprocess.', 'warning');
+        return;
+    }
+    const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    setStatus('Assistant is reprocessing current task...', 'warning');
+    eel.assistant_reprocess_task(taskId, options)(function (response) {
+        if (!(response && response.success && response.result && response.result.success)) {
+            setStatus('Assistant reprocess failed', 'error');
+            alert('Assistant reprocess error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
+            return;
+        }
+        applyProcessResponseToState(response.result, { keepGroupDecisions: false });
+        switch_tab('corrected');
+        mainAuth.refreshTaskHistory();
+        setStatus('Assistant reprocess complete', 'success');
+    });
+}
+
+function assistantApplyCurrentDecisions() {
+    if (typeof eel === 'undefined' || typeof eel.assistant_apply_group_decisions !== 'function') return;
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    if (!taskId) {
+        setStatus('Load a task before assistant decision apply.', 'warning');
+        return;
+    }
+    const groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
+    setStatus('Assistant is applying correction decisions...', 'warning');
+    eel.assistant_apply_group_decisions(
+        taskId,
+        groupDecisions,
+        mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || ''
+    )(function (response) {
+        if (!(response && response.success && response.result && response.result.success)) {
+            setStatus('Assistant decision apply failed', 'error');
+            alert('Assistant decision apply error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
+            return;
+        }
+        applyProcessResponseToState(response.result, { keepGroupDecisions: true });
+        mainPreview.renderCurrentPreview();
+        mainAuth.refreshTaskHistory();
+        setStatus('Assistant applied correction decisions', 'success');
+    });
+}
+
 function setGroupDecision(groupKey, accepted) {
     if (!mainConstants.CORRECTION_GROUP_ORDER.includes(groupKey)) return;
     mainState.fileContent.groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
@@ -599,6 +695,8 @@ function clear_all() {
     if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = true;
     if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = true;
     if (mainDom.fileInput) mainDom.fileInput.value = '';
+    if (mainDom.assistantOutput) mainDom.assistantOutput.textContent = 'Assistant output appears here.';
+    renderAssistantSuggestions([]);
     switch_tab('original');
     setStatus('Ready', 'info');
     setProgress(0);
@@ -620,6 +718,9 @@ appMain.actions = {
     pollTaskUntilProcessed,
     process_document,
     applyCurrentGroupDecisions,
+    askAssistantQuestion,
+    assistantReprocessCurrentTask,
+    assistantApplyCurrentDecisions,
     setGroupDecision,
     applyAllGroupDecisions,
     save_file,

@@ -205,6 +205,22 @@
                     <p class="hint-text">Editing and AI configuration are managed by Admin Dashboard and applied to all users.</p>
                 </section>
 
+                <section class="options-section assistant-section">
+                    <h2>Assistant</h2>
+                    <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask about this task: spelling, references, citations, or diagnostics."></textarea>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="assistant-include-admin-activity">
+                        <span>Include admin activity snapshot (admin only)</span>
+                    </label>
+                    <div class="assistant-actions">
+                        <button class="btn-secondary" id="assistant-ask-btn" type="button">Ask</button>
+                        <button class="btn-secondary" id="assistant-reprocess-btn" type="button">Reprocess Task</button>
+                        <button class="btn-secondary" id="assistant-apply-decisions-btn" type="button">Apply Decisions</button>
+                    </div>
+                    <p class="assistant-output" id="assistant-output">Assistant output appears here.</p>
+                    <div class="assistant-suggestions" id="assistant-suggestions"></div>
+                </section>
+
                 <section class="actions-section">
                     <button class="btn-primary" id="process-btn" type="button">
                         Process Document
