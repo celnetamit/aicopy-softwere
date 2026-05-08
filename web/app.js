@@ -337,6 +337,41 @@ function setAssistantUnavailable(visible, detailMessage) {
     }
 }
 
+function formatDiagnosticsTimestamp(value) {
+    const ts = Number(value || 0);
+    if (!Number.isFinite(ts) || ts <= 0) return 'never';
+    const date = new Date(ts);
+    if (Number.isNaN(date.getTime())) return 'never';
+    return date.toLocaleString();
+}
+
+function updateAssistantDiagnostics(status, errorMessage, successAt) {
+    if (mainDom.assistantEndpointStatus) {
+        mainDom.assistantEndpointStatus.textContent = String(status || 'idle');
+    }
+    if (mainDom.assistantLastError) {
+        mainDom.assistantLastError.textContent = String(errorMessage || 'none');
+    }
+    if (mainDom.assistantLastSuccess) {
+        mainDom.assistantLastSuccess.textContent = formatDiagnosticsTimestamp(successAt);
+    }
+}
+
+function applyProcessingModeProviderContext(provider, model) {
+    if (!mainDom.processingModeIndicator) return;
+    const safeProvider = String(provider || '').trim() || 'unknown';
+    const safeModel = String(model || '').trim() || 'unknown';
+    mainDom.processingModeIndicator.title = `Provider: ${safeProvider} | Model: ${safeModel}`;
+}
+
+function getProviderModelFromOptions(options) {
+    const ai = options && typeof options.ai === 'object' ? options.ai : {};
+    return {
+        provider: String(ai.provider || ''),
+        model: String(ai.model || ''),
+    };
+}
+
 function detectProcessingMode(payload) {
     const audit = payload && typeof payload.processing_audit === 'object' ? payload.processing_audit : {};
     const summary = audit && typeof audit.summary === 'object' ? audit.summary : {};
@@ -460,12 +495,14 @@ function process_document() {
     startProcessingPresence();
     refreshProcessButtonState();
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    const processProviderModel = getProviderModelFromOptions(options);
     mainSettings.saveAiSettings();
     eel.process_document(options, mainState.fileContent.taskId || '')(function (response) {
         let keepProcessingState = false;
         if (response.success) {
             clearServerTaskTracking();
             applyProcessResponseToState(response, { keepGroupDecisions: false });
+            applyProcessingModeProviderContext(processProviderModel.provider, processProviderModel.model);
             switch_tab('corrected');
             const wordCountEl = document.getElementById('word-count');
             if (wordCountEl) wordCountEl.textContent = 'Words: ' + response.word_count;
@@ -571,6 +608,7 @@ function askAssistantQuestion() {
             setStatus('Assistant query failed', 'error');
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
             setAssistantUnavailable(true, errorMessage);
+            updateAssistantDiagnostics('failed', errorMessage, 0);
             if (mainDom.assistantOutput) {
                 mainDom.assistantOutput.textContent = errorMessage;
             }
@@ -578,6 +616,7 @@ function askAssistantQuestion() {
             return;
         }
         setAssistantUnavailable(false);
+        updateAssistantDiagnostics('ok', 'none', Date.now());
         const assistant = response.assistant || {};
         if (mainDom.assistantOutput) {
             mainDom.assistantOutput.textContent = String(assistant.message || 'No assistant response available.');
@@ -595,16 +634,21 @@ function assistantReprocessCurrentTask() {
         return;
     }
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    const reprocessProviderModel = getProviderModelFromOptions(options);
     setStatus('Assistant is reprocessing current task...', 'warning');
     eel.assistant_reprocess_task(taskId, options)(function (response) {
         if (!(response && response.success && response.result && response.result.success)) {
             setStatus('Assistant reprocess failed', 'error');
-            setAssistantUnavailable(true, response && response.error ? String(response.error) : 'Request failed');
+            const errorMessage = response && response.error ? String(response.error) : 'Request failed';
+            setAssistantUnavailable(true, errorMessage);
+            updateAssistantDiagnostics('failed', errorMessage, 0);
             alert('Assistant reprocess error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
             return;
         }
         setAssistantUnavailable(false);
+        updateAssistantDiagnostics('ok', 'none', Date.now());
         applyProcessResponseToState(response.result, { keepGroupDecisions: false });
+        applyProcessingModeProviderContext(reprocessProviderModel.provider, reprocessProviderModel.model);
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
         setStatus('Assistant reprocess complete', 'success');
@@ -619,6 +663,8 @@ function assistantApplyCurrentDecisions() {
         return;
     }
     const groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
+    const currentProcessingOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    const decisionProviderModel = getProviderModelFromOptions(currentProcessingOptions);
     setStatus('Assistant is applying correction decisions...', 'warning');
     eel.assistant_apply_group_decisions(
         taskId,
@@ -627,12 +673,16 @@ function assistantApplyCurrentDecisions() {
     )(function (response) {
         if (!(response && response.success && response.result && response.result.success)) {
             setStatus('Assistant decision apply failed', 'error');
-            setAssistantUnavailable(true, response && response.error ? String(response.error) : 'Request failed');
+            const errorMessage = response && response.error ? String(response.error) : 'Request failed';
+            setAssistantUnavailable(true, errorMessage);
+            updateAssistantDiagnostics('failed', errorMessage, 0);
             alert('Assistant decision apply error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
             return;
         }
         setAssistantUnavailable(false);
+        updateAssistantDiagnostics('ok', 'none', Date.now());
         applyProcessResponseToState(response.result, { keepGroupDecisions: true });
+        applyProcessingModeProviderContext(decisionProviderModel.provider, decisionProviderModel.model);
         mainPreview.renderCurrentPreview();
         mainAuth.refreshTaskHistory();
         setStatus('Assistant applied correction decisions', 'success');
@@ -755,7 +805,9 @@ function clear_all() {
     if (mainDom.fileInput) mainDom.fileInput.value = '';
     if (mainDom.assistantOutput) mainDom.assistantOutput.textContent = 'Assistant output appears here.';
     setAssistantUnavailable(false);
+    updateAssistantDiagnostics('idle', 'none', 0);
     updateProcessingModeIndicatorFromPayload({});
+    applyProcessingModeProviderContext('', '');
     renderAssistantSuggestions([]);
     switch_tab('original');
     setStatus('Ready', 'info');
@@ -794,6 +846,8 @@ mainAuth.updateAdminGlobalAiProviderUI(false);
 mainAuth.updateAdminAiValidationHint();
 mainAuth.applyRouteViewMode();
 updateAssistantRouteHint();
+updateAssistantDiagnostics('idle', 'none', 0);
+applyProcessingModeProviderContext('', '');
 mainAuth.checkAuthenticatedUser();
 refreshProcessButtonState();
 

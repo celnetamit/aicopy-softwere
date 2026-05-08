@@ -384,6 +384,13 @@ function applyTaskDetailsToState(task) {
     }
 
     const processed = String(task.status || '').toUpperCase() === 'PROCESSED';
+    if (processingModeEl) {
+        const taskOptions = task.options && typeof task.options === 'object' ? task.options : {};
+        const aiOptions = taskOptions.ai && typeof taskOptions.ai === 'object' ? taskOptions.ai : {};
+        const provider = String(aiOptions.provider || 'unknown');
+        const model = String(aiOptions.model || 'unknown');
+        processingModeEl.title = `Provider: ${provider} | Model: ${model}`;
+    }
     if (authDom.saveCleanBtn) authDom.saveCleanBtn.disabled = !processed;
     if (authDom.saveHighlightBtn) authDom.saveHighlightBtn.disabled = !processed;
     appAuth.actions.refreshProcessButtonState();
