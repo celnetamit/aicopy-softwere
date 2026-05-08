@@ -221,23 +221,23 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertGreater(report.get("reference_count", 0), 0)
         self.assertTrue(any("period" in msg for msg in messages))
 
-    def test_default_reference_profile_uses_initial_periods(self):
+    def test_default_reference_profile_uses_initials_without_periods(self):
         source = (
             "References\n"
             "Smith AB. sample title. Journal of Architectural Research. 2024;10(2):100-110.\n"
         )
         out = self.editor.format_references_vancouver_numbered(source, {})
-        self.assertIn("Smith A.B.", out)
+        self.assertIn("Smith AB.", out)
         self.assertIn("J Archit Res", out)
 
-    def test_reference_author_list_over_six_collapses_to_first_author_et_al(self):
+    def test_reference_author_list_over_six_keeps_first_six_then_et_al(self):
         source = (
             "References\n"
             "Smith AB, Doe CD, Lee EF, Kumar GH, Patel IJ, Brown KL, Green MN. sample title. Journal of Testing. 2024;10(2):100-110.\n"
         )
         out = self.editor.format_references_vancouver_numbered(source, {})
-        self.assertIn("Smith A.B., et al.", out)
-        self.assertNotIn("Doe C.D.", out)
+        self.assertIn("Smith AB, Doe CD, Lee EF, Kumar GH, Patel IJ, Brown KL, et al.", out)
+        self.assertNotIn("Green MN.", out)
 
     def test_reference_tail_uses_house_journal_pattern(self):
         source = (
@@ -245,7 +245,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
             "Nooreldeen R, Bach H. Current and future development in lung cancer diagnosis. International Journal of Molecular Sciences. 2021 Aug 12;22(16):8661. doi:10.3390/ijms22168661.\n"
         )
         out = self.editor.format_references_vancouver_numbered(source, {})
-        self.assertIn("Nooreldeen R., Bach H.", out)
+        self.assertIn("Nooreldeen R, Bach H.", out)
         self.assertIn("Int J Mol Sci. 2021 ;22(16):8661. doi: 10.3390/ijms22168661.", out)
 
     def test_apa_style_journal_reference_is_parsed_without_false_missing_placeholders(self):
@@ -696,8 +696,17 @@ class ProcessorRegressionTests(unittest.TestCase):
                 "ai": {"enabled": False},
             },
         )
-        self.assertIn("Keyword:", result)
+        self.assertIn("Keywords:", result)
         self.assertEqual(processor._last_selection_note, "Rule-based correction applied.")
+
+    def test_rule_spelling_corrections_fix_common_user_typos(self):
+        out = ChicagoEditor().correct_all(
+            "refrences and grahmer are wrong in teh draft.",
+            {"spelling": True, "sentence_case": False, "punctuation": False, "chicago_style": False},
+        )
+        self.assertIn("references", out)
+        self.assertIn("grammar", out)
+        self.assertIn("the draft", out)
 
     def test_ai_first_cmos_mode_skips_second_full_rule_language_pass(self):
         processor = DocumentProcessor()

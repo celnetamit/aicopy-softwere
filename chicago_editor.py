@@ -473,12 +473,12 @@ class ChicagoEditor:
         requested = ""
         if isinstance(options, dict):
             requested = str(
-                options.get("journal_profile") or options.get("reference_profile") or "vancouver_periods"
+                options.get("journal_profile") or options.get("reference_profile") or "vancouver_nlm"
             ).strip().lower()
 
         profile_id = self.JOURNAL_PROFILE_ALIASES.get(requested, requested)
         if profile_id not in self.JOURNAL_PROFILES:
-            profile_id = "vancouver_periods"
+            profile_id = "vancouver_nlm"
 
         resolved = dict(self.JOURNAL_PROFILES[profile_id])
         resolved["id"] = profile_id
@@ -579,6 +579,11 @@ class ChicagoEditor:
             (r'\bpersistant\b', "persistent", r"persistant", ""),
             (r'\brecommend\b', "recommend", r"recomend", ""),
             (r'\bembarrass\b', "embarrass", r"embarass", ""),
+            (r'\brefrences\b', "references", r"refrences", ""),
+            (r'\brefrence\b', "reference", r"refrence", ""),
+            (r'\bgrahmer\b', "grammar", r"grahmer", ""),
+            (r'\bgrammer\b', "grammar", r"grammer", ""),
+            (r'\bteh\b', "the", r"teh", ""),
         ]
 
         for pattern_str, replacement, original, note in homophones:
@@ -929,7 +934,8 @@ class ChicagoEditor:
                 output_lines.append(line)
                 continue
 
-            prefix = "Keyword: "
+            raw_prefix = str(match.group(1) or "")
+            prefix = "Keywords: " if re.search(r'keywords', raw_prefix, flags=re.IGNORECASE) else "Keyword: "
             items = [normalize_item(part) for part in match.group(2).split(',')]
             output_lines.append(prefix + ', '.join(items))
 
@@ -1073,7 +1079,7 @@ class ChicagoEditor:
             return source
 
         if len(normalized) > 6 and not any(p.lower() == 'et al' for p in normalized):
-            normalized = normalized[:1] + ['et al']
+            normalized = normalized[:6] + ['et al']
 
         return ', '.join(normalized)
 

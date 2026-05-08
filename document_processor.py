@@ -1294,7 +1294,7 @@ Final consistent manuscript:"""
   * Italicize titles of complete works
   * Use double quotation marks for quoted material
   * Use em-dash (—) without spaces for interruptions
-  * Keep keyword line in this style: Keyword: Key one, Key two, Key three
+  * Keep keyword lines in this style: Keywords: Key one, Key two, Key three
 """)
         if ai_first_cmos:
             instructions.append(
