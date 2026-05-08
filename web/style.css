@@ -521,6 +521,45 @@ section h2 {
     line-height: 1.45;
 }
 
+.assistant-fallback-panel {
+    margin-bottom: 10px;
+    border: 1px solid #3f547c;
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: rgba(63, 84, 124, 0.18);
+}
+
+.assistant-fallback-panel > summary {
+    cursor: pointer;
+    color: #d4e2fa;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.assistant-fallback-summary {
+    margin: 8px 0 6px;
+    font-size: 11px;
+    color: #d6e3fa;
+}
+
+.assistant-fallback-reasons,
+.assistant-fallback-recommendations {
+    font-size: 11px;
+    color: #bad0f4;
+    margin-bottom: 6px;
+}
+
+.assistant-fallback-reasons ul,
+.assistant-fallback-recommendations ul {
+    margin: 4px 0;
+    padding-left: 18px;
+}
+
+.assistant-retry-btn {
+    width: 100%;
+    margin-top: 4px;
+}
+
 .assistant-output {
     margin: 0;
     font-size: 12px;

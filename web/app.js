@@ -318,6 +318,7 @@ function applyProcessResponseToState(response, options = {}) {
         : mainPreview.buildDefaultGroupDecisions();
     appMain.syncWindowFileContent();
     updateProcessingModeIndicatorFromPayload(response);
+    renderFallbackInsightsFromCurrentState();
 }
 
 function updateAssistantRouteHint() {
@@ -370,6 +371,73 @@ function getProviderModelFromOptions(options) {
         provider: String(ai.provider || ''),
         model: String(ai.model || ''),
     };
+}
+
+function buildFallbackRetryOptions(baseOptions) {
+    const source = baseOptions && typeof baseOptions === 'object' ? baseOptions : {};
+    const next = JSON.parse(JSON.stringify(source));
+    if (!next.ai || typeof next.ai !== 'object') next.ai = {};
+    next.ai.enabled = true;
+    next.ai.section_wise = true;
+    next.ai.section_threshold_chars = Math.min(10000, Math.max(4000, Number(next.ai.section_threshold_chars || 12000) - 2000));
+    next.ai.section_threshold_paragraphs = Math.min(90, Math.max(20, Number(next.ai.section_threshold_paragraphs || 90) - 15));
+    next.ai.section_chunk_chars = Math.min(6000, Math.max(2200, Number(next.ai.section_chunk_chars || 5500) - 1200));
+    next.ai.section_chunk_lines = Math.min(36, Math.max(16, Number(next.ai.section_chunk_lines || 28) - 4));
+    next.ai.global_consistency_max_chars = Math.min(16000, Math.max(8000, Number(next.ai.global_consistency_max_chars || 18000) - 4000));
+    return next;
+}
+
+function renderFallbackInsightsFromCurrentState() {
+    if (!mainDom.assistantFallbackPanel) return;
+    const audit = mainState.fileContent.processingAudit && typeof mainState.fileContent.processingAudit === 'object'
+        ? mainState.fileContent.processingAudit
+        : {};
+    const summary = audit.summary && typeof audit.summary === 'object' ? audit.summary : {};
+    const mode = String(audit.mode || '').toLowerCase();
+    const reasons = summary.fallback_reason_counts && typeof summary.fallback_reason_counts === 'object'
+        ? summary.fallback_reason_counts
+        : {};
+    const reasonEntries = Object.entries(reasons).filter((entry) => Number(entry[1]) > 0);
+    const fallbackSections = Number(summary.fallback_sections || 0);
+    const totalSections = Number(summary.total_sections || 0);
+    const acceptedSections = Number(summary.accepted_sections || 0);
+    const shouldShow = mode === 'rule_only' || fallbackSections > 0 || reasonEntries.length > 0;
+
+    mainDom.assistantFallbackPanel.classList.toggle('hidden', !shouldShow);
+    if (!shouldShow) {
+        if (mainDom.assistantFallbackSummary) mainDom.assistantFallbackSummary.textContent = 'No fallback details yet.';
+        if (mainDom.assistantFallbackReasons) mainDom.assistantFallbackReasons.innerHTML = '';
+        if (mainDom.assistantFallbackRecommendations) mainDom.assistantFallbackRecommendations.innerHTML = '';
+        return;
+    }
+
+    const fallbackRatio = totalSections > 0 ? `${fallbackSections}/${totalSections}` : String(fallbackSections);
+    if (mainDom.assistantFallbackSummary) {
+        mainDom.assistantFallbackSummary.textContent = `Fallback sections: ${fallbackRatio}. Accepted sections: ${acceptedSections}.`;
+    }
+
+    if (mainDom.assistantFallbackReasons) {
+        if (reasonEntries.length) {
+            const list = reasonEntries
+                .slice(0, 6)
+                .map(([reason, count]) => `<li>${appMain.helpers.escapeHtml(String(reason))}: ${Number(count)}</li>`)
+                .join('');
+            mainDom.assistantFallbackReasons.innerHTML = `<div><strong>Top reasons</strong></div><ul>${list}</ul>`;
+        } else {
+            mainDom.assistantFallbackReasons.innerHTML = '<div><strong>Top reasons</strong>: not available for this run.</div>';
+        }
+    }
+
+    if (mainDom.assistantFallbackRecommendations) {
+        const cmos = summary.cmos_guardrails && typeof summary.cmos_guardrails === 'object' ? summary.cmos_guardrails : {};
+        const recs = Array.isArray(cmos.recommendations) ? cmos.recommendations : [];
+        if (recs.length) {
+            const recList = recs.slice(0, 4).map((item) => `<li>${appMain.helpers.escapeHtml(String(item))}</li>`).join('');
+            mainDom.assistantFallbackRecommendations.innerHTML = `<div><strong>Recommended next steps</strong></div><ul>${recList}</ul>`;
+        } else {
+            mainDom.assistantFallbackRecommendations.innerHTML = '<div><strong>Recommended next steps</strong>: Use retry with recommended settings.</div>';
+        }
+    }
 }
 
 function detectProcessingMode(payload) {
@@ -689,6 +757,36 @@ function assistantApplyCurrentDecisions() {
     });
 }
 
+function retryWithRecommendedSettings() {
+    if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    if (!taskId) {
+        setStatus('Load a task before retrying with recommended settings.', 'warning');
+        return;
+    }
+    const baseOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    const retryOptions = buildFallbackRetryOptions(baseOptions);
+    const providerModel = getProviderModelFromOptions(retryOptions);
+    setStatus('Retrying with recommended settings...', 'warning');
+    eel.assistant_reprocess_task(taskId, retryOptions)(function (response) {
+        if (!(response && response.success && response.result && response.result.success)) {
+            const errorMessage = response && response.error ? String(response.error) : 'Request failed';
+            setAssistantUnavailable(true, errorMessage);
+            updateAssistantDiagnostics('failed', errorMessage, 0);
+            setStatus('Recommended retry failed', 'error');
+            alert('Recommended retry error: ' + errorMessage);
+            return;
+        }
+        setAssistantUnavailable(false);
+        updateAssistantDiagnostics('ok', 'none', Date.now());
+        applyProcessResponseToState(response.result, { keepGroupDecisions: false });
+        applyProcessingModeProviderContext(providerModel.provider, providerModel.model);
+        switch_tab('corrected');
+        mainAuth.refreshTaskHistory();
+        setStatus('Recommended retry complete', 'success');
+    });
+}
+
 function setGroupDecision(groupKey, accepted) {
     if (!mainConstants.CORRECTION_GROUP_ORDER.includes(groupKey)) return;
     mainState.fileContent.groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
@@ -808,6 +906,7 @@ function clear_all() {
     updateAssistantDiagnostics('idle', 'none', 0);
     updateProcessingModeIndicatorFromPayload({});
     applyProcessingModeProviderContext('', '');
+    renderFallbackInsightsFromCurrentState();
     renderAssistantSuggestions([]);
     switch_tab('original');
     setStatus('Ready', 'info');
@@ -833,6 +932,8 @@ appMain.actions = {
     askAssistantQuestion,
     assistantReprocessCurrentTask,
     assistantApplyCurrentDecisions,
+    retryWithRecommendedSettings,
+    renderFallbackInsightsFromCurrentState,
     setGroupDecision,
     applyAllGroupDecisions,
     save_file,
@@ -848,6 +949,7 @@ mainAuth.applyRouteViewMode();
 updateAssistantRouteHint();
 updateAssistantDiagnostics('idle', 'none', 0);
 applyProcessingModeProviderContext('', '');
+renderFallbackInsightsFromCurrentState();
 mainAuth.checkAuthenticatedUser();
 refreshProcessButtonState();
 

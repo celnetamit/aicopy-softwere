@@ -229,6 +229,15 @@
                         <div>Last success: <span id="assistant-last-success">never</span></div>
                         <div>Last error: <span id="assistant-last-error">none</span></div>
                     </div>
+                    <details class="assistant-fallback-panel hidden" id="assistant-fallback-panel">
+                        <summary>Why fallback?</summary>
+                        <p class="assistant-fallback-summary" id="assistant-fallback-summary">No fallback details yet.</p>
+                        <div class="assistant-fallback-reasons" id="assistant-fallback-reasons"></div>
+                        <div class="assistant-fallback-recommendations" id="assistant-fallback-recommendations"></div>
+                        <button class="btn-secondary assistant-retry-btn" id="assistant-retry-recommended-btn" type="button">
+                            Retry with Recommended Settings
+                        </button>
+                    </details>
                     <p class="assistant-output" id="assistant-output">Assistant output appears here.</p>
                     <div class="assistant-suggestions" id="assistant-suggestions"></div>
                 </section>

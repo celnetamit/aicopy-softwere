@@ -394,6 +394,9 @@ function applyTaskDetailsToState(task) {
     if (authDom.saveCleanBtn) authDom.saveCleanBtn.disabled = !processed;
     if (authDom.saveHighlightBtn) authDom.saveHighlightBtn.disabled = !processed;
     appAuth.actions.refreshProcessButtonState();
+    if (appAuth.actions && typeof appAuth.actions.renderFallbackInsightsFromCurrentState === 'function') {
+        appAuth.actions.renderFallbackInsightsFromCurrentState();
+    }
     appAuth.actions.switch_tab(processed ? 'corrected' : 'original');
     renderTaskHistory();
     renderAdminDocxStructureSummary();

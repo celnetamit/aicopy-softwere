@@ -517,6 +517,7 @@ function bindSettingsEvents() {
     if (settingsDom.assistantAskBtn) settingsDom.assistantAskBtn.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuestion());
     if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.assistantReprocessCurrentTask());
     if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
+    if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.retryWithRecommendedSettings());
     if (settingsDom.assistantQuestionInput) {
         settingsDom.assistantQuestionInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
