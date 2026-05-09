@@ -498,6 +498,37 @@ section h2 {
     box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
 }
 
+.assistant-unread-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #ffd166;
+    color: #1a1a2e;
+    font-size: 11px;
+    line-height: 20px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.assistant-toast {
+    position: fixed;
+    right: 18px;
+    bottom: 146px;
+    max-width: min(320px, calc(100vw - 32px));
+    border-radius: 8px;
+    border: 1px solid #32517e;
+    background: rgba(10, 18, 38, 0.96);
+    color: #dce8ff;
+    font-size: 12px;
+    padding: 10px 12px;
+    z-index: 1250;
+    box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
+}
+
 .assistant-chat-panel {
     position: fixed;
     right: 18px;

@@ -6,6 +6,10 @@ const mainPreview = appMain.preview;
 const mainSettings = appMain.settings;
 const mainFactories = appMain.factories;
 const mainConstants = appMain.constants;
+const ASSISTANT_CHAT_HISTORY_KEY = 'manuscript_editor_assistant_chat_v1';
+let assistantToastTimeoutId = null;
+let assistantUnreadCount = 0;
+let assistantCurrentTaskKey = '';
 
 function setStatus(message, type) {
     const statusEl = document.getElementById('status');
@@ -317,6 +321,7 @@ function applyProcessResponseToState(response, options = {}) {
         ? mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions)
         : mainPreview.buildDefaultGroupDecisions();
     appMain.syncWindowFileContent();
+    restoreAssistantChatHistoryForCurrentTask();
     updateProcessingModeIndicatorFromPayload(response);
     renderFallbackInsightsFromCurrentState();
 }
@@ -358,10 +363,55 @@ function updateAssistantDiagnostics(status, errorMessage, successAt) {
     }
 }
 
+function getAssistantTaskKey() {
+    return String(mainState.fileContent.taskId || 'global').trim() || 'global';
+}
+
+function readAssistantChatStore() {
+    try {
+        const raw = localStorage.getItem(ASSISTANT_CHAT_HISTORY_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (err) {
+        return {};
+    }
+}
+
+function writeAssistantChatStore(store) {
+    try {
+        localStorage.setItem(ASSISTANT_CHAT_HISTORY_KEY, JSON.stringify(store || {}));
+    } catch (err) {
+        // ignore storage errors
+    }
+}
+
+function setAssistantUnreadCount(count) {
+    assistantUnreadCount = Math.max(0, Number(count || 0));
+    if (!mainDom.assistantUnreadBadge) return;
+    mainDom.assistantUnreadBadge.classList.toggle('hidden', assistantUnreadCount <= 0);
+    mainDom.assistantUnreadBadge.textContent = String(Math.min(99, assistantUnreadCount));
+}
+
+function showAssistantToast(message) {
+    if (!mainDom.assistantToast) return;
+    mainDom.assistantToast.textContent = String(message || '');
+    mainDom.assistantToast.classList.remove('hidden');
+    if (assistantToastTimeoutId) {
+        window.clearTimeout(assistantToastTimeoutId);
+        assistantToastTimeoutId = null;
+    }
+    assistantToastTimeoutId = window.setTimeout(() => {
+        if (mainDom.assistantToast) mainDom.assistantToast.classList.add('hidden');
+        assistantToastTimeoutId = null;
+    }, 3200);
+}
+
 function toggleAssistantChat(shouldOpen) {
     if (!mainDom.assistantChatPanel) return;
     const open = shouldOpen === true;
     mainDom.assistantChatPanel.classList.toggle('hidden', !open);
+    if (open) setAssistantUnreadCount(0);
 }
 
 function appendAssistantChatMessage(role, text) {
@@ -369,8 +419,28 @@ function appendAssistantChatMessage(role, text) {
     const who = role === 'user' ? 'You' : 'Assistant';
     const line = `[${who}] ${String(text || '').trim()}`;
     const current = String(mainDom.assistantOutput.textContent || '').trim();
-    mainDom.assistantOutput.textContent = current ? `${current}\n\n${line}` : line;
+    const next = current ? `${current}\n\n${line}` : line;
+    mainDom.assistantOutput.textContent = next;
     mainDom.assistantOutput.scrollTop = mainDom.assistantOutput.scrollHeight;
+    const store = readAssistantChatStore();
+    store[getAssistantTaskKey()] = next;
+    writeAssistantChatStore(store);
+    const isPanelOpen = mainDom.assistantChatPanel && !mainDom.assistantChatPanel.classList.contains('hidden');
+    if (role === 'assistant' && !isPanelOpen) {
+        setAssistantUnreadCount(assistantUnreadCount + 1);
+    }
+}
+
+function restoreAssistantChatHistoryForCurrentTask() {
+    const key = getAssistantTaskKey();
+    if (assistantCurrentTaskKey === key) return;
+    assistantCurrentTaskKey = key;
+    const store = readAssistantChatStore();
+    const saved = String(store[key] || '').trim();
+    if (mainDom.assistantOutput) {
+        mainDom.assistantOutput.textContent = saved || 'Assistant output appears here.';
+    }
+    setAssistantUnreadCount(0);
 }
 
 function applyProcessingModeProviderContext(provider, model) {
@@ -531,6 +601,7 @@ function pollTaskUntilProcessed(taskId) {
             if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
             stopProcessingPresence();
             setStatus('Processing complete (recovered after transient server response issue)', 'success');
+            showAssistantToast('Processing completed in background.');
             setProgress(100);
             refreshProcessButtonState();
             return;
@@ -541,6 +612,7 @@ function pollTaskUntilProcessed(taskId) {
             mainState.isProcessingDocument = false;
             stopProcessingPresence();
             setStatus('Processing failed', 'error');
+            showAssistantToast('Background processing failed.');
             alert('Processing error: ' + String(reports.processing_note || task.error || 'Task failed on server.'));
             refreshProcessButtonState();
             return;
@@ -593,8 +665,10 @@ function process_document() {
             if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
             if (response.processing_note && response.processing_note.toLowerCase().includes('fallback')) {
                 setStatus('Processing complete (safe fallback applied)', 'warning');
+                showAssistantToast('Processing completed with fallback.');
             } else {
                 setStatus('Processing complete', 'success');
+                showAssistantToast('Processing completed successfully.');
             }
             stopProcessingPresence();
             setProgress(100);
@@ -702,6 +776,7 @@ function askAssistantQuestion() {
         appendAssistantChatMessage('assistant', String(assistant.message || 'No assistant response available.'));
         renderAssistantSuggestions(assistant.suggestions || []);
         setStatus('Assistant diagnostics ready', 'success');
+        showAssistantToast('Assistant replied.');
     });
 }
 
@@ -735,6 +810,7 @@ function assistantReprocessCurrentTask() {
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
         setStatus('Assistant reprocess complete', 'success');
+        showAssistantToast('Assistant reprocess completed.');
     });
 }
 
@@ -773,6 +849,7 @@ function assistantApplyCurrentDecisions() {
         mainPreview.renderCurrentPreview();
         mainAuth.refreshTaskHistory();
         setStatus('Assistant applied correction decisions', 'success');
+        showAssistantToast('Assistant applied decisions.');
     });
 }
 
@@ -807,6 +884,7 @@ function retryWithRecommendedSettings() {
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
         setStatus('Recommended retry complete', 'success');
+        showAssistantToast('Recommended retry completed.');
     });
 }
 
@@ -926,6 +1004,7 @@ function clear_all() {
     if (mainDom.fileInput) mainDom.fileInput.value = '';
     if (mainDom.assistantOutput) mainDom.assistantOutput.textContent = 'Assistant output appears here.';
     toggleAssistantChat(false);
+    setAssistantUnreadCount(0);
     setAssistantUnavailable(false);
     updateAssistantDiagnostics('idle', 'none', 0);
     updateProcessingModeIndicatorFromPayload({});
@@ -958,6 +1037,7 @@ appMain.actions = {
     assistantApplyCurrentDecisions,
     retryWithRecommendedSettings,
     toggleAssistantChat,
+    restoreAssistantChatHistoryForCurrentTask,
     renderFallbackInsightsFromCurrentState,
     setGroupDecision,
     applyAllGroupDecisions,
@@ -975,12 +1055,15 @@ updateAssistantRouteHint();
 updateAssistantDiagnostics('idle', 'none', 0);
 applyProcessingModeProviderContext('', '');
 renderFallbackInsightsFromCurrentState();
+restoreAssistantChatHistoryForCurrentTask();
+setAssistantUnreadCount(0);
 mainAuth.checkAuthenticatedUser();
 refreshProcessButtonState();
 
 window.addEventListener('pageshow', () => {
     mainAuth.applyRouteViewMode();
     updateAssistantRouteHint();
+    restoreAssistantChatHistoryForCurrentTask();
     mainAuth.syncAdminDashboardRouteState();
     mainAuth.resetAdminDashboardScroll();
 });

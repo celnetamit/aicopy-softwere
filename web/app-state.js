@@ -208,6 +208,8 @@ app.dom = {
     clearBtn: document.getElementById('clear-btn'),
     assistantQuestionInput: document.getElementById('assistant-question-input'),
     assistantChatToggleBtn: document.getElementById('assistant-chat-toggle'),
+    assistantUnreadBadge: document.getElementById('assistant-unread-badge'),
+    assistantToast: document.getElementById('assistant-toast'),
     assistantChatPanel: document.getElementById('assistant-chat-panel'),
     assistantChatCloseBtn: document.getElementById('assistant-chat-close'),
     assistantUnavailableBanner: document.getElementById('assistant-unavailable-banner'),

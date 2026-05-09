@@ -397,6 +397,9 @@ function applyTaskDetailsToState(task) {
     if (appAuth.actions && typeof appAuth.actions.renderFallbackInsightsFromCurrentState === 'function') {
         appAuth.actions.renderFallbackInsightsFromCurrentState();
     }
+    if (appAuth.actions && typeof appAuth.actions.restoreAssistantChatHistoryForCurrentTask === 'function') {
+        appAuth.actions.restoreAssistantChatHistoryForCurrentTask();
+    }
     appAuth.actions.switch_tab(processed ? 'corrected' : 'original');
     renderTaskHistory();
     renderAdminDocxStructureSummary();

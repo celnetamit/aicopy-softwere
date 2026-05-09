@@ -294,7 +294,11 @@
                 </div>
             </section>
         </main>
-        <button class="assistant-chat-toggle" id="assistant-chat-toggle" type="button" aria-label="Open Assistant">AI</button>
+        <button class="assistant-chat-toggle" id="assistant-chat-toggle" type="button" aria-label="Open Assistant">
+            AI
+            <span class="assistant-unread-badge hidden" id="assistant-unread-badge">0</span>
+        </button>
+        <div class="assistant-toast hidden" id="assistant-toast"></div>
         <section class="assistant-chat-panel hidden" id="assistant-chat-panel" aria-label="Assistant chat">
             <div class="assistant-chat-header">
                 <strong>Assistant</strong>
