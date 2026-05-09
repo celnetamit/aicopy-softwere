@@ -752,6 +752,37 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(int(enrichment.get("doi_inserted", 0)), 0)
         self.assertEqual(int(enrichment.get("doi_rejected", 0)), 1)
 
+    def test_append_online_reference_links_inserts_likely_match_doi_with_needs_review_marker_in_balanced_mode(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110.\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "likely_match",
+                        "score": 0.86,
+                        "matched_doi": "10.1000/likely",
+                        "matched_source_url": "https://doi.org/10.1000/likely",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(
+            source,
+            report,
+            {"online_reference_validation": True, "doi_insertion_mode": "balanced"},
+        )
+        self.assertIn("doi: 10.1000/likely [needs review].", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("doi_inserted", 0)), 1)
+        self.assertEqual(int(enrichment.get("doi_needs_review_inserted", 0)), 1)
+        self.assertEqual(int(enrichment.get("doi_rejected", 0)), 0)
+
     def test_append_online_reference_links_autofills_book_missing_fields_from_verified_metadata(self):
         source = (
             "Body cites [1].\n"

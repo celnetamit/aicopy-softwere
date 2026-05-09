@@ -1816,10 +1816,12 @@ class ChicagoEditor:
         enrichment = {
             "enabled": True,
             "strict_doi_mode": bool((options or {}).get("strict_doi_mode", True)),
+            "doi_mode": str((options or {}).get("doi_insertion_mode", "balanced")).strip().lower(),
             "references_considered": 0,
             "fields_filled": 0,
             "fields_filled_by_type": {},
             "doi_inserted": 0,
+            "doi_needs_review_inserted": 0,
             "doi_rejected": 0,
             "rejected_numbers": [],
             "trail": [],
@@ -1889,19 +1891,32 @@ class ChicagoEditor:
 
             doi = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
             doi_rejected = False
-            if doi and not self._allow_doi_insert(entry_metadata, validated, strict_mode=enrichment["strict_doi_mode"]):
-                enrichment["doi_rejected"] += 1
-                enrichment["rejected_numbers"].append(number)
-                doi = ""
-                doi_rejected = True
-            elif doi:
-                enrichment["doi_inserted"] += 1
+            doi_needs_review = False
+            status = str(validated.get("status") or "").strip().lower()
+            doi_mode = str(enrichment.get("doi_mode") or "balanced")
+            if doi:
+                if status == "likely_match" and doi_mode == "balanced":
+                    doi_needs_review = True
+                    enrichment["doi_inserted"] += 1
+                    enrichment["doi_needs_review_inserted"] += 1
+                elif not self._allow_doi_insert(entry_metadata, validated, strict_mode=enrichment["strict_doi_mode"]):
+                    enrichment["doi_rejected"] += 1
+                    enrichment["rejected_numbers"].append(number)
+                    doi = ""
+                    doi_rejected = True
+                else:
+                    enrichment["doi_inserted"] += 1
             source_url = self._normalize_source_url_value(
                 str(validated.get("matched_source_url") or validated.get("source_url") or "")
             )
             if doi_rejected:
                 source_url = ""
-            updated_entry = self._append_reference_identifiers(updated_entry, doi=doi, source_url=source_url)
+            updated_entry = self._append_reference_identifiers(
+                updated_entry,
+                doi=doi,
+                source_url=source_url,
+                doi_needs_review=doi_needs_review,
+            )
             output.append(f"{prefix}{updated_entry}")
             confidence = str(validated.get("status") or "").strip().lower()
             if confidence == "verified":
@@ -1917,6 +1932,7 @@ class ChicagoEditor:
                 "confidence": confidence,
                 "fields_filled": fill_report.get("fields", []),
                 "doi_inserted": bool(doi),
+                "doi_needs_review": doi_needs_review,
                 "doi_rejected": doi_rejected,
             })
 
@@ -2026,7 +2042,7 @@ class ChicagoEditor:
 
         return True
 
-    def _append_reference_identifiers(self, entry_text: str, doi: str = "", source_url: str = "") -> str:
+    def _append_reference_identifiers(self, entry_text: str, doi: str = "", source_url: str = "", doi_needs_review: bool = False) -> str:
         """Append reference identifiers without duplication.
 
         Policy: prefer DOI when available; append source URL only when DOI is absent.
@@ -2049,7 +2065,10 @@ class ChicagoEditor:
             base += "."
 
         if needs_doi:
-            base += f" doi: {doi}."
+            if doi_needs_review:
+                base += f" doi: {doi} [needs review]."
+            else:
+                base += f" doi: {doi}."
         if needs_source:
             base += f" Available from: {source_url}."
         return base
