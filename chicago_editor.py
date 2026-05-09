@@ -1349,7 +1349,9 @@ class ChicagoEditor:
 
     def _analyze_reference_entry(self, entry: str) -> Dict[str, Any]:
         """Return parsed reference metadata for source-type-aware validation."""
-        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
+        candidate = self._strip_missing_placeholders(
+            self._pre_normalize_reference_entry_line(re.sub(r'\s+', ' ', entry or '').strip())
+        )
         authors, title, journal, tail = self._split_reference_entry_parts(candidate)
         source_type = self._detect_reference_source_type(candidate, authors, title, journal, tail)
 
@@ -1474,7 +1476,9 @@ class ChicagoEditor:
 
     def _split_reference_entry_parts(self, entry: str) -> Tuple[str, str, str, str]:
         """Split one reference into (authors, title, journal, tail)."""
-        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
+        candidate = self._strip_missing_placeholders(
+            self._pre_normalize_reference_entry_line(re.sub(r'\s+', ' ', entry or '').strip())
+        )
         if not candidate:
             return "", "", "", ""
 
@@ -1547,7 +1551,9 @@ class ChicagoEditor:
 
     def _normalize_reference_entry(self, entry: str, profile: Dict[str, Any]) -> str:
         """Normalize a single reference entry to configured Vancouver style."""
-        candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
+        candidate = self._strip_missing_placeholders(
+            self._pre_normalize_reference_entry_line(re.sub(r'\s+', ' ', entry or '').strip())
+        )
         if not candidate:
             return candidate
 
@@ -1789,10 +1795,45 @@ class ChicagoEditor:
                 entries[current_index] = entries[current_index].rstrip() + ' ' + cleaned
                 continue
 
-            entries.append(cleaned)
+            entries.append(self._pre_normalize_reference_entry_line(cleaned))
             current_index = len(entries) - 1
 
         return entries
+
+    def _pre_normalize_reference_entry_line(self, entry: str) -> str:
+        """Repair common mixed-format reference issues before parsing/classification."""
+        text = re.sub(r'\s+', ' ', str(entry or '')).strip()
+        if not text:
+            return text
+
+        # Normalize author separators and accidental lowercase initials fragments.
+        text = re.sub(r'\s*&\s*', ', ', text)
+        text = re.sub(r',\s*([a-z])\.', lambda m: f", {m.group(1).upper()}.", text)
+        text = re.sub(r'([A-Za-z])\.\s*,\s*([A-Za-z])\.', r'\1. \2.', text)
+
+        # Ensure "In:" marker is consistently punctuated.
+        text = re.sub(r'(?i)\bIn\s+', 'In: ', text)
+        text = re.sub(r'(?i)\bIn:\s*In:\s*', 'In: ', text)
+
+        # APA-like comma before pages => Vancouver-like colon.
+        text = re.sub(
+            r'(\b(?:19|20)\d{2}\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?)\s*,\s*([A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?)\b',
+            r'\1:\2',
+            text,
+        )
+
+        # Repair malformed punctuation around year/volume/page tokens.
+        text = re.sub(r'(\b(?:19|20)\d{2})\s*;\s*\[volume missing\]\s*;\s*', r'\1;[volume missing]:', text)
+        text = re.sub(r'(\b(?:19|20)\d{2})\s*;\s*\)\s*;', r'\1;', text)
+        text = re.sub(r'\s+:\s*', ':', text)
+        text = re.sub(r'\s+;\s*', ';', text)
+        text = re.sub(r';(?=[A-Za-z0-9])', '; ', text)
+        text = re.sub(r':(?=[A-Za-z0-9\[])', ':', text)
+
+        # Canonical DOI label spacing.
+        text = re.sub(r'(?i)\bdoi\s*:\s*', 'doi: ', text)
+        text = re.sub(r'\s{2,}', ' ', text).strip()
+        return text
 
     def append_online_reference_links(
         self,

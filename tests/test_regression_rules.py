@@ -257,6 +257,23 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("Bhattacharya S, Tran TX, Bouchoucha T, Chatzinotas S, Ottersten B.", out)
         self.assertIn("Zang J, Chen J, Chen Z, Li Y, Zhang J, Song T, et al.", out)
 
+    def test_pre_normalize_reference_entry_repairs_mixed_apa_vancouver_tokens(self):
+        source = (
+            "References\n"
+            "Li Y, Li BQ. Use of CdTe quantum dots for high temperature thermal sensing. RSC Adv. 2014;4(47), 24612-24618. doi:10.1039/C4RA03002H.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("RSC Adv. 2014 ;4(47):24612-24618. doi: 10.1039/C4RA03002H.", out)
+
+    def test_pre_normalize_reference_entry_repairs_in_marker_and_author_ampersand(self):
+        source = (
+            "References\n"
+            "Gregory C, Hilton JA, Violette K, et al. Colloidal quantum dot sensor bandwidth and thermal stability: progress and outlook. In Andresen BF, Fulop GF, Zheng L, editors. Proceedings SPIE Infrared Technology and Applications XLVIII; 2022. Vol. 12107, 1210705. doi:10.1117/12.2618320.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("In: Andresen BF, Fulop GF, Zheng L, editors.", out)
+        self.assertIn("doi: 10.1117/12.2618320.", out)
+
     def test_reference_tail_uses_house_journal_pattern(self):
         source = (
             "References\n"
