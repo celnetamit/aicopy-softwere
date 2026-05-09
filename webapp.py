@@ -354,6 +354,7 @@ def _default_global_runtime_settings() -> Dict:
             "online_reference_serper_fallback": True,
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
+            "cmos_profile": "core",
             "custom_terms": [],
         },
         "ai": {
@@ -417,6 +418,9 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
     domain = str(editing_in.get("domain_profile", defaults["editing"]["domain_profile"]) or "auto").strip().lower()
     if domain not in ("auto", "general", "medical", "engineering", "law"):
         domain = "auto"
+    cmos_profile = str(editing_in.get("cmos_profile", defaults["editing"]["cmos_profile"]) or "core").strip().lower()
+    if cmos_profile not in ("core", "strict", "journal_custom"):
+        cmos_profile = "core"
     doi_mode = str(editing_in.get("doi_insertion_mode", defaults["editing"]["doi_insertion_mode"]) or "balanced").strip().lower()
     if doi_mode not in ("strict", "balanced"):
         doi_mode = "balanced"
@@ -444,6 +448,7 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
             ),
             "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
+            "cmos_profile": cmos_profile,
             "custom_terms": _normalize_custom_terms(editing_in.get("custom_terms", defaults["editing"]["custom_terms"])),
         },
         "ai": {
@@ -501,6 +506,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["online_reference_serper_fallback"] = bool(editing.get("online_reference_serper_fallback", True))
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
+    opts["cmos_profile"] = str(editing.get("cmos_profile", "core"))
     opts["custom_terms"] = list(editing.get("custom_terms", []))
     opts["journal_profile"] = "vancouver_nlm"
     opts["reference_profile"] = "vancouver_nlm"

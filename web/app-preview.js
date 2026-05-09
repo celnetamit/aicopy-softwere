@@ -452,15 +452,28 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             : (status === 'at_risk' ? 'At Risk' : 'Needs Attention');
         const warnings = Array.isArray(cmosGuardrails.warnings) ? cmosGuardrails.warnings : [];
         const recommendations = Array.isArray(cmosGuardrails.recommendations) ? cmosGuardrails.recommendations : [];
+        const chapterDiagnostics = Array.isArray(cmosGuardrails.chapter_diagnostics) ? cmosGuardrails.chapter_diagnostics : [];
         html += '<section class="profile-card">';
         html += '<div class="profile-title">CMOS Workflow Guardrails</div>';
         html += `<div class="profile-summary">Strict mode: <strong>${cmosGuardrails.strict_mode ? 'On' : 'Off'}</strong> | Compliance score: <strong>${Number.isFinite(score) ? score : 0}</strong> | Status: <strong>${previewHelpers.escapeHtml(statusLabel)}</strong></div>`;
         html += '<div class="profile-rules">';
+        html += `<span class="profile-chip">CMOS profile: ${previewHelpers.escapeHtml(String(cmosGuardrails.cmos_profile || 'core'))}</span>`;
         html += `<span class="profile-chip">Requested domain: ${previewHelpers.escapeHtml(String(cmosGuardrails.requested_domain || 'auto'))}</span>`;
         html += `<span class="profile-chip">Detected domain: ${previewHelpers.escapeHtml(String(cmosGuardrails.detected_domain || 'general'))}</span>`;
         html += `<span class="profile-chip">Protected terms: ${Number(cmosGuardrails.protected_terms || 0)}</span>`;
         html += `<span class="profile-chip">Custom terms: ${Number(cmosGuardrails.custom_terms || 0)}</span>`;
         html += '</div>';
+        if (chapterDiagnostics.length > 0) {
+            html += '<div class="profile-validation">';
+            html += '<div class="profile-validation-title">Chapter Diagnostics</div><ul>';
+            chapterDiagnostics.forEach((row) => {
+                const chapter = previewHelpers.escapeHtml(String(row && row.chapter || 'CMOS'));
+                const statusText = previewHelpers.escapeHtml(String(row && row.status || 'unknown'));
+                const reason = previewHelpers.escapeHtml(String(row && row.reason || ''));
+                html += `<li>${chapter}: ${statusText}${reason ? ` (${reason})` : ''}</li>`;
+            });
+            html += '</ul></div>';
+        }
         if (warnings.length > 0) {
             html += '<div class="profile-validation">';
             html += '<div class="profile-validation-title">Warnings</div><ul>';

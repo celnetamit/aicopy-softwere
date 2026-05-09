@@ -1001,6 +1001,7 @@ class ProcessorRegressionTests(unittest.TestCase):
                 "punctuation": True,
                 "chicago_style": True,
                 "cmos_strict_mode": True,
+                "cmos_profile": "strict",
                 "domain_profile": "auto",
                 "custom_terms": [],
                 "ai": {"enabled": False},
@@ -1014,6 +1015,16 @@ class ProcessorRegressionTests(unittest.TestCase):
         self.assertIn("warnings", guardrails)
         self.assertIn("recommendations", guardrails)
         self.assertEqual(guardrails.get("requested_domain"), "auto")
+        self.assertEqual(guardrails.get("cmos_profile"), "strict")
+        self.assertIsInstance(guardrails.get("chapter_diagnostics"), list)
+
+    def test_cmos_profile_rule_pack_strict_applies_oxford_comma(self):
+        editor = ChicagoEditor()
+        out = editor.apply_chicago_style(
+            "The groups were Alpha, Beta and Gamma.",
+            {"cmos_profile": "strict"},
+        )
+        self.assertIn("Alpha, Beta, and Gamma", out)
 
     def test_apply_group_decisions_accepts_and_rejects_by_group(self):
         processor = DocumentProcessor()

@@ -80,6 +80,12 @@
                         <option value="engineering">Engineering</option>
                         <option value="law">Law</option>
                     </select>
+                    <label class="field-label" for="cmos-profile">CMOS Profile</label>
+                    <select id="cmos-profile" class="input-field">
+                        <option value="core" selected>Core (default)</option>
+                        <option value="strict">Strict</option>
+                        <option value="journal_custom">Journal-Custom</option>
+                    </select>
                     <label class="field-label" for="custom-terms-input">Custom Domain Terms</label>
                     <textarea id="custom-terms-input" class="input-field terms-box" placeholder="Add one term per line (or comma-separated), e.g.&#10;myocardial infarction&#10;finite element analysis&#10;habeas corpus"></textarea>
                     <div class="inline-row">
@@ -453,6 +459,14 @@
                                 <option value="medical">Medical</option>
                                 <option value="engineering">Engineering</option>
                                 <option value="law">Law</option>
+                            </select>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-cmos-profile">CMOS Profile</label>
+                            <select id="admin-setting-cmos-profile" class="input-field">
+                                <option value="core" selected>Core</option>
+                                <option value="strict">Strict</option>
+                                <option value="journal_custom">Journal-Custom</option>
                             </select>
                         </div>
 

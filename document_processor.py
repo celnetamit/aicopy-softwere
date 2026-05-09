@@ -130,9 +130,9 @@ class DocumentProcessor:
             )
             if self._last_ai_pipeline_note:
                 self._last_selection_note = f"{self._last_ai_pipeline_note} {self._last_selection_note}".strip()
-            self._attach_cmos_guardrails(original=text, corrected=selected, options=options)
             self._last_journal_profile_report = self.editor.build_reference_profile_report(selected, options)
             self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(selected, options)
+            self._attach_cmos_guardrails(original=text, corrected=selected, options=options)
             selected = self.editor.append_online_reference_links(selected, self._last_citation_reference_report, options)
             return selected
 
@@ -145,9 +145,9 @@ class DocumentProcessor:
         else:
             self._last_processing_audit["mode"] = "rule_only"
             self._last_processing_audit["summary"] = {"reason": "AI disabled or unavailable"}
-        self._attach_cmos_guardrails(original=text, corrected=rules_corrected, options=options)
         self._last_journal_profile_report = self.editor.build_reference_profile_report(rules_corrected, options)
         self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(rules_corrected, options)
+        self._attach_cmos_guardrails(original=text, corrected=rules_corrected, options=options)
         return self.editor.append_online_reference_links(rules_corrected, self._last_citation_reference_report, options)
 
     def _is_ai_first_cmos_mode(self, options: Dict) -> bool:
@@ -171,6 +171,9 @@ class DocumentProcessor:
         custom_terms = int(domain_report.get("custom_terms", 0) or 0)
         chicago_enabled = bool(safe_options.get("chicago_style", True))
         cmos_strict_mode = bool(safe_options.get("cmos_strict_mode", True))
+        cmos_profile = str(safe_options.get("cmos_profile", "core") or "core").strip().lower()
+        if cmos_profile not in ("core", "strict", "journal_custom"):
+            cmos_profile = "core"
 
         ai_options = safe_options.get("ai", {}) if isinstance(safe_options.get("ai"), dict) else {}
         ai_enabled = bool(ai_options.get("enabled", False))
@@ -204,6 +207,13 @@ class DocumentProcessor:
 
         if cmos_strict_mode and len(str(original or "")) > 12000 and not ai_enabled:
             recommendations.append("Enable AI section-wise mode for long manuscripts, then review audit fallback reasons.")
+        if cmos_profile == "core":
+            recommendations.append("Use CMOS profile strict or journal_custom for expanded chapter-level checks.")
+
+        chapter_diagnostics = self._build_cmos_chapter_diagnostics()
+        for row in chapter_diagnostics:
+            if str(row.get("status")) == "at_risk":
+                warnings.append(f"{row.get('chapter')}: {row.get('reason')}")
 
         if ai_enabled and ai_provider == "openrouter":
             recommendations.append("Validate OpenRouter key/model in Admin Dashboard before production runs.")
@@ -229,12 +239,14 @@ class DocumentProcessor:
             "compliance_score": compliance_score,
             "requested_domain": requested_domain,
             "detected_domain": detected_domain,
+            "cmos_profile": cmos_profile,
             "protected_terms": protected_terms,
             "custom_terms": custom_terms,
             "chicago_style_enabled": chicago_enabled,
             "ai_enabled": ai_enabled,
             "warnings": warnings,
             "recommendations": recommendations,
+            "chapter_diagnostics": chapter_diagnostics,
             "input_chars": len(str(original or "")),
             "output_chars": len(str(corrected or "")),
         }
@@ -244,6 +256,37 @@ class DocumentProcessor:
             summary = {}
             self._last_processing_audit["summary"] = summary
         summary["cmos_guardrails"] = guardrails
+
+    def _build_cmos_chapter_diagnostics(self) -> List[Dict]:
+        """Map current run signals into chapter-style CMOS diagnostics."""
+        report = self._last_citation_reference_report if isinstance(self._last_citation_reference_report, dict) else {}
+        counts = report.get("category_counts", {}) if isinstance(report.get("category_counts"), dict) else {}
+        details = report.get("details", {}) if isinstance(report.get("details"), dict) else {}
+        gate = details.get("reference_quality_gate", {}) if isinstance(details.get("reference_quality_gate"), dict) else {}
+
+        reference_issues = int(report.get("summary", {}).get("reference_issues", 0) or 0) if isinstance(report.get("summary"), dict) else 0
+        citation_issues = int(report.get("summary", {}).get("citation_issues", 0) or 0) if isinstance(report.get("summary"), dict) else 0
+        manual_review = int(gate.get("failed", 0) or 0)
+
+        def row(chapter: str, passed: bool, reason: str) -> Dict:
+            return {
+                "chapter": chapter,
+                "status": "pass" if passed else "at_risk",
+                "reason": reason,
+            }
+
+        language_pass = int(counts.get("reference_missing_title", 0) or 0) == 0
+        punctuation_pass = int(counts.get("malformed_citation_block", 0) or 0) == 0
+        citations_pass = citation_issues == 0
+        references_pass = reference_issues == 0 and manual_review == 0
+
+        diagnostics = [
+            row("Capitalization & Terms", language_pass, "title completeness and term normalization"),
+            row("Punctuation & Citation Blocks", punctuation_pass, "citation block syntax and punctuation structure"),
+            row("Citation Integrity", citations_pass, f"citation issues={citation_issues}"),
+            row("References & Bibliography", references_pass, f"reference issues={reference_issues}, manual_review={manual_review}"),
+        ]
+        return diagnostics
 
     def _attach_docx_package_summary(self):
         """Attach DOCX package preservation details to the processing audit summary."""

@@ -859,6 +859,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
                 "chicago_style": True,
                 "cmos_strict_mode": True,
                 "domain_profile": "medical",
+                "cmos_profile": "strict",
                 "custom_terms": ["myocardial infarction", "HbA1c"],
             },
             "ai": {
@@ -881,6 +882,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertEqual(payload.get("settings", {}).get("editing", {}).get("domain_profile"), "medical")
+        self.assertEqual(payload.get("settings", {}).get("editing", {}).get("cmos_profile"), "strict")
 
         user_client = WsgiTestClient(webapp.app)
         status, payload = user_client.request("POST", "/api/auth/google-login", {"id_token": "test:user@conwiz.in"})
@@ -891,6 +893,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         user_settings = payload.get("settings", {})
         self.assertEqual(user_settings.get("editing", {}).get("domain_profile"), "medical")
+        self.assertEqual(user_settings.get("editing", {}).get("cmos_profile"), "strict")
         self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
         self.assertEqual(user_settings.get("ai", {}).get("agent_router_api_key", ""), "")
 

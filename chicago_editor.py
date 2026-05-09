@@ -383,6 +383,7 @@ class ChicagoEditor:
             result = self.format_author_markers_as_superscript(result)
             result = self.normalize_author_line_name_markers(result)
             result = self.normalize_keywords_line(result)
+            result = self.apply_cmos_profile_rule_pack(result, safe_options)
             result = self.format_references_vancouver_numbered(result, safe_options)
 
         return self._restore_invariant_tokens(result, protected_tokens)
@@ -483,6 +484,15 @@ class ChicagoEditor:
         resolved = dict(self.JOURNAL_PROFILES[profile_id])
         resolved["id"] = profile_id
         return resolved
+
+    def _normalize_cmos_profile(self, options: Optional[Dict]) -> str:
+        """Resolve CMOS expansion profile for Phase 2 rule packs."""
+        if not isinstance(options, dict):
+            return "core"
+        value = str(options.get("cmos_profile", "core") or "core").strip().lower()
+        if value in ("core", "strict", "journal_custom"):
+            return value
+        return "core"
 
     def _protect_invariant_tokens(self, text: str, options: Optional[Dict] = None) -> Tuple[str, Dict[str, str]]:
         """Protect tokens that must remain byte-for-byte intact during editing."""
@@ -709,9 +719,47 @@ class ChicagoEditor:
         result = self.normalize_measurement_numerals(result)
         # Ensure keyword lines use sentence case per item.
         result = self.normalize_keywords_line(result)
+        # Phase 2 CMOS expansion layer (profile-based rule pack).
+        result = self.apply_cmos_profile_rule_pack(result, options)
         # Enforce Vancouver numbering so citations and references follow first appearance.
         result = self.format_references_vancouver_numbered(result, options or {})
 
+        return result
+
+    def apply_cmos_profile_rule_pack(self, text: str, options: Optional[Dict] = None) -> str:
+        """Apply Phase 2 CMOS profile-specific rule packs."""
+        result = str(text or "")
+        profile = self._normalize_cmos_profile(options)
+        if profile == "core":
+            return result
+
+        # Shared safe pack used by strict/journal_custom.
+        result = self._rule_tulsi_specific_vs_generic(result)
+        result = re.sub(r'(?i)\bet\s+al\.\s*,', 'et al.', result)
+        result = re.sub(r'(?i)\be\.g\.(?!,)', 'e.g.,', result)
+        result = re.sub(r'(?i)\bi\.e\.(?!,)', 'i.e.,', result)
+
+        if profile == "strict":
+            # Oxford comma for simple serial lists ("A, B and C" -> "A, B, and C").
+            result = re.sub(
+                r'\b([A-Z][a-z]+,\s+[A-Z][a-z]+)\s+and\s+([A-Z][a-z]+)\b',
+                r'\1, and \2',
+                result,
+            )
+            # Tighten common abbreviation spacing.
+            result = re.sub(r'(?i)\b(fig|eq|ref)\.\s+(\d)', lambda m: f"{m.group(1).capitalize()}. {m.group(2)}", result)
+
+        if profile == "journal_custom":
+            # Journal-custom keeps title/sentence tuning conservative but enforces DOI label form.
+            result = re.sub(r'(?i)\bdoi\s*:\s*', 'doi: ', result)
+
+        return result
+
+    def _rule_tulsi_specific_vs_generic(self, text: str) -> str:
+        """Use Tulsi for specific/cultural plant naming; tulsi for generic mentions."""
+        result = str(text or "")
+        result = re.sub(r'\b[Tt]ulsi\s+plant\b', 'Tulsi plant', result)
+        result = re.sub(r'\b(?:the|a)\s+Tulsi\b', lambda m: m.group(0).replace('Tulsi', 'tulsi'), result)
         return result
 
     def _word_to_number(self, raw: str) -> int:

@@ -179,6 +179,7 @@ function saveAiSettings() {
         agent_router_api_key: settingsDom.agentRouterApiKeyInput.value,
         ai_advanced: aiAdvanced,
         domain_profile: settingsDom.domainProfileSelect.value || 'auto',
+        cmos_profile: settingsDom.cmosProfileSelect ? String(settingsDom.cmosProfileSelect.value || 'core') : 'core',
         cmos_strict_mode: settingsDom.cmosStrictInput ? settingsDom.cmosStrictInput.checked : true,
         online_reference_validation: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
         online_reference_serper_fallback: settingsDom.onlineReferenceSerperFallbackInput ? settingsDom.onlineReferenceSerperFallbackInput.checked !== false : true,
@@ -262,6 +263,10 @@ function loadAiSettings() {
         settingsDom.domainProfileSelect.value = parsed.domain_profile;
     } else {
         settingsDom.domainProfileSelect.value = 'auto';
+    }
+    if (settingsDom.cmosProfileSelect) {
+        const profile = String(parsed.cmos_profile || 'core');
+        settingsDom.cmosProfileSelect.value = ['core', 'strict', 'journal_custom'].includes(profile) ? profile : 'core';
     }
     settingsDom.cmosStrictInput.checked = typeof parsed.cmos_strict_mode === 'boolean' ? parsed.cmos_strict_mode : true;
     settingsDom.onlineReferenceValidationInput.checked = typeof parsed.online_reference_validation === 'boolean' ? parsed.online_reference_validation : true;
@@ -509,6 +514,7 @@ function bindSettingsEvents() {
         settingsDom.aiSectionChunkLinesInput,
         settingsDom.aiGlobalConsistencyMaxCharsInput,
         settingsDom.domainProfileSelect,
+        settingsDom.cmosProfileSelect,
         settingsDom.customTermsInput,
         settingsDom.cmosStrictInput,
         settingsDom.onlineReferenceValidationInput,

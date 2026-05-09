@@ -278,6 +278,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
         online_reference_serper_fallback: serperFallbackEnabled,
         doi_insertion_mode: 'balanced',
         domain_profile: 'auto',
+        cmos_profile: 'core',
         custom_terms: [],
         journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: authConstants.FIXED_JOURNAL_PROFILE,
@@ -313,6 +314,9 @@ function buildProcessingOptionsFromRuntimeSettings() {
         online_reference_serper_fallback: serperFallbackEnabled,
         doi_insertion_mode: editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced',
         domain_profile: String(editing.domain_profile || 'auto'),
+        cmos_profile: ['core', 'strict', 'journal_custom'].includes(String(editing.cmos_profile || 'core'))
+            ? String(editing.cmos_profile || 'core')
+            : 'core',
         custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
         journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: authConstants.FIXED_JOURNAL_PROFILE,
@@ -922,6 +926,10 @@ function applyAdminGlobalSettingsForm(settings) {
     if (authDom.adminSettingOnlineReferenceSerperFallback) authDom.adminSettingOnlineReferenceSerperFallback.checked = editing.online_reference_serper_fallback !== false;
     if (authDom.adminSettingDoiInsertionMode) authDom.adminSettingDoiInsertionMode.value = editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced';
     if (authDom.adminSettingDomainProfile) authDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
+    if (authDom.adminSettingCmosProfile) {
+        const profile = String(editing.cmos_profile || 'core');
+        authDom.adminSettingCmosProfile.value = ['core', 'strict', 'journal_custom'].includes(profile) ? profile : 'core';
+    }
     if (authDom.adminSettingCustomTerms) {
         const terms = Array.isArray(editing.custom_terms) ? editing.custom_terms : [];
         authDom.adminSettingCustomTerms.value = appAuth.preview.normalizeCustomTermsText(terms.join('\n'));
@@ -955,6 +963,7 @@ function collectAdminGlobalSettingsForm() {
             online_reference_serper_fallback: authDom.adminSettingOnlineReferenceSerperFallback ? authDom.adminSettingOnlineReferenceSerperFallback.checked : true,
             doi_insertion_mode: authDom.adminSettingDoiInsertionMode ? String(authDom.adminSettingDoiInsertionMode.value || 'balanced') : 'balanced',
             domain_profile: authDom.adminSettingDomainProfile ? String(authDom.adminSettingDomainProfile.value || 'auto') : 'auto',
+            cmos_profile: authDom.adminSettingCmosProfile ? String(authDom.adminSettingCmosProfile.value || 'core') : 'core',
             custom_terms: authDom.adminSettingCustomTerms ? appAuth.preview.parseCustomTerms(authDom.adminSettingCustomTerms.value) : []
         },
         ai: {
