@@ -591,6 +591,11 @@ section h2 {
     line-height: 1.45;
 }
 
+.assistant-copy-btn {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
 .assistant-request-log {
     margin-bottom: 10px;
     border: 1px solid #2f446a;
@@ -645,6 +650,34 @@ section h2 {
 #assistant-run-stages-list ul {
     margin: 0;
     padding-left: 16px;
+}
+
+.stage-badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 6px;
+    border: 1px solid transparent;
+}
+
+.stage-badge.done {
+    border-color: rgba(78, 204, 163, 0.65);
+    background: rgba(78, 204, 163, 0.14);
+    color: #baf3de;
+}
+
+.stage-badge.skipped {
+    border-color: rgba(255, 193, 7, 0.6);
+    background: rgba(255, 193, 7, 0.14);
+    color: #ffe9ab;
+}
+
+.stage-badge.failed {
+    border-color: rgba(233, 69, 96, 0.65);
+    background: rgba(233, 69, 96, 0.16);
+    color: #ffced8;
 }
 
 .assistant-fallback-panel {

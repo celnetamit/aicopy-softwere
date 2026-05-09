@@ -423,9 +423,10 @@ function renderAssistantRequestLog() {
         .map((entry) => {
             const retried = entry.retried ? 'yes' : 'no';
             const ms = Number(entry.latencyMs || 0);
-            const status = appMain.helpers.escapeHtml(String(entry.status || 'unknown'));
+            const statusRaw = String(entry.status || 'unknown');
+            const status = appMain.helpers.escapeHtml(statusRaw);
             const action = appMain.helpers.escapeHtml(String(entry.action || 'assistant'));
-            return `<li>${action}: ${status} | ${ms}ms | retried=${retried}</li>`;
+            return `<li>${action}: <span class="stage-badge ${statusRaw === 'success' ? 'done' : (statusRaw === 'timeout' ? 'failed' : 'skipped')}">${status}</span> | ${ms}ms | retried=${retried}</li>`;
         })
         .join('');
     mainDom.assistantRequestLogList.innerHTML = `<ul>${rows}</ul>`;
@@ -448,6 +449,12 @@ function stageStatusLabel(status) {
     if (status === 'done') return 'Done';
     if (status === 'failed') return 'Failed';
     return 'Skipped';
+}
+
+function stageIcon(status) {
+    if (status === 'done') return 'OK';
+    if (status === 'failed') return 'ERR';
+    return 'SKIP';
 }
 
 function deriveRunStagesFromState() {
@@ -497,10 +504,58 @@ function renderRunStagesFromState() {
     const rows = deriveRunStagesFromState()
         .map((stage) => {
             const meta = stage.meta ? ` (${appMain.helpers.escapeHtml(String(stage.meta))})` : '';
-            return `<li>${appMain.helpers.escapeHtml(stage.name)}: ${stageStatusLabel(stage.status)}${meta}</li>`;
+            const label = stageStatusLabel(stage.status);
+            const icon = stageIcon(stage.status);
+            return `<li>${appMain.helpers.escapeHtml(stage.name)}: <span class="stage-badge ${stage.status}">${icon} ${label}</span>${meta}</li>`;
         })
         .join('');
     mainDom.assistantRunStagesList.innerHTML = `<ul>${rows}</ul>`;
+}
+
+function buildDiagnosticsExportText() {
+    const diag = {
+        endpoint: String(mainDom.assistantEndpointStatus && mainDom.assistantEndpointStatus.textContent || 'idle'),
+        lastSuccess: String(mainDom.assistantLastSuccess && mainDom.assistantLastSuccess.textContent || 'never'),
+        lastError: String(mainDom.assistantLastError && mainDom.assistantLastError.textContent || 'none'),
+    };
+    const stageLines = deriveRunStagesFromState().map((stage) => {
+        const meta = stage.meta ? ` (${stage.meta})` : '';
+        return `- ${stage.name}: ${stageStatusLabel(stage.status)}${meta}`;
+    });
+    const logLines = assistantRequestLogEntries
+        .slice(-10)
+        .reverse()
+        .map((entry) => `- ${entry.action}: ${entry.status}, ${entry.latencyMs}ms, retried=${entry.retried ? 'yes' : 'no'}`);
+    return [
+        'Assistant Diagnostics',
+        `Endpoint: ${diag.endpoint}`,
+        `Last success: ${diag.lastSuccess}`,
+        `Last error: ${diag.lastError}`,
+        '',
+        'Run Stages',
+        ...stageLines,
+        '',
+        'Request Log (last 10)',
+        ...(logLines.length ? logLines : ['- No requests yet']),
+    ].join('\n');
+}
+
+function copyAssistantDiagnostics() {
+    const text = buildDiagnosticsExportText();
+    const fallbackCopy = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (err) {}
+        try { document.body.removeChild(ta); } catch (err) {}
+    };
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy());
+    } else {
+        fallbackCopy();
+    }
+    showAssistantToast('Diagnostics copied.');
 }
 
 function setAssistantActionsLoading(loading, label) {
@@ -1210,6 +1265,7 @@ appMain.actions = {
     assistantReprocessCurrentTask,
     assistantApplyCurrentDecisions,
     retryWithRecommendedSettings,
+    copyAssistantDiagnostics,
     toggleAssistantChat,
     restoreAssistantChatHistoryForCurrentTask,
     renderRunStagesFromState,

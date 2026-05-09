@@ -223,6 +223,7 @@ app.dom = {
     assistantRequestLogList: document.getElementById('assistant-request-log-list'),
     assistantRunStages: document.getElementById('assistant-run-stages'),
     assistantRunStagesList: document.getElementById('assistant-run-stages-list'),
+    assistantCopyDiagnosticsBtn: document.getElementById('assistant-copy-diagnostics-btn'),
     assistantEndpointStatus: document.getElementById('assistant-endpoint-status'),
     assistantLastSuccess: document.getElementById('assistant-last-success'),
     assistantLastError: document.getElementById('assistant-last-error'),

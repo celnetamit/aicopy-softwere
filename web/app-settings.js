@@ -518,6 +518,7 @@ function bindSettingsEvents() {
     if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.assistantReprocessCurrentTask());
     if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
     if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.retryWithRecommendedSettings());
+    if (settingsDom.assistantCopyDiagnosticsBtn) settingsDom.assistantCopyDiagnosticsBtn.addEventListener('click', () => appSettingsRoot.actions.copyAssistantDiagnostics());
     if (settingsDom.assistantChatToggleBtn) settingsDom.assistantChatToggleBtn.addEventListener('click', () => {
         const open = !(settingsDom.assistantChatPanel && !settingsDom.assistantChatPanel.classList.contains('hidden'));
         appSettingsRoot.actions.toggleAssistantChat(open);
