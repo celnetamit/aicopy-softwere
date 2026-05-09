@@ -1781,6 +1781,17 @@ class ChicagoEditor:
         if not bool((options or {}).get("online_reference_validation", False)):
             return content
 
+        enrichment = {
+            "enabled": True,
+            "strict_doi_mode": bool((options or {}).get("strict_doi_mode", True)),
+            "references_considered": 0,
+            "fields_filled": 0,
+            "fields_filled_by_type": {},
+            "doi_inserted": 0,
+            "doi_rejected": 0,
+            "rejected_numbers": [],
+        }
+
         validated_by_number: Dict[int, Dict[str, Any]] = {}
         for entry in online.get("entries", []) if isinstance(online.get("entries"), list) else []:
             if not isinstance(entry, dict):
@@ -1795,6 +1806,7 @@ class ChicagoEditor:
             if number <= 0:
                 continue
             validated_by_number[number] = entry
+        online["enrichment"] = enrichment
         if not validated_by_number:
             return content
 
@@ -1834,14 +1846,130 @@ class ChicagoEditor:
                 output.append(line)
                 continue
 
+            enrichment["references_considered"] += 1
+            entry_metadata = self._analyze_reference_entry(entry_text)
+            updated_entry, fill_report = self._fill_missing_fields_from_validated_metadata(entry_text, validated, entry_metadata)
+            for field_name in fill_report.get("fields", []):
+                enrichment["fields_filled"] += 1
+                by_type = enrichment["fields_filled_by_type"]
+                by_type[field_name] = int(by_type.get(field_name, 0)) + 1
+
             doi = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
+            doi_rejected = False
+            if doi and not self._allow_doi_insert(entry_metadata, validated, strict_mode=enrichment["strict_doi_mode"]):
+                enrichment["doi_rejected"] += 1
+                enrichment["rejected_numbers"].append(number)
+                doi = ""
+                doi_rejected = True
+            elif doi:
+                enrichment["doi_inserted"] += 1
             source_url = self._normalize_source_url_value(
                 str(validated.get("matched_source_url") or validated.get("source_url") or "")
             )
-            updated_entry = self._append_reference_identifiers(entry_text, doi=doi, source_url=source_url)
+            if doi_rejected:
+                source_url = ""
+            updated_entry = self._append_reference_identifiers(updated_entry, doi=doi, source_url=source_url)
             output.append(f"{prefix}{updated_entry}")
 
+        if isinstance(citation_report, dict):
+            citation_report["online_validation"] = online
         return '\n'.join(output)
+
+    def _fill_missing_fields_from_validated_metadata(
+        self,
+        entry_text: str,
+        validated: Dict[str, Any],
+        metadata: Dict[str, Any],
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Fill explicit [field missing] placeholders from high-confidence metadata."""
+        entry = str(entry_text or "")
+        status = str(validated.get("status") or "").strip().lower()
+        score = float(validated.get("score") or 0.0)
+        if status != "verified" or ("score" in validated and score < 0.88):
+            return entry, {"fields": []}
+
+        updates = {
+            "title": str(validated.get("matched_title") or "").strip().rstrip("."),
+            "journal": str(validated.get("matched_journal") or "").strip().rstrip("."),
+            "year": self._extract_year_token(str(validated.get("matched_year") or "")),
+            "volume": str(validated.get("matched_volume") or "").strip(),
+            "page": str(validated.get("matched_pages") or "").strip(),
+        }
+        replacement_map = {
+            "title": "[title missing]",
+            "journal": "[journal missing]",
+            "year": "[year missing]",
+            "volume": "[volume missing]",
+            "page": "[page missing]",
+        }
+
+        filled: List[str] = []
+        result = entry
+        for field_name, placeholder in replacement_map.items():
+            value = updates.get(field_name, "")
+            if not value:
+                continue
+            next_result, changed = self._replace_missing_placeholder(result, placeholder, value)
+            if changed:
+                result = next_result
+                filled.append(field_name)
+        return result, {"fields": filled}
+
+    def _replace_missing_placeholder(self, text: str, placeholder: str, value: str) -> Tuple[str, bool]:
+        """Replace a single placeholder token case-insensitively."""
+        pattern = re.compile(re.escape(placeholder), flags=re.IGNORECASE)
+        if not pattern.search(text or ""):
+            return text, False
+        return pattern.sub(str(value).strip(), text, count=1), True
+
+    def _extract_year_token(self, value: str) -> str:
+        """Return normalized 4-digit year token when present."""
+        match = re.search(r"\b((?:19|20)\d{2})\b", str(value or ""))
+        return match.group(1) if match else ""
+
+    def _allow_doi_insert(self, reference_metadata: Dict[str, Any], validated: Dict[str, Any], strict_mode: bool = True) -> bool:
+        """Allow DOI insertion only when metadata alignment is strong."""
+        status = str(validated.get("status") or "").strip().lower()
+        if status != "verified":
+            return False
+        score = float(validated.get("score") or 1.0)
+        min_score = 0.93 if strict_mode else 0.86
+        if score < min_score:
+            return False
+
+        # Backward-compatible path: if this validated payload only carries DOI
+        # (without matching metadata fields), trust verified status + score.
+        if not any([
+            str(validated.get("matched_title") or "").strip(),
+            str(validated.get("matched_year") or "").strip(),
+            str(validated.get("matched_pages") or "").strip(),
+            str(validated.get("matched_first_author") or "").strip(),
+        ]):
+            return True
+
+        title_similarity = self._text_similarity(
+            str(reference_metadata.get("title") or ""),
+            str(validated.get("matched_title") or ""),
+        )
+        if title_similarity < (0.90 if strict_mode else 0.80):
+            return False
+
+        ref_year = self._extract_year_token(str(reference_metadata.get("year") or ""))
+        matched_year = self._extract_year_token(str(validated.get("matched_year") or ""))
+        if ref_year and matched_year and ref_year != matched_year:
+            return False
+
+        ref_author = self._extract_reference_first_author(str(reference_metadata.get("authors") or ""))
+        matched_author = self._extract_reference_first_author(str(validated.get("matched_first_author") or ""))
+        if strict_mode and ref_author and matched_author and ref_author != matched_author:
+            return False
+
+        ref_pages = str(reference_metadata.get("pages") or "").strip()
+        matched_pages = str(validated.get("matched_pages") or "").strip()
+        if ref_pages and matched_pages and not self._page_tokens_match(ref_pages, matched_pages):
+            return False
+
+        return True
 
     def _append_reference_identifiers(self, entry_text: str, doi: str = "", source_url: str = "") -> str:
         """Append reference identifiers without duplication.
@@ -2842,6 +2970,8 @@ class ChicagoEditor:
             "matched_journal": str(candidate.get("journal") or ""),
             "matched_year": str(candidate.get("year") or ""),
             "matched_pages": str(candidate.get("pages") or ""),
+            "matched_volume": str(candidate.get("volume") or ""),
+            "matched_issue": str(candidate.get("issue") or ""),
             "matched_doi": str(candidate.get("doi") or ""),
             "matched_source_url": str(candidate.get("source_url") or ""),
             "source_url": str(candidate.get("source_url") or ""),

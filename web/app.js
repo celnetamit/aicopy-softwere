@@ -465,6 +465,9 @@ function deriveRunStagesFromState() {
         ? report.online_validation
         : {};
     const onlineSummary = online.summary && typeof online.summary === 'object' ? online.summary : {};
+    const enrichment = online.enrichment && typeof online.enrichment === 'object'
+        ? online.enrichment
+        : {};
     const summary = report.summary && typeof report.summary === 'object' ? report.summary : {};
     const details = report.details && typeof report.details === 'object' ? report.details : {};
     const sourceTypeNumbers = details.source_type_numbers && typeof details.source_type_numbers === 'object'
@@ -495,6 +498,13 @@ function deriveRunStagesFromState() {
         || Number(categoryCounts.reference_missing_publisher || 0)
         || 0;
     const bookStatus = bookCount > 0 ? (bookIssueCount > 0 ? 'failed' : 'done') : 'skipped';
+    const autoFillCount = Number(enrichment.fields_filled || 0);
+    const doiInserted = Number(enrichment.doi_inserted || 0);
+    const doiRejected = Number(enrichment.doi_rejected || 0);
+    const enrichmentEnabled = enrichment.enabled === true;
+    const autoFillStatus = enrichmentEnabled
+        ? (doiRejected > 0 ? 'failed' : 'done')
+        : 'skipped';
     return [
         { name: 'Spelling check', status: 'done' },
         { name: 'Grammar check', status: 'done' },
@@ -508,6 +518,13 @@ function deriveRunStagesFromState() {
             name: 'Reference validation',
             status: online.enabled === true ? (Number(onlineSummary.error || 0) > 0 ? 'failed' : 'done') : 'skipped',
             meta: `checked=${checked}`,
+        },
+        {
+            name: 'Reference auto-fill',
+            status: autoFillStatus,
+            meta: enrichmentEnabled
+                ? `filled=${autoFillCount}, doi_inserted=${doiInserted}, doi_rejected=${doiRejected}, strict=${enrichment.strict_doi_mode === true ? 'on' : 'off'}`
+                : 'disabled',
         },
         {
             name: 'Serper validation',

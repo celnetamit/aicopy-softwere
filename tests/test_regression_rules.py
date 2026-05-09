@@ -670,6 +670,70 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertNotIn("Available from: https://doi.org/10.1000/alpha", out)
         self.assertIn("[2] Beta CD. Another title. J Test. 2023;9(1):90-99.", out)
 
+    def test_append_online_reference_links_autofills_missing_placeholders_from_verified_metadata(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. [title missing]. [journal missing]. [year missing];[volume missing]:[page missing].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.98,
+                        "matched_title": "Complete title",
+                        "matched_journal": "Journal of Testing",
+                        "matched_year": "2024",
+                        "matched_volume": "10(2)",
+                        "matched_pages": "100-110",
+                        "matched_doi": "",
+                        "matched_first_author": "Alpha",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(source, report, {"online_reference_validation": True})
+        self.assertIn("[1] Alpha AB. Complete title. Journal of Testing. 2024;10(2):100-110.", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("fields_filled", 0)), 5)
+
+    def test_append_online_reference_links_rejects_doi_when_strict_checks_fail(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Complete title. J Test. 2024;10(2):100-110.\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.96,
+                        "matched_title": "Different unrelated paper",
+                        "matched_journal": "Another Journal",
+                        "matched_year": "2024",
+                        "matched_pages": "100-110",
+                        "matched_doi": "10.1000/wrongdoi",
+                        "matched_first_author": "Alpha",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(
+            source,
+            report,
+            {"online_reference_validation": True, "strict_doi_mode": True},
+        )
+        self.assertNotIn("doi: 10.1000/wrongdoi", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("doi_inserted", 0)), 0)
+        self.assertEqual(int(enrichment.get("doi_rejected", 0)), 1)
+
 
 class ProcessorRegressionTests(unittest.TestCase):
     def test_redline_highlights_only_changed_tokens(self):
