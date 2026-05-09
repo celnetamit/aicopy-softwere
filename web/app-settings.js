@@ -518,6 +518,8 @@ function bindSettingsEvents() {
     if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.assistantReprocessCurrentTask());
     if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
     if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.retryWithRecommendedSettings());
+    if (settingsDom.assistantChatToggleBtn) settingsDom.assistantChatToggleBtn.addEventListener('click', () => appSettingsRoot.actions.toggleAssistantChat(true));
+    if (settingsDom.assistantChatCloseBtn) settingsDom.assistantChatCloseBtn.addEventListener('click', () => appSettingsRoot.actions.toggleAssistantChat(false));
     if (settingsDom.assistantQuestionInput) {
         settingsDom.assistantQuestionInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {

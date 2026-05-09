@@ -358,6 +358,21 @@ function updateAssistantDiagnostics(status, errorMessage, successAt) {
     }
 }
 
+function toggleAssistantChat(shouldOpen) {
+    if (!mainDom.assistantChatPanel) return;
+    const open = shouldOpen === true;
+    mainDom.assistantChatPanel.classList.toggle('hidden', !open);
+}
+
+function appendAssistantChatMessage(role, text) {
+    if (!mainDom.assistantOutput) return;
+    const who = role === 'user' ? 'You' : 'Assistant';
+    const line = `[${who}] ${String(text || '').trim()}`;
+    const current = String(mainDom.assistantOutput.textContent || '').trim();
+    mainDom.assistantOutput.textContent = current ? `${current}\n\n${line}` : line;
+    mainDom.assistantOutput.scrollTop = mainDom.assistantOutput.scrollHeight;
+}
+
 function applyProcessingModeProviderContext(provider, model) {
     if (!mainDom.processingModeIndicator) return;
     const safeProvider = String(provider || '').trim() || 'unknown';
@@ -664,9 +679,9 @@ function askAssistantQuestion() {
         setStatus('Select a task or enter a question for assistant diagnostics.', 'warning');
         return;
     }
-    if (mainDom.assistantOutput) {
-        mainDom.assistantOutput.textContent = 'Assistant is preparing diagnostics...';
-    }
+    toggleAssistantChat(true);
+    if (message) appendAssistantChatMessage('user', message);
+    appendAssistantChatMessage('assistant', 'Preparing diagnostics...');
     eel.assistant_query({
         task_id: taskId,
         message,
@@ -677,18 +692,14 @@ function askAssistantQuestion() {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
             setAssistantUnavailable(true, errorMessage);
             updateAssistantDiagnostics('failed', errorMessage, 0);
-            if (mainDom.assistantOutput) {
-                mainDom.assistantOutput.textContent = errorMessage;
-            }
+            appendAssistantChatMessage('assistant', `Error: ${errorMessage}`);
             renderAssistantSuggestions([]);
             return;
         }
         setAssistantUnavailable(false);
         updateAssistantDiagnostics('ok', 'none', Date.now());
         const assistant = response.assistant || {};
-        if (mainDom.assistantOutput) {
-            mainDom.assistantOutput.textContent = String(assistant.message || 'No assistant response available.');
-        }
+        appendAssistantChatMessage('assistant', String(assistant.message || 'No assistant response available.'));
         renderAssistantSuggestions(assistant.suggestions || []);
         setStatus('Assistant diagnostics ready', 'success');
     });
@@ -703,6 +714,8 @@ function assistantReprocessCurrentTask() {
     }
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     const reprocessProviderModel = getProviderModelFromOptions(options);
+    toggleAssistantChat(true);
+    appendAssistantChatMessage('assistant', 'Reprocessing current task...');
     setStatus('Assistant is reprocessing current task...', 'warning');
     eel.assistant_reprocess_task(taskId, options)(function (response) {
         if (!(response && response.success && response.result && response.result.success)) {
@@ -710,6 +723,7 @@ function assistantReprocessCurrentTask() {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
             setAssistantUnavailable(true, errorMessage);
             updateAssistantDiagnostics('failed', errorMessage, 0);
+            appendAssistantChatMessage('assistant', `Reprocess failed: ${errorMessage}`);
             alert('Assistant reprocess error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
             return;
         }
@@ -717,6 +731,7 @@ function assistantReprocessCurrentTask() {
         updateAssistantDiagnostics('ok', 'none', Date.now());
         applyProcessResponseToState(response.result, { keepGroupDecisions: false });
         applyProcessingModeProviderContext(reprocessProviderModel.provider, reprocessProviderModel.model);
+        appendAssistantChatMessage('assistant', 'Reprocess complete.');
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
         setStatus('Assistant reprocess complete', 'success');
@@ -733,6 +748,8 @@ function assistantApplyCurrentDecisions() {
     const groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
     const currentProcessingOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     const decisionProviderModel = getProviderModelFromOptions(currentProcessingOptions);
+    toggleAssistantChat(true);
+    appendAssistantChatMessage('assistant', 'Applying current correction decisions...');
     setStatus('Assistant is applying correction decisions...', 'warning');
     eel.assistant_apply_group_decisions(
         taskId,
@@ -744,6 +761,7 @@ function assistantApplyCurrentDecisions() {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
             setAssistantUnavailable(true, errorMessage);
             updateAssistantDiagnostics('failed', errorMessage, 0);
+            appendAssistantChatMessage('assistant', `Apply decisions failed: ${errorMessage}`);
             alert('Assistant decision apply error: ' + (response && response.error ? String(response.error) : 'Unknown error'));
             return;
         }
@@ -751,6 +769,7 @@ function assistantApplyCurrentDecisions() {
         updateAssistantDiagnostics('ok', 'none', Date.now());
         applyProcessResponseToState(response.result, { keepGroupDecisions: true });
         applyProcessingModeProviderContext(decisionProviderModel.provider, decisionProviderModel.model);
+        appendAssistantChatMessage('assistant', 'Decisions applied successfully.');
         mainPreview.renderCurrentPreview();
         mainAuth.refreshTaskHistory();
         setStatus('Assistant applied correction decisions', 'success');
@@ -767,12 +786,15 @@ function retryWithRecommendedSettings() {
     const baseOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     const retryOptions = buildFallbackRetryOptions(baseOptions);
     const providerModel = getProviderModelFromOptions(retryOptions);
+    toggleAssistantChat(true);
+    appendAssistantChatMessage('assistant', 'Retrying with recommended settings...');
     setStatus('Retrying with recommended settings...', 'warning');
     eel.assistant_reprocess_task(taskId, retryOptions)(function (response) {
         if (!(response && response.success && response.result && response.result.success)) {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
             setAssistantUnavailable(true, errorMessage);
             updateAssistantDiagnostics('failed', errorMessage, 0);
+            appendAssistantChatMessage('assistant', `Recommended retry failed: ${errorMessage}`);
             setStatus('Recommended retry failed', 'error');
             alert('Recommended retry error: ' + errorMessage);
             return;
@@ -781,6 +803,7 @@ function retryWithRecommendedSettings() {
         updateAssistantDiagnostics('ok', 'none', Date.now());
         applyProcessResponseToState(response.result, { keepGroupDecisions: false });
         applyProcessingModeProviderContext(providerModel.provider, providerModel.model);
+        appendAssistantChatMessage('assistant', 'Recommended retry complete.');
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
         setStatus('Recommended retry complete', 'success');
@@ -902,6 +925,7 @@ function clear_all() {
     if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = true;
     if (mainDom.fileInput) mainDom.fileInput.value = '';
     if (mainDom.assistantOutput) mainDom.assistantOutput.textContent = 'Assistant output appears here.';
+    toggleAssistantChat(false);
     setAssistantUnavailable(false);
     updateAssistantDiagnostics('idle', 'none', 0);
     updateProcessingModeIndicatorFromPayload({});
@@ -933,6 +957,7 @@ appMain.actions = {
     assistantReprocessCurrentTask,
     assistantApplyCurrentDecisions,
     retryWithRecommendedSettings,
+    toggleAssistantChat,
     renderFallbackInsightsFromCurrentState,
     setGroupDecision,
     applyAllGroupDecisions,

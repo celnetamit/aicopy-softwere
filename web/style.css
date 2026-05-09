@@ -482,8 +482,47 @@ section h2 {
     background: rgba(255, 255, 255, 0.02);
 }
 
+.assistant-chat-toggle {
+    position: fixed;
+    right: 18px;
+    bottom: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    border: 0;
+    background: linear-gradient(145deg, #e94560, #ff6b8a);
+    color: #ffffff;
+    font-weight: 700;
+    cursor: pointer;
+    z-index: 1200;
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
+}
+
+.assistant-chat-panel {
+    position: fixed;
+    right: 18px;
+    bottom: 84px;
+    width: min(360px, calc(100vw - 32px));
+    max-height: calc(100vh - 110px);
+    overflow: auto;
+    border-radius: 12px;
+    border: 1px solid #2f446a;
+    background: #111b34;
+    padding: 12px;
+    z-index: 1200;
+    box-shadow: 0 22px 46px rgba(0, 0, 0, 0.35);
+}
+
+.assistant-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    color: #d9e5ff;
+}
+
 .assistant-question-input {
-    min-height: 72px;
+    min-height: 56px;
     resize: vertical;
 }
 
@@ -566,6 +605,14 @@ section h2 {
     line-height: 1.45;
     color: #d6e0f5;
     white-space: pre-wrap;
+    min-height: 64px;
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid #304970;
+    border-radius: 8px;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .assistant-suggestions ul {
