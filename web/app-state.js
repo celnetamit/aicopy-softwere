@@ -221,6 +221,8 @@ app.dom = {
     assistantDiagnostics: document.getElementById('assistant-diagnostics'),
     assistantRequestLog: document.getElementById('assistant-request-log'),
     assistantRequestLogList: document.getElementById('assistant-request-log-list'),
+    assistantRunStages: document.getElementById('assistant-run-stages'),
+    assistantRunStagesList: document.getElementById('assistant-run-stages-list'),
     assistantEndpointStatus: document.getElementById('assistant-endpoint-status'),
     assistantLastSuccess: document.getElementById('assistant-last-success'),
     assistantLastError: document.getElementById('assistant-last-error'),

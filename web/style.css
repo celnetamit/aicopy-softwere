@@ -620,6 +620,33 @@ section h2 {
     padding-left: 16px;
 }
 
+.assistant-run-stages {
+    margin-bottom: 10px;
+    border: 1px solid #2f446a;
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: rgba(20, 30, 56, 0.7);
+}
+
+.assistant-run-stages > summary {
+    cursor: pointer;
+    color: #d3e3ff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#assistant-run-stages-list {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #bed3f3;
+    line-height: 1.45;
+}
+
+#assistant-run-stages-list ul {
+    margin: 0;
+    padding-left: 16px;
+}
+
 .assistant-fallback-panel {
     margin-bottom: 10px;
     border: 1px solid #3f547c;

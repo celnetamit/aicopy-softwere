@@ -400,6 +400,9 @@ function applyTaskDetailsToState(task) {
     if (appAuth.actions && typeof appAuth.actions.restoreAssistantChatHistoryForCurrentTask === 'function') {
         appAuth.actions.restoreAssistantChatHistoryForCurrentTask();
     }
+    if (appAuth.actions && typeof appAuth.actions.renderRunStagesFromState === 'function') {
+        appAuth.actions.renderRunStagesFromState();
+    }
     appAuth.actions.switch_tab(processed ? 'corrected' : 'original');
     renderTaskHistory();
     renderAdminDocxStructureSummary();

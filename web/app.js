@@ -326,6 +326,7 @@ function applyProcessResponseToState(response, options = {}) {
     appMain.syncWindowFileContent();
     restoreAssistantChatHistoryForCurrentTask();
     updateProcessingModeIndicatorFromPayload(response);
+    renderRunStagesFromState();
     renderFallbackInsightsFromCurrentState();
 }
 
@@ -441,6 +442,65 @@ function pushAssistantRequestLogEntry(action, status, latencyMs, retried) {
         assistantRequestLogEntries.shift();
     }
     renderAssistantRequestLog();
+}
+
+function stageStatusLabel(status) {
+    if (status === 'done') return 'Done';
+    if (status === 'failed') return 'Failed';
+    return 'Skipped';
+}
+
+function deriveRunStagesFromState() {
+    const report = mainState.fileContent.citationReferenceReport && typeof mainState.fileContent.citationReferenceReport === 'object'
+        ? mainState.fileContent.citationReferenceReport
+        : {};
+    const online = report.online_validation && typeof report.online_validation === 'object'
+        ? report.online_validation
+        : {};
+    const onlineSummary = online.summary && typeof online.summary === 'object' ? online.summary : {};
+    const summary = report.summary && typeof report.summary === 'object' ? report.summary : {};
+    const audit = mainState.fileContent.processingAudit && typeof mainState.fileContent.processingAudit === 'object'
+        ? mainState.fileContent.processingAudit
+        : {};
+    const auditSummary = audit.summary && typeof audit.summary === 'object' ? audit.summary : {};
+    const mode = String(audit.mode || '').toLowerCase();
+    const fallback = mode === 'rule_only' || Number(auditSummary.fallback_sections || 0) > 0;
+    const serperEnabled = online.serper_enabled === true;
+    const checked = Number(onlineSummary.checked || 0);
+    const refCount = Number(summary.references || 0);
+    return [
+        { name: 'Spelling check', status: 'done' },
+        { name: 'Grammar check', status: 'done' },
+        { name: 'Reference parsing', status: refCount > 0 ? 'done' : 'skipped' },
+        {
+            name: 'Reference validation',
+            status: online.enabled === true ? (Number(onlineSummary.error || 0) > 0 ? 'failed' : 'done') : 'skipped',
+            meta: `checked=${checked}`,
+        },
+        {
+            name: 'Serper validation',
+            status: serperEnabled ? 'done' : 'skipped',
+            meta: `enabled=${serperEnabled ? 'yes' : 'no'}`,
+        },
+        { name: 'Content consistency', status: (mode === 'sectioned' || mode === 'full') ? 'done' : 'skipped' },
+        { name: 'Final validation', status: fallback ? 'failed' : 'done', meta: fallback ? 'fallback used' : 'stable' },
+    ];
+}
+
+function renderRunStagesFromState() {
+    if (!mainDom.assistantRunStagesList) return;
+    const hasData = !!(mainState.fileContent.processingAudit || mainState.fileContent.citationReferenceReport);
+    if (!hasData) {
+        mainDom.assistantRunStagesList.textContent = 'No run data yet.';
+        return;
+    }
+    const rows = deriveRunStagesFromState()
+        .map((stage) => {
+            const meta = stage.meta ? ` (${appMain.helpers.escapeHtml(String(stage.meta))})` : '';
+            return `<li>${appMain.helpers.escapeHtml(stage.name)}: ${stageStatusLabel(stage.status)}${meta}</li>`;
+        })
+        .join('');
+    mainDom.assistantRunStagesList.innerHTML = `<ul>${rows}</ul>`;
 }
 
 function setAssistantActionsLoading(loading, label) {
@@ -1122,6 +1182,7 @@ function clear_all() {
     updateAssistantDiagnostics('idle', 'none', 0);
     updateProcessingModeIndicatorFromPayload({});
     applyProcessingModeProviderContext('', '');
+    renderRunStagesFromState();
     renderFallbackInsightsFromCurrentState();
     renderAssistantSuggestions([]);
     switch_tab('original');
@@ -1151,6 +1212,7 @@ appMain.actions = {
     retryWithRecommendedSettings,
     toggleAssistantChat,
     restoreAssistantChatHistoryForCurrentTask,
+    renderRunStagesFromState,
     renderFallbackInsightsFromCurrentState,
     setGroupDecision,
     applyAllGroupDecisions,
@@ -1168,6 +1230,7 @@ updateAssistantRouteHint();
 updateAssistantDiagnostics('idle', 'none', 0);
 applyProcessingModeProviderContext('', '');
 renderFallbackInsightsFromCurrentState();
+renderRunStagesFromState();
 restoreAssistantChatHistoryForCurrentTask();
 setAssistantUnreadCount(0);
 renderAssistantRequestLog();
