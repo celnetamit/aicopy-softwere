@@ -978,6 +978,41 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         enrichment = report.get("online_validation", {}).get("enrichment", {})
         self.assertEqual(int(enrichment.get("autofill_none", 0)), 1)
 
+    def test_append_online_reference_links_absolute_enforcement_fills_with_verified_doi_even_low_score(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. [title missing]. [year missing].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.51,
+                        "matched_title": "Recovered title",
+                        "matched_year": "2024",
+                        "matched_doi": "10.1000/verified-low-score",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(
+            source,
+            report,
+            {
+                "online_reference_validation": True,
+                "verified_doi_autocomplete": True,
+                "absolute_verified_doi_enforcement": True,
+            },
+        )
+        self.assertIn("Recovered title", out)
+        self.assertIn("2024", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("autofill_full", 0)), 1)
+
 
 class ProcessorRegressionTests(unittest.TestCase):
     def test_redline_highlights_only_changed_tokens(self):

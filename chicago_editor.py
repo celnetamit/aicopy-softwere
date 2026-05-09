@@ -2218,12 +2218,15 @@ class ChicagoEditor:
         entry = str(entry_text or "")
         status = str(validated.get("status") or "").strip().lower()
         score = float(validated.get("score") or 0.0)
+        absolute_enforcement = bool((options or {}).get("absolute_verified_doi_enforcement", True))
         require_verified_doi = bool((options or {}).get("verified_doi_autocomplete", True))
         doi_value = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
-        if status != "verified" or ("score" in validated and score < 0.88):
+        if status != "verified":
             return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:untrusted_source"]}
         if require_verified_doi and not doi_value:
             return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:verified_doi_required"]}
+        if not absolute_enforcement and ("score" in validated and score < 0.88):
+            return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:score_below_fill_threshold"]}
 
         updates = {
             "title": str(validated.get("matched_title") or "").strip().rstrip("."),
