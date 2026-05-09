@@ -10,6 +10,8 @@ const ASSISTANT_CHAT_HISTORY_KEY = 'manuscript_editor_assistant_chat_v1';
 let assistantToastTimeoutId = null;
 let assistantUnreadCount = 0;
 let assistantCurrentTaskKey = '';
+let assistantActionInFlight = false;
+const ASSISTANT_REQUEST_TIMEOUT_MS = 15000;
 
 function setStatus(message, type) {
     const statusEl = document.getElementById('status');
@@ -407,6 +409,58 @@ function showAssistantToast(message) {
     }, 3200);
 }
 
+function setAssistantActionsLoading(loading, label) {
+    assistantActionInFlight = loading === true;
+    const controls = [
+        mainDom.assistantAskBtn,
+        mainDom.assistantReprocessBtn,
+        mainDom.assistantApplyDecisionsBtn,
+        mainDom.assistantRetryRecommendedBtn,
+    ];
+    controls.forEach((btn) => {
+        if (!btn) return;
+        if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent || '';
+        btn.disabled = assistantActionInFlight;
+        btn.textContent = assistantActionInFlight
+            ? `${btn.dataset.baseLabel}...`
+            : btn.dataset.baseLabel;
+    });
+    if (assistantActionInFlight && label) {
+        setStatus(String(label), 'warning');
+    }
+}
+
+function callAssistantWithRetry(executor, onComplete) {
+    let attempts = 0;
+    let done = false;
+    const run = () => {
+        attempts += 1;
+        let timeoutId = window.setTimeout(() => {
+            timeoutId = null;
+            if (done) return;
+            if (attempts < 2) {
+                run();
+                return;
+            }
+            done = true;
+            onComplete({ success: false, error: 'Request timed out' });
+        }, ASSISTANT_REQUEST_TIMEOUT_MS);
+        executor((response) => {
+            if (done) return;
+            if (timeoutId) window.clearTimeout(timeoutId);
+            const errText = String((response && response.error) || '').toLowerCase();
+            const transient = errText.includes('timeout') || errText.includes('temporar') || errText.includes('try again');
+            if (attempts < 2 && (!response || response.success !== true) && transient) {
+                run();
+                return;
+            }
+            done = true;
+            onComplete(response || { success: false, error: 'Empty response' });
+        });
+    };
+    run();
+}
+
 function toggleAssistantChat(shouldOpen) {
     if (!mainDom.assistantChatPanel) return;
     const open = shouldOpen === true;
@@ -746,6 +800,7 @@ function renderAssistantSuggestions(suggestions) {
 
 function askAssistantQuestion() {
     if (typeof eel === 'undefined' || typeof eel.assistant_query !== 'function') return;
+    if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     const message = mainDom.assistantQuestionInput ? String(mainDom.assistantQuestionInput.value || '').trim() : '';
     const includeAdminActivity = !!(mainDom.assistantIncludeAdminActivityInput && mainDom.assistantIncludeAdminActivityInput.checked);
@@ -756,11 +811,15 @@ function askAssistantQuestion() {
     toggleAssistantChat(true);
     if (message) appendAssistantChatMessage('user', message);
     appendAssistantChatMessage('assistant', 'Preparing diagnostics...');
-    eel.assistant_query({
-        task_id: taskId,
-        message,
-        include_admin_activity: includeAdminActivity
-    })(function (response) {
+    setAssistantActionsLoading(true, 'Assistant request in progress...');
+    callAssistantWithRetry((done) => {
+        eel.assistant_query({
+            task_id: taskId,
+            message,
+            include_admin_activity: includeAdminActivity
+        })(done);
+    }, (response) => {
+        setAssistantActionsLoading(false);
         if (!(response && response.success)) {
             setStatus('Assistant query failed', 'error');
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
@@ -782,6 +841,7 @@ function askAssistantQuestion() {
 
 function assistantReprocessCurrentTask() {
     if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
+    if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
         setStatus('Load a task before assistant reprocess.', 'warning');
@@ -791,8 +851,11 @@ function assistantReprocessCurrentTask() {
     const reprocessProviderModel = getProviderModelFromOptions(options);
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Reprocessing current task...');
-    setStatus('Assistant is reprocessing current task...', 'warning');
-    eel.assistant_reprocess_task(taskId, options)(function (response) {
+    setAssistantActionsLoading(true, 'Assistant is reprocessing current task...');
+    callAssistantWithRetry((done) => {
+        eel.assistant_reprocess_task(taskId, options)(done);
+    }, (response) => {
+        setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
             setStatus('Assistant reprocess failed', 'error');
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
@@ -816,6 +879,7 @@ function assistantReprocessCurrentTask() {
 
 function assistantApplyCurrentDecisions() {
     if (typeof eel === 'undefined' || typeof eel.assistant_apply_group_decisions !== 'function') return;
+    if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
         setStatus('Load a task before assistant decision apply.', 'warning');
@@ -826,12 +890,15 @@ function assistantApplyCurrentDecisions() {
     const decisionProviderModel = getProviderModelFromOptions(currentProcessingOptions);
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Applying current correction decisions...');
-    setStatus('Assistant is applying correction decisions...', 'warning');
-    eel.assistant_apply_group_decisions(
-        taskId,
-        groupDecisions,
-        mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || ''
-    )(function (response) {
+    setAssistantActionsLoading(true, 'Assistant is applying correction decisions...');
+    callAssistantWithRetry((done) => {
+        eel.assistant_apply_group_decisions(
+            taskId,
+            groupDecisions,
+            mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || ''
+        )(done);
+    }, (response) => {
+        setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
             setStatus('Assistant decision apply failed', 'error');
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
@@ -855,6 +922,7 @@ function assistantApplyCurrentDecisions() {
 
 function retryWithRecommendedSettings() {
     if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
+    if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
         setStatus('Load a task before retrying with recommended settings.', 'warning');
@@ -865,8 +933,11 @@ function retryWithRecommendedSettings() {
     const providerModel = getProviderModelFromOptions(retryOptions);
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Retrying with recommended settings...');
-    setStatus('Retrying with recommended settings...', 'warning');
-    eel.assistant_reprocess_task(taskId, retryOptions)(function (response) {
+    setAssistantActionsLoading(true, 'Retrying with recommended settings...');
+    callAssistantWithRetry((done) => {
+        eel.assistant_reprocess_task(taskId, retryOptions)(done);
+    }, (response) => {
+        setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
             setAssistantUnavailable(true, errorMessage);
@@ -1004,6 +1075,7 @@ function clear_all() {
     if (mainDom.fileInput) mainDom.fileInput.value = '';
     if (mainDom.assistantOutput) mainDom.assistantOutput.textContent = 'Assistant output appears here.';
     toggleAssistantChat(false);
+    setAssistantActionsLoading(false);
     setAssistantUnreadCount(0);
     setAssistantUnavailable(false);
     updateAssistantDiagnostics('idle', 'none', 0);
