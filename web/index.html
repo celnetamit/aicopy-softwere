@@ -310,9 +310,13 @@
             <p class="assistant-dashboard-hint hidden" id="assistant-dashboard-hint">
                 You are on dashboard. Open a task to use assistant actions on that task.
             </p>
-            <div class="assistant-output" id="assistant-output">Assistant output appears here.</div>
+            <div class="assistant-quick-summary" id="assistant-quick-summary">Open a processed task to see assistant status summary.</div>
+            <details class="assistant-transcript" id="assistant-transcript">
+                <summary>Assistant Transcript</summary>
+                <div class="assistant-output" id="assistant-output">Assistant output appears here.</div>
+            </details>
             <div class="assistant-suggestions" id="assistant-suggestions"></div>
-            <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask about spelling, references, citations, or diagnostics."></textarea>
+            <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask one thing: spelling, references, fallback reason, or what to retry next."></textarea>
             <label class="checkbox-item">
                 <input type="checkbox" id="assistant-include-admin-activity">
                 <span>Include admin activity snapshot (admin only)</span>

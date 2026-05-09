@@ -720,19 +720,44 @@ section h2 {
 }
 
 .assistant-output {
-    margin: 0;
+    margin: 6px 0 0;
     font-size: 12px;
     line-height: 1.45;
     color: #d6e0f5;
     white-space: pre-wrap;
-    min-height: 64px;
-    max-height: 220px;
+    min-height: 54px;
+    max-height: 170px;
     overflow: auto;
     border: 1px solid #304970;
     border-radius: 8px;
     padding: 8px;
-    margin-bottom: 8px;
     background: rgba(255, 255, 255, 0.02);
+}
+
+.assistant-quick-summary {
+    margin: 0 0 8px;
+    padding: 9px 10px;
+    border: 1px solid #3e5f90;
+    border-radius: 8px;
+    background: rgba(49, 76, 122, 0.2);
+    color: #dbe8ff;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.assistant-transcript {
+    margin-bottom: 8px;
+    border: 1px solid #2f446a;
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: rgba(20, 30, 56, 0.7);
+}
+
+.assistant-transcript > summary {
+    cursor: pointer;
+    color: #d3e3ff;
+    font-size: 12px;
+    font-weight: 600;
 }
 
 .assistant-suggestions ul {

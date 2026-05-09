@@ -232,6 +232,8 @@ app.dom = {
     assistantFallbackReasons: document.getElementById('assistant-fallback-reasons'),
     assistantFallbackRecommendations: document.getElementById('assistant-fallback-recommendations'),
     assistantRetryRecommendedBtn: document.getElementById('assistant-retry-recommended-btn'),
+    assistantQuickSummary: document.getElementById('assistant-quick-summary'),
+    assistantTranscript: document.getElementById('assistant-transcript'),
     assistantOutput: document.getElementById('assistant-output'),
     assistantSuggestions: document.getElementById('assistant-suggestions'),
     processingModeIndicator: document.getElementById('processing-mode-indicator'),

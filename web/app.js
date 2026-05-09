@@ -571,6 +571,43 @@ function renderRunStagesFromState() {
         })
         .join('');
     mainDom.assistantRunStagesList.innerHTML = `<ul>${rows}</ul>`;
+    renderAssistantQuickSummaryFromState();
+}
+
+function renderAssistantQuickSummaryFromState() {
+    if (!mainDom.assistantQuickSummary) return;
+    const audit = mainState.fileContent.processingAudit && typeof mainState.fileContent.processingAudit === 'object'
+        ? mainState.fileContent.processingAudit
+        : {};
+    const summary = audit.summary && typeof audit.summary === 'object' ? audit.summary : {};
+    const citation = mainState.fileContent.citationReferenceReport && typeof mainState.fileContent.citationReferenceReport === 'object'
+        ? mainState.fileContent.citationReferenceReport
+        : {};
+    const citationSummary = citation.summary && typeof citation.summary === 'object' ? citation.summary : {};
+    const mode = String(audit.mode || '').toLowerCase();
+    const fallbackSections = Number(summary.fallback_sections || 0);
+    const totalSections = Number(summary.total_sections || 0);
+    const acceptedSections = Number(summary.accepted_sections || 0);
+    const cmos = summary.cmos_guardrails && typeof summary.cmos_guardrails === 'object' ? summary.cmos_guardrails : {};
+    const cmosStatus = String(cmos.status || 'unknown');
+    const cmosScore = Number(cmos.compliance_score || 0);
+    const citationIssues = Number(citationSummary.citation_issues || 0);
+    const referenceIssues = Number(citationSummary.reference_issues || 0);
+
+    if (!mainState.fileContent.taskId) {
+        mainDom.assistantQuickSummary.textContent = 'Open a task to view quality status and recommended next step.';
+        return;
+    }
+
+    const sectionInfo = totalSections > 0
+        ? `AI accepted ${acceptedSections}/${totalSections}; fallback ${fallbackSections}/${totalSections}.`
+        : 'Section-level acceptance data not available.';
+    const modeInfo = mode ? `Mode: ${mode}.` : 'Mode: unknown.';
+    const qualityInfo = `CMOS: ${cmosStatus} (${cmosScore}). Citation issues: ${citationIssues}. Reference issues: ${referenceIssues}.`;
+    let recommendation = 'Next: Ask assistant "what should I retry?" for guided settings.';
+    if (fallbackSections > 0) recommendation = 'Next: Use "Retry Recommended" to reduce fallback sections.';
+    if (citationIssues === 0 && referenceIssues === 0 && fallbackSections === 0) recommendation = 'Status looks healthy. You can export clean/redline output.';
+    mainDom.assistantQuickSummary.textContent = `${sectionInfo} ${qualityInfo} ${modeInfo} ${recommendation}`;
 }
 
 function buildDiagnosticsExportText() {
@@ -732,6 +769,7 @@ function restoreAssistantChatHistoryForCurrentTask() {
     if (mainDom.assistantOutput) {
         mainDom.assistantOutput.textContent = saved || 'Assistant output appears here.';
     }
+    renderAssistantQuickSummaryFromState();
     setAssistantUnreadCount(0);
 }
 
