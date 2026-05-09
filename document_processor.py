@@ -2342,13 +2342,13 @@ Corrected manuscript:"""
         """Return profile-aware reference formatting audit for last run."""
         if self._last_journal_profile_report:
             return self._last_journal_profile_report
-        return self.editor.build_reference_profile_report("", {"journal_profile": "vancouver_periods"})
+        return self.editor.build_reference_profile_report("", {"journal_profile": "vancouver_nlm"})
 
     def get_citation_reference_report(self) -> Dict:
         """Return citation/reference validator report for last run."""
         if self._last_citation_reference_report:
             return self._last_citation_reference_report
-        return self.editor.build_citation_reference_validator_report("", {"journal_profile": "vancouver_periods"})
+        return self.editor.build_citation_reference_validator_report("", {"journal_profile": "vancouver_nlm"})
 
     def build_noun_report(self, text: str) -> Dict:
         """Identify proper/common nouns, preferring spaCy and falling back to heuristics."""

@@ -496,8 +496,8 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["online_reference_serper_fallback"] = bool(editing.get("online_reference_serper_fallback", True))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
     opts["custom_terms"] = list(editing.get("custom_terms", []))
-    opts["journal_profile"] = "vancouver_periods"
-    opts["reference_profile"] = "vancouver_periods"
+    opts["journal_profile"] = "vancouver_nlm"
+    opts["reference_profile"] = "vancouver_nlm"
     opts["ai"] = {
         "enabled": bool(ai.get("enabled", True)),
         "provider": str(ai.get("provider", "ollama")),

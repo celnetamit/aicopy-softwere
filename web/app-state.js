@@ -83,7 +83,7 @@ app.constants = {
     TASK_RECOVERY_MEDIUM_POLL_MS: 2_500,
     TASK_RECOVERY_SLOW_POLL_MS: 5_000,
     TASK_RECOVERY_HISTORY_REFRESH_EVERY: 3,
-    FIXED_JOURNAL_PROFILE: 'vancouver_periods',
+    FIXED_JOURNAL_PROFILE: 'vancouver_nlm',
     TASKS_DASHBOARD_PATH: '/tasks',
     ADMIN_DASHBOARD_PATH: '/admin-dashboard'
 };
