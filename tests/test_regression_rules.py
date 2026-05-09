@@ -239,6 +239,24 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("Smith AB, Doe CD, Lee EF, Kumar GH, Patel IJ, Brown KL, et al.", out)
         self.assertNotIn("Green MN.", out)
 
+    def test_reference_author_block_stitches_comma_fragmented_initials_and_normalizes_case(self):
+        source = (
+            "References\n"
+            "Kellert S. R., heerwagen, j., & calabrese, e. f. 2015; The practice of biophilic design. www.biophilic-design.com\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Kellert SR, Heerwagen J, Calabrese EF.", out)
+
+    def test_reference_style_examples_keep_author_sequences_stable(self):
+        source = (
+            "References\n"
+            "Bhattacharya S, Tran TX, Bouchoucha T, Chatzinotas S, Ottersten B. Enabling edge-cloud collaboration for energy-efficient federated learning. In: Bhattacharya S, editor. IEEE Communications Magazine. 1st edition. New York, US: IEEE; 2019. pp. 82-88.\n"
+            "Zang J, Chen J, Chen Z, Li Y, Zhang J, Song T, et al. Printed flexible thermoelectric materials and devices. J Mater Chem A. 2021;9(35):19439-19464. doi:10.1039/D1TA03647E.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("Bhattacharya S, Tran TX, Bouchoucha T, Chatzinotas S, Ottersten B.", out)
+        self.assertIn("Zang J, Chen J, Chen Z, Li Y, Zhang J, Song T, et al.", out)
+
     def test_reference_tail_uses_house_journal_pattern(self):
         source = (
             "References\n"

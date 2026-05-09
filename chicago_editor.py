@@ -1022,7 +1022,7 @@ class ChicagoEditor:
         if not tokens:
             return candidate
 
-        surname = tokens[0]
+        surname = self._normalize_author_surname_token(tokens[0])
         initials: List[str] = []
         tail_words: List[str] = []
 
@@ -1051,23 +1051,55 @@ class ChicagoEditor:
             out += ' ' + ' '.join(tail_words)
         return out.strip()
 
+    def _normalize_author_surname_token(self, value: str) -> str:
+        """Normalize surname casing while preserving particles and punctuation."""
+        token = str(value or "").strip()
+        if not token:
+            return token
+        if token.isupper() and len(token) > 2:
+            return token.title()
+        if token.islower():
+            return token.title()
+        return token
+
+    def _is_initials_fragment(self, value: str) -> bool:
+        """Return True when one comma-fragment likely contains only initials."""
+        raw = str(value or '').strip()
+        if not raw:
+            return False
+        if re.fullmatch(r'(?:[A-Za-z]\.?(?:\s+|$)){1,4}', raw):
+            return True
+        cleaned = re.sub(r'[^A-Za-z]', '', raw)
+        if not cleaned:
+            return False
+        return len(cleaned) <= 4 and cleaned.upper() == cleaned
+
     def _normalize_author_block(self, authors: str, profile: Dict[str, Any]) -> str:
         """Normalize a full author block while preserving order."""
         source = re.sub(r'\s+and\s+', ', ', authors, flags=re.IGNORECASE)
+        source = source.replace('&', ', ')
         source = re.sub(r'\s+', ' ', source).strip().strip('.,;')
         if not source:
             return source
 
         raw_parts = [p.strip() for p in source.split(',') if p.strip()]
-        if len(raw_parts) == 2:
-            second_clean = re.sub(r'[^A-Za-z]', '', raw_parts[1])
+        stitched_parts: List[str] = []
+        for raw in raw_parts:
+            part = str(raw).strip()
+            if self._is_initials_fragment(part) and stitched_parts:
+                stitched_parts[-1] = f"{stitched_parts[-1]} {part}".strip()
+            else:
+                stitched_parts.append(part)
+
+        if len(stitched_parts) == 2:
+            second_clean = re.sub(r'[^A-Za-z]', '', stitched_parts[1])
             # Handle single-author "Surname, Initials" form.
             if second_clean.isupper() and 1 <= len(second_clean) <= 4:
-                parts = [f'{raw_parts[0]} {raw_parts[1]}']
+                parts = [f'{stitched_parts[0]} {stitched_parts[1]}']
             else:
-                parts = raw_parts
+                parts = stitched_parts
         else:
-            parts = raw_parts
+            parts = stitched_parts
 
         normalized: List[str] = []
         for part in parts:
