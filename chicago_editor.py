@@ -2228,15 +2228,17 @@ class ChicagoEditor:
         if not absolute_enforcement and ("score" in validated and score < 0.88):
             return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:score_below_fill_threshold"]}
 
+        enriched = self._enrich_validated_metadata_from_doi(validated)
         updates = {
-            "title": str(validated.get("matched_title") or "").strip().rstrip("."),
-            "journal": str(validated.get("matched_journal") or "").strip().rstrip("."),
-            "year": self._extract_year_token(str(validated.get("matched_year") or "")),
-            "volume": str(validated.get("matched_volume") or "").strip(),
-            "page": str(validated.get("matched_pages") or "").strip(),
-            "place": str(validated.get("matched_place") or "").strip().rstrip("."),
-            "publisher": str(validated.get("matched_publisher") or "").strip().rstrip("."),
-            "url": str(validated.get("matched_source_url") or "").strip(),
+            "title": str(enriched.get("matched_title") or "").strip().rstrip("."),
+            "journal": str(enriched.get("matched_journal") or enriched.get("matched_container_title") or "").strip().rstrip("."),
+            "year": self._extract_year_token(str(enriched.get("matched_year") or "")),
+            "volume": str(enriched.get("matched_volume") or "").strip(),
+            "page": str(enriched.get("matched_pages") or "").strip(),
+            "place": str(enriched.get("matched_place") or "").strip().rstrip("."),
+            "publisher": str(enriched.get("matched_publisher") or "").strip().rstrip("."),
+            "editor": str(enriched.get("matched_editor") or "").strip().rstrip("."),
+            "url": str(enriched.get("matched_source_url") or "").strip(),
         }
         replacement_map = {
             "title": "[title missing]",
@@ -2246,6 +2248,7 @@ class ChicagoEditor:
             "page": "[page missing]",
             "place": "[place missing]",
             "publisher": "[publisher missing]",
+            "editor": "[editor missing]",
             "url": "[url missing]",
         }
 
@@ -2280,6 +2283,37 @@ class ChicagoEditor:
             missing_left = len(expected_unique) - len(filled)
             chips.append(f"remaining:{missing_left}")
         return result, {"fields": filled, "expected_fields": expected_unique, "autofill_status": status_label, "autofill_chips": chips}
+
+    def _enrich_validated_metadata_from_doi(self, validated: Dict[str, Any]) -> Dict[str, Any]:
+        """Best-effort DOI second pass to maximize missing-field completion."""
+        result = dict(validated or {})
+        doi_value = self._normalize_doi_value(str(result.get("matched_doi") or result.get("doi") or ""))
+        if not doi_value:
+            return result
+        try:
+            crossref = self._fetch_crossref_work_by_doi(doi_value)
+            if not isinstance(crossref, dict):
+                return result
+            mapping = {
+                "matched_title": str(crossref.get("title") or ""),
+                "matched_journal": str(crossref.get("journal") or ""),
+                "matched_container_title": str(crossref.get("container_title") or ""),
+                "matched_year": str(crossref.get("year") or ""),
+                "matched_pages": str(crossref.get("pages") or ""),
+                "matched_volume": str(crossref.get("volume") or ""),
+                "matched_issue": str(crossref.get("issue") or ""),
+                "matched_place": str(crossref.get("place") or ""),
+                "matched_publisher": str(crossref.get("publisher") or ""),
+                "matched_editor": str(crossref.get("editor") or ""),
+                "matched_source_url": str(crossref.get("source_url") or ""),
+                "matched_first_author": str(crossref.get("first_author") or ""),
+            }
+            for key, value in mapping.items():
+                if value and not str(result.get(key) or "").strip():
+                    result[key] = value
+        except Exception:
+            return result
+        return result
 
     def _replace_missing_placeholder(self, text: str, placeholder: str, value: str) -> Tuple[str, bool]:
         """Replace a single placeholder token case-insensitively."""
@@ -3316,6 +3350,7 @@ class ChicagoEditor:
         title = titles[0] if isinstance(titles, list) and titles else str(item.get("title") or "")
         container = item.get("container-title")
         journal = container[0] if isinstance(container, list) and container else str(item.get("container-title") or "")
+        container_title = str(journal or "").strip()
         issued = item.get("issued", {})
         year = ""
         if isinstance(issued, dict):
@@ -3326,17 +3361,23 @@ class ChicagoEditor:
         first_author = ""
         if isinstance(authors, list) and authors and isinstance(authors[0], dict):
             first_author = str(authors[0].get("family") or authors[0].get("name") or "").strip()
+        editors = item.get("editor")
+        editor_name = ""
+        if isinstance(editors, list) and editors and isinstance(editors[0], dict):
+            editor_name = str(editors[0].get("family") or editors[0].get("name") or "").strip()
         pages = str(item.get("page") or "").strip()
         return {
             "source": "crossref",
             "title": str(title or "").strip(),
             "journal": str(journal or "").strip(),
+            "container_title": container_title,
             "year": year,
             "pages": pages,
             "volume": str(item.get("volume") or "").strip(),
             "issue": str(item.get("issue") or "").strip(),
-            "place": "",
+            "place": str(item.get("publisher-location") or "").strip(),
             "publisher": str(item.get("publisher") or "").strip(),
+            "editor": editor_name,
             "doi": str(item.get("DOI") or "").strip(),
             "source_url": str(item.get("URL") or "").strip(),
             "first_author": first_author,
@@ -3424,6 +3465,8 @@ class ChicagoEditor:
             "matched_issue": str(candidate.get("issue") or ""),
             "matched_place": str(candidate.get("place") or ""),
             "matched_publisher": str(candidate.get("publisher") or ""),
+            "matched_container_title": str(candidate.get("container_title") or ""),
+            "matched_editor": str(candidate.get("editor") or ""),
             "matched_doi": str(candidate.get("doi") or ""),
             "matched_source_url": str(candidate.get("source_url") or ""),
             "source_url": str(candidate.get("source_url") or ""),

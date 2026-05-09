@@ -1013,6 +1013,49 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         enrichment = report.get("online_validation", {}).get("enrichment", {})
         self.assertEqual(int(enrichment.get("autofill_full", 0)), 1)
 
+    def test_append_online_reference_links_doi_second_pass_enriches_place_publisher_editor(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. Chapter title. In: [editor missing], editor. Book title. [place missing]: [publisher missing]; [year missing].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.90,
+                        "matched_doi": "10.1000/chapter",
+                        "matched_source_url": "https://doi.org/10.1000/chapter",
+                    }
+                ],
+            }
+        }
+        with patch.object(self.editor, "_fetch_crossref_work_by_doi", return_value={
+            "title": "Chapter title",
+            "journal": "Book title",
+            "container_title": "Book title",
+            "year": "2022",
+            "place": "New York",
+            "publisher": "Routledge",
+            "editor": "Andresen",
+            "doi": "10.1000/chapter",
+            "source_url": "https://doi.org/10.1000/chapter",
+        }):
+            out = self.editor.append_online_reference_links(
+                source,
+                report,
+                {
+                    "online_reference_validation": True,
+                    "verified_doi_autocomplete": True,
+                    "absolute_verified_doi_enforcement": True,
+                },
+            )
+        self.assertIn("In: Andresen, editor.", out)
+        self.assertIn("New York: Routledge; 2022", out)
+
 
 class ProcessorRegressionTests(unittest.TestCase):
     def test_redline_highlights_only_changed_tokens(self):
