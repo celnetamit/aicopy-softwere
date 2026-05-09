@@ -1790,6 +1790,7 @@ class ChicagoEditor:
             "doi_inserted": 0,
             "doi_rejected": 0,
             "rejected_numbers": [],
+            "trail": [],
         }
 
         validated_by_number: Dict[int, Dict[str, Any]] = {}
@@ -1870,6 +1871,22 @@ class ChicagoEditor:
                 source_url = ""
             updated_entry = self._append_reference_identifiers(updated_entry, doi=doi, source_url=source_url)
             output.append(f"{prefix}{updated_entry}")
+            confidence = str(validated.get("status") or "").strip().lower()
+            if confidence == "verified":
+                confidence = "verified"
+            elif confidence == "likely_match":
+                confidence = "likely"
+            else:
+                confidence = "needs_review"
+            enrichment["trail"].append({
+                "number": number,
+                "source_type": str(entry_metadata.get("source_type") or "generic"),
+                "source": str(validated.get("source") or ""),
+                "confidence": confidence,
+                "fields_filled": fill_report.get("fields", []),
+                "doi_inserted": bool(doi),
+                "doi_rejected": doi_rejected,
+            })
 
         if isinstance(citation_report, dict):
             citation_report["online_validation"] = online
@@ -1894,6 +1911,9 @@ class ChicagoEditor:
             "year": self._extract_year_token(str(validated.get("matched_year") or "")),
             "volume": str(validated.get("matched_volume") or "").strip(),
             "page": str(validated.get("matched_pages") or "").strip(),
+            "place": str(validated.get("matched_place") or "").strip().rstrip("."),
+            "publisher": str(validated.get("matched_publisher") or "").strip().rstrip("."),
+            "url": str(validated.get("matched_source_url") or "").strip(),
         }
         replacement_map = {
             "title": "[title missing]",
@@ -1901,6 +1921,9 @@ class ChicagoEditor:
             "year": "[year missing]",
             "volume": "[volume missing]",
             "page": "[page missing]",
+            "place": "[place missing]",
+            "publisher": "[publisher missing]",
+            "url": "[url missing]",
         }
 
         filled: List[str] = []
@@ -2478,7 +2501,7 @@ class ChicagoEditor:
         ref_entries: List[Dict[str, Any]],
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Validate journal references against public metadata services when enabled."""
+        """Validate references against public metadata services when enabled."""
         enabled = bool((options or {}).get("online_reference_validation", False))
         serper_requested = bool((options or {}).get("online_reference_serper_fallback", True))
         serper_available = bool(self._get_serper_api_key())
@@ -2522,15 +2545,6 @@ class ChicagoEditor:
             if not entry:
                 continue
             metadata = self._analyze_reference_entry(entry)
-            if str(metadata.get("source_type") or "") != "journal":
-                summary["skipped"] += 1
-                report["entries"].append({
-                    "number": number,
-                    "status": "skipped",
-                    "reason": "Online validation currently checks journal-style references only.",
-                    "entry": entry,
-                })
-                continue
             if not metadata.get("has_title"):
                 summary["skipped"] += 1
                 report["entries"].append({
@@ -2552,14 +2566,14 @@ class ChicagoEditor:
 
         if checked >= self.ONLINE_VALIDATION_MAX_REFERENCES and len(ref_entries) > self.ONLINE_VALIDATION_MAX_REFERENCES:
             report["messages"].append(
-                f"Online validation checked the first {self.ONLINE_VALIDATION_MAX_REFERENCES} journal references to keep processing responsive."
+                f"Online validation checked the first {self.ONLINE_VALIDATION_MAX_REFERENCES} references to keep processing responsive."
             )
         if summary["error"] > 0:
             report["messages"].append("Some reference lookups failed due to remote API/network errors.")
         if summary["not_found"] > 0 or summary["mismatch"] > 0 or summary["ambiguous"] > 0:
             report["messages"].append("Review references marked not found, mismatch, or ambiguous before final submission.")
         if summary["attempted"] == 0:
-            report["messages"].append("No eligible journal references were available for online validation.")
+            report["messages"].append("No eligible references were available for online validation.")
         if serper_requested and not serper_available:
             report["messages"].append("SERPER_API_KEY not set; Serper fallback remained disabled.")
         if not serper_requested:
@@ -2674,6 +2688,8 @@ class ChicagoEditor:
             "pages": "",
             "volume": "",
             "issue": "",
+            "place": "",
+            "publisher": "",
             "doi": doi_match.group(0).rstrip(".,;") if doi_match else "",
             "source_url": link,
             "first_author": "",
@@ -2898,6 +2914,8 @@ class ChicagoEditor:
             "pages": pages,
             "volume": str(item.get("volume") or "").strip(),
             "issue": str(item.get("issue") or "").strip(),
+            "place": "",
+            "publisher": str(item.get("publisher") or "").strip(),
             "doi": str(item.get("DOI") or "").strip(),
             "source_url": str(item.get("URL") or "").strip(),
             "first_author": first_author,
@@ -2925,6 +2943,8 @@ class ChicagoEditor:
             "pages": self._build_pages_value(str(biblio.get("first_page") or ""), str(biblio.get("last_page") or "")),
             "volume": str(biblio.get("volume") or "").strip(),
             "issue": str(biblio.get("issue") or "").strip(),
+            "place": "",
+            "publisher": "",
             "doi": doi.strip(),
             "source_url": str(item.get("id") or "").strip(),
             "first_author": first_author,
@@ -2943,6 +2963,10 @@ class ChicagoEditor:
         author_match = bool(reference_author and candidate_author and reference_author == candidate_author)
         year_match = bool(metadata.get("year") and candidate.get("year") and str(metadata.get("year")) == str(candidate.get("year")))
         pages_match = self._page_tokens_match(str(metadata.get("pages") or ""), str(candidate.get("pages") or ""))
+        source_type = str(metadata.get("source_type") or "generic")
+        ref_publisher = self._normalize_match_text(str(metadata.get("tail") or ""))
+        cand_publisher = self._normalize_match_text(str(candidate.get("publisher") or ""))
+        publisher_match = bool(ref_publisher and cand_publisher and (cand_publisher in ref_publisher or ref_publisher in cand_publisher))
         score = title_score
         if author_match:
             score += 0.18
@@ -2950,11 +2974,16 @@ class ChicagoEditor:
             score += 0.12
         if pages_match:
             score += 0.08
+        if publisher_match:
+            score += 0.08
         status = "verified"
         reason = "Online metadata matched the supplied reference."
         if title_score < 0.45 or (metadata.get("year") and candidate.get("year") and not year_match and not author_match):
             status = "mismatch"
             reason = "Online metadata conflicts with the supplied reference."
+        elif source_type in {"book", "chapter", "website", "generic"} and title_score < 0.60:
+            status = "mismatch"
+            reason = "Online metadata does not reliably match the non-journal reference."
         elif score < 0.82:
             status = "likely_match"
             reason = "An online record closely matched the supplied reference."
@@ -2972,6 +3001,8 @@ class ChicagoEditor:
             "matched_pages": str(candidate.get("pages") or ""),
             "matched_volume": str(candidate.get("volume") or ""),
             "matched_issue": str(candidate.get("issue") or ""),
+            "matched_place": str(candidate.get("place") or ""),
+            "matched_publisher": str(candidate.get("publisher") or ""),
             "matched_doi": str(candidate.get("doi") or ""),
             "matched_source_url": str(candidate.get("source_url") or ""),
             "source_url": str(candidate.get("source_url") or ""),

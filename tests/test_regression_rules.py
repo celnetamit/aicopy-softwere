@@ -734,6 +734,39 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(int(enrichment.get("doi_inserted", 0)), 0)
         self.assertEqual(int(enrichment.get("doi_rejected", 0)), 1)
 
+    def test_append_online_reference_links_autofills_book_missing_fields_from_verified_metadata(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Moore JC. [title missing]. [place missing]: [publisher missing]; [year missing].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.95,
+                        "source": "crossref",
+                        "matched_title": "Introduction to Biochemistry",
+                        "matched_place": "New York",
+                        "matched_publisher": "Academic Press",
+                        "matched_year": "2020",
+                        "matched_source_url": "https://example.org/book",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(source, report, {"online_reference_validation": True})
+        self.assertIn("Introduction to Biochemistry", out)
+        self.assertIn("New York: Academic Press; 2020", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertGreaterEqual(int(enrichment.get("fields_filled", 0)), 3)
+        trail = enrichment.get("trail", [])
+        self.assertEqual(len(trail), 1)
+        self.assertEqual(trail[0].get("confidence"), "verified")
+
 
 class ProcessorRegressionTests(unittest.TestCase):
     def test_redline_highlights_only_changed_tokens(self):

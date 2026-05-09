@@ -501,9 +501,21 @@ function deriveRunStagesFromState() {
     const autoFillCount = Number(enrichment.fields_filled || 0);
     const doiInserted = Number(enrichment.doi_inserted || 0);
     const doiRejected = Number(enrichment.doi_rejected || 0);
+    const trail = Array.isArray(enrichment.trail) ? enrichment.trail : [];
+    const confidenceCounts = trail.reduce((acc, item) => {
+        const key = String(item && item.confidence || 'needs_review');
+        acc[key] = Number(acc[key] || 0) + 1;
+        return acc;
+    }, {});
+    const verifiedCount = Number(confidenceCounts.verified || 0);
+    const likelyCount = Number(confidenceCounts.likely || 0);
+    const needsReviewCount = Number(confidenceCounts.needs_review || 0);
     const enrichmentEnabled = enrichment.enabled === true;
     const autoFillStatus = enrichmentEnabled
         ? (doiRejected > 0 ? 'failed' : 'done')
+        : 'skipped';
+    const confidenceStatus = enrichmentEnabled
+        ? (needsReviewCount > 0 ? 'failed' : (trail.length > 0 ? 'done' : 'skipped'))
         : 'skipped';
     return [
         { name: 'Spelling check', status: 'done' },
@@ -524,6 +536,13 @@ function deriveRunStagesFromState() {
             status: autoFillStatus,
             meta: enrichmentEnabled
                 ? `filled=${autoFillCount}, doi_inserted=${doiInserted}, doi_rejected=${doiRejected}, strict=${enrichment.strict_doi_mode === true ? 'on' : 'off'}`
+                : 'disabled',
+        },
+        {
+            name: 'Reference confidence',
+            status: confidenceStatus,
+            meta: enrichmentEnabled
+                ? `verified=${verifiedCount}, likely=${likelyCount}, needs_review=${needsReviewCount}`
                 : 'disabled',
         },
         {
@@ -564,6 +583,24 @@ function buildDiagnosticsExportText() {
         const meta = stage.meta ? ` (${stage.meta})` : '';
         return `- ${stage.name}: ${stageStatusLabel(stage.status)}${meta}`;
     });
+    const report = mainState.fileContent.citationReferenceReport && typeof mainState.fileContent.citationReferenceReport === 'object'
+        ? mainState.fileContent.citationReferenceReport
+        : {};
+    const online = report.online_validation && typeof report.online_validation === 'object'
+        ? report.online_validation
+        : {};
+    const enrichment = online.enrichment && typeof online.enrichment === 'object'
+        ? online.enrichment
+        : {};
+    const trail = Array.isArray(enrichment.trail) ? enrichment.trail : [];
+    const trailLines = trail.map((item) => {
+        const number = Number(item && item.number || 0);
+        const type = String(item && item.source_type || 'generic');
+        const confidence = String(item && item.confidence || 'needs_review');
+        const source = String(item && item.source || '');
+        const fields = Array.isArray(item && item.fields_filled) ? item.fields_filled.join(',') : '';
+        return `- [${number}] ${type} ${confidence} source=${source || 'n/a'} fields=${fields || 'none'} doi_inserted=${item && item.doi_inserted ? 'yes' : 'no'} doi_rejected=${item && item.doi_rejected ? 'yes' : 'no'}`;
+    });
     const logLines = assistantRequestLogEntries
         .slice(-10)
         .reverse()
@@ -576,6 +613,9 @@ function buildDiagnosticsExportText() {
         '',
         'Run Stages',
         ...stageLines,
+        '',
+        'Reference Enrichment Trail',
+        ...(trailLines.length ? trailLines : ['- No enrichment trail yet']),
         '',
         'Request Log (last 10)',
         ...(logLines.length ? logLines : ['- No requests yet']),
