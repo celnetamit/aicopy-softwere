@@ -703,6 +703,11 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                     } else {
                         line += 'Not inserted';
                     }
+                    const chips = Array.isArray(item && item.doi_reason_chips) ? item.doi_reason_chips : [];
+                    const chipText = chips.slice(0, 4).map((chip) => `[${String(chip)}]`).join(' ');
+                    if (chipText) {
+                        line += ` ${chipText}`;
+                    }
                     html += `<li>${previewHelpers.escapeHtml(line)}</li>`;
                 });
                 html += '</ul></div>';

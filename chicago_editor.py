@@ -2104,6 +2104,8 @@ class ChicagoEditor:
             doi = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
             doi_rejected = False
             doi_needs_review = False
+            doi_reject_reasons: List[str] = []
+            doi_reason_chips: List[str] = []
             status = str(validated.get("status") or "").strip().lower()
             doi_mode = str(enrichment.get("doi_mode") or "balanced")
             if doi:
@@ -2111,13 +2113,28 @@ class ChicagoEditor:
                     doi_needs_review = True
                     enrichment["doi_inserted"] += 1
                     enrichment["doi_needs_review_inserted"] += 1
-                elif not self._allow_doi_insert(entry_metadata, validated, strict_mode=enrichment["strict_doi_mode"]):
+                    doi_reason_chips = ["mode:balanced", "status:likely_match", "doi:needs_review"]
+                else:
+                    decision = self._evaluate_doi_alignment(entry_metadata, validated, strict_mode=enrichment["strict_doi_mode"])
+                    doi_reason_chips = list(decision.get("chips") or [])
+                    if not bool(decision.get("allow")):
+                        doi_reject_reasons = [str(x) for x in (decision.get("reasons") or [])]
+                        doi_reason_chips.extend([f"blocked:{r}" for r in doi_reject_reasons[:3]])
+                        enrichment["doi_rejected"] += 1
+                        enrichment["rejected_numbers"].append(number)
+                        doi = ""
+                        doi_rejected = True
+                    else:
+                        enrichment["doi_inserted"] += 1
+                if status != "likely_match" and not doi_rejected and not doi_needs_review and not doi_reason_chips:
+                    doi_reason_chips = ["doi:inserted"]
+                if status == "likely_match" and doi_mode != "balanced":
+                    doi_reject_reasons = ["likely_match_requires_balanced_mode"]
+                    doi_reason_chips = ["blocked:likely_match_requires_balanced_mode"]
                     enrichment["doi_rejected"] += 1
                     enrichment["rejected_numbers"].append(number)
                     doi = ""
                     doi_rejected = True
-                else:
-                    enrichment["doi_inserted"] += 1
             source_url = self._normalize_source_url_value(
                 str(validated.get("matched_source_url") or validated.get("source_url") or "")
             )
@@ -2146,6 +2163,8 @@ class ChicagoEditor:
                 "doi_inserted": bool(doi),
                 "doi_needs_review": doi_needs_review,
                 "doi_rejected": doi_rejected,
+                "doi_reject_reasons": doi_reject_reasons,
+                "doi_reason_chips": doi_reason_chips,
             })
 
         if isinstance(citation_report, dict):
@@ -2212,13 +2231,26 @@ class ChicagoEditor:
 
     def _allow_doi_insert(self, reference_metadata: Dict[str, Any], validated: Dict[str, Any], strict_mode: bool = True) -> bool:
         """Allow DOI insertion only when metadata alignment is strong."""
+        decision = self._evaluate_doi_alignment(reference_metadata, validated, strict_mode=strict_mode)
+        return bool(decision.get("allow"))
+
+    def _evaluate_doi_alignment(self, reference_metadata: Dict[str, Any], validated: Dict[str, Any], strict_mode: bool = True) -> Dict[str, Any]:
+        """Return explicit DOI insertion decision with threshold diagnostics."""
         status = str(validated.get("status") or "").strip().lower()
-        if status != "verified":
-            return False
         score = float(validated.get("score") or 1.0)
         min_score = 0.93 if strict_mode else 0.86
+        min_title_similarity = 0.90 if strict_mode else 0.80
+        reasons: List[str] = []
+        chips: List[str] = []
+
+        if status != "verified":
+            reasons.append("status_not_verified")
+        else:
+            chips.append("status:verified")
         if score < min_score:
-            return False
+            reasons.append(f"score_below_threshold({score:.2f}<{min_score:.2f})")
+        else:
+            chips.append(f"score:{score:.2f}")
 
         # Backward-compatible path: if this validated payload only carries DOI
         # (without matching metadata fields), trust verified status + score.
@@ -2228,31 +2260,61 @@ class ChicagoEditor:
             str(validated.get("matched_pages") or "").strip(),
             str(validated.get("matched_first_author") or "").strip(),
         ]):
-            return True
+            allow = not reasons
+            if allow:
+                chips.append("fallback:doi_only_payload")
+            return {"allow": allow, "reasons": reasons, "chips": chips, "thresholds": {"score": min_score, "title_similarity": min_title_similarity}}
 
         title_similarity = self._text_similarity(
             str(reference_metadata.get("title") or ""),
             str(validated.get("matched_title") or ""),
         )
-        if title_similarity < (0.90 if strict_mode else 0.80):
-            return False
+        if title_similarity < min_title_similarity:
+            reasons.append(f"title_similarity_below_threshold({title_similarity:.2f}<{min_title_similarity:.2f})")
+        else:
+            chips.append(f"title:{title_similarity:.2f}")
 
         ref_year = self._extract_year_token(str(reference_metadata.get("year") or ""))
         matched_year = self._extract_year_token(str(validated.get("matched_year") or ""))
         if ref_year and matched_year and ref_year != matched_year:
-            return False
+            # Allow online-first/pub-ahead drift of one year.
+            try:
+                if abs(int(ref_year) - int(matched_year)) > 1:
+                    reasons.append(f"year_mismatch({ref_year}!={matched_year})")
+                else:
+                    chips.append(f"year:near({ref_year}/{matched_year})")
+            except Exception:
+                reasons.append(f"year_mismatch({ref_year}!={matched_year})")
+        elif ref_year and matched_year:
+            chips.append(f"year:{ref_year}")
 
         ref_author = self._extract_reference_first_author(str(reference_metadata.get("authors") or ""))
         matched_author = self._extract_reference_first_author(str(validated.get("matched_first_author") or ""))
-        if strict_mode and ref_author and matched_author and ref_author != matched_author:
-            return False
+        if ref_author and matched_author:
+            if ref_author == matched_author:
+                chips.append("author:first_match")
+            elif strict_mode:
+                reasons.append(f"first_author_mismatch({ref_author}!={matched_author})")
+            else:
+                chips.append("author:soft_mismatch")
 
         ref_pages = str(reference_metadata.get("pages") or "").strip()
         matched_pages = str(validated.get("matched_pages") or "").strip()
         if ref_pages and matched_pages and not self._page_tokens_match(ref_pages, matched_pages):
-            return False
+            reasons.append("pages_mismatch")
+        elif ref_pages and matched_pages:
+            chips.append("pages:match")
 
-        return True
+        allow = len(reasons) == 0
+        return {
+            "allow": allow,
+            "reasons": reasons,
+            "chips": chips,
+            "thresholds": {
+                "score": min_score,
+                "title_similarity": min_title_similarity,
+            },
+        }
 
     def _append_reference_identifiers(self, entry_text: str, doi: str = "", source_url: str = "", doi_needs_review: bool = False) -> str:
         """Append reference identifiers without duplication.

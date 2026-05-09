@@ -789,6 +789,11 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         enrichment = report.get("online_validation", {}).get("enrichment", {})
         self.assertEqual(int(enrichment.get("doi_inserted", 0)), 0)
         self.assertEqual(int(enrichment.get("doi_rejected", 0)), 1)
+        trail = enrichment.get("trail", [])
+        self.assertTrue(len(trail) >= 1)
+        first = trail[0] if isinstance(trail[0], dict) else {}
+        chips = first.get("doi_reason_chips", [])
+        self.assertTrue(any("blocked:title_similarity_below_threshold" in str(chip) for chip in chips))
 
     def test_append_online_reference_links_inserts_likely_match_doi_with_needs_review_marker_in_balanced_mode(self):
         source = (
@@ -820,6 +825,29 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(int(enrichment.get("doi_inserted", 0)), 1)
         self.assertEqual(int(enrichment.get("doi_needs_review_inserted", 0)), 1)
         self.assertEqual(int(enrichment.get("doi_rejected", 0)), 0)
+        trail = enrichment.get("trail", [])
+        self.assertTrue(len(trail) >= 1)
+        first = trail[0] if isinstance(trail[0], dict) else {}
+        chips = first.get("doi_reason_chips", [])
+        self.assertIn("mode:balanced", chips)
+        self.assertIn("status:likely_match", chips)
+
+    def test_allow_doi_insert_accepts_year_plus_minus_one_when_title_author_match(self):
+        reference_metadata = {
+            "authors": "Alpha AB",
+            "title": "Complete title",
+            "year": "2024",
+            "pages": "100-110",
+        }
+        validated = {
+            "status": "verified",
+            "score": 0.97,
+            "matched_title": "Complete title",
+            "matched_first_author": "Alpha",
+            "matched_year": "2025",
+            "matched_pages": "100-110",
+        }
+        self.assertTrue(self.editor._allow_doi_insert(reference_metadata, validated, strict_mode=True))
 
     def test_append_online_reference_links_autofills_book_missing_fields_from_verified_metadata(self):
         source = (
