@@ -550,8 +550,12 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             const onlineSummary = onlineValidation.summary && typeof onlineValidation.summary === 'object'
                 ? onlineValidation.summary
                 : {};
+            const enrichment = onlineValidation.enrichment && typeof onlineValidation.enrichment === 'object'
+                ? onlineValidation.enrichment
+                : {};
             const onlineMessages = Array.isArray(onlineValidation.messages) ? onlineValidation.messages : [];
             const onlineEntries = Array.isArray(onlineValidation.entries) ? onlineValidation.entries : [];
+            const enrichmentTrail = Array.isArray(enrichment.trail) ? enrichment.trail : [];
             const lookupMetrics = onlineValidation.lookup_metrics && typeof onlineValidation.lookup_metrics === 'object'
                 ? onlineValidation.lookup_metrics
                 : {};
@@ -586,6 +590,10 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += `<span class="validator-chip">OpenAlex Requests: ${Number(lookupMetrics.openalex_requests || 0)}</span>`;
             html += `<span class="validator-chip">Serper Requests: ${Number(lookupMetrics.serper_requests || 0)}</span>`;
             html += `<span class="validator-chip">Serper Cache Hits: ${Number(lookupMetrics.serper_cache_hits || 0)}</span>`;
+            html += `<span class="validator-chip">DOI Mode: ${previewHelpers.escapeHtml(String(enrichment.doi_mode || 'balanced'))}</span>`;
+            html += `<span class="validator-chip">DOI Inserted: ${Number(enrichment.doi_inserted || 0)}</span>`;
+            html += `<span class="validator-chip">DOI Inserted (Needs Review): ${Number(enrichment.doi_needs_review_inserted || 0)}</span>`;
+            html += `<span class="validator-chip">DOI Rejected: ${Number(enrichment.doi_rejected || 0)}</span>`;
             html += '</div>';
 
             if (onlineMessages.length > 0) {
@@ -621,6 +629,29 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                     }
                     if (matchedUrl) {
                         line += ` | URL: ${matchedUrl}`;
+                    }
+                    html += `<li>${previewHelpers.escapeHtml(line)}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            if (enrichmentTrail.length > 0) {
+                html += '<div class="validator-messages">';
+                html += '<div class="validator-messages-title">DOI Insertion Status</div><ul>';
+                enrichmentTrail.slice(0, 25).forEach((item) => {
+                    const number = Number(item && item.number || 0);
+                    const inserted = Boolean(item && item.doi_inserted);
+                    const review = Boolean(item && item.doi_needs_review);
+                    const rejected = Boolean(item && item.doi_rejected);
+                    let line = `[${number}] `;
+                    if (inserted && review) {
+                        line += 'Inserted (needs review)';
+                    } else if (inserted) {
+                        line += 'Inserted';
+                    } else if (rejected) {
+                        line += 'Found but rejected';
+                    } else {
+                        line += 'Not inserted';
                     }
                     html += `<li>${previewHelpers.escapeHtml(line)}</li>`;
                 });

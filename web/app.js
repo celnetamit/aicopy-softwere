@@ -500,6 +500,7 @@ function deriveRunStagesFromState() {
     const bookStatus = bookCount > 0 ? (bookIssueCount > 0 ? 'failed' : 'done') : 'skipped';
     const autoFillCount = Number(enrichment.fields_filled || 0);
     const doiInserted = Number(enrichment.doi_inserted || 0);
+    const doiNeedsReview = Number(enrichment.doi_needs_review_inserted || 0);
     const doiRejected = Number(enrichment.doi_rejected || 0);
     const trail = Array.isArray(enrichment.trail) ? enrichment.trail : [];
     const confidenceCounts = trail.reduce((acc, item) => {
@@ -535,7 +536,7 @@ function deriveRunStagesFromState() {
             name: 'Reference auto-fill',
             status: autoFillStatus,
             meta: enrichmentEnabled
-                ? `filled=${autoFillCount}, doi_inserted=${doiInserted}, doi_rejected=${doiRejected}, strict=${enrichment.strict_doi_mode === true ? 'on' : 'off'}`
+                ? `filled=${autoFillCount}, doi_inserted=${doiInserted}, doi_review=${doiNeedsReview}, doi_rejected=${doiRejected}, mode=${String(enrichment.doi_mode || 'balanced')}`
                 : 'disabled',
         },
         {

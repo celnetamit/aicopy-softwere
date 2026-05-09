@@ -352,6 +352,7 @@ def _default_global_runtime_settings() -> Dict:
             "cmos_strict_mode": True,
             "online_reference_validation": True,
             "online_reference_serper_fallback": True,
+            "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
             "custom_terms": [],
         },
@@ -416,6 +417,9 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
     domain = str(editing_in.get("domain_profile", defaults["editing"]["domain_profile"]) or "auto").strip().lower()
     if domain not in ("auto", "general", "medical", "engineering", "law"):
         domain = "auto"
+    doi_mode = str(editing_in.get("doi_insertion_mode", defaults["editing"]["doi_insertion_mode"]) or "balanced").strip().lower()
+    if doi_mode not in ("strict", "balanced"):
+        doi_mode = "balanced"
 
     provider = str(ai_in.get("provider", defaults["ai"]["provider"]) or "ollama").strip().lower()
     if provider not in ("ollama", "gemini", "openrouter", "agent_router"):
@@ -438,6 +442,7 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
                 "online_reference_serper_fallback",
                 defaults["editing"]["online_reference_serper_fallback"],
             ),
+            "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
             "custom_terms": _normalize_custom_terms(editing_in.get("custom_terms", defaults["editing"]["custom_terms"])),
         },
@@ -494,6 +499,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["cmos_strict_mode"] = bool(editing.get("cmos_strict_mode", True))
     opts["online_reference_validation"] = bool(editing.get("online_reference_validation", True))
     opts["online_reference_serper_fallback"] = bool(editing.get("online_reference_serper_fallback", True))
+    opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
     opts["custom_terms"] = list(editing.get("custom_terms", []))
     opts["journal_profile"] = "vancouver_nlm"

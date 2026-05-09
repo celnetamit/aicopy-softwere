@@ -72,6 +72,9 @@ function syncReferenceValidationToggleState() {
     }
     const validationEnabled = settingsDom.onlineReferenceValidationInput.checked !== false;
     settingsDom.onlineReferenceSerperFallbackInput.disabled = !validationEnabled;
+    if (settingsDom.doiInsertionModeInput) {
+        settingsDom.doiInsertionModeInput.disabled = !validationEnabled;
+    }
     if (!validationEnabled) {
         settingsDom.onlineReferenceSerperFallbackInput.checked = false;
     }
@@ -179,6 +182,7 @@ function saveAiSettings() {
         cmos_strict_mode: settingsDom.cmosStrictInput ? settingsDom.cmosStrictInput.checked : true,
         online_reference_validation: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
         online_reference_serper_fallback: settingsDom.onlineReferenceSerperFallbackInput ? settingsDom.onlineReferenceSerperFallbackInput.checked !== false : true,
+        doi_insertion_mode: settingsDom.doiInsertionModeInput ? String(settingsDom.doiInsertionModeInput.value || 'balanced') : 'balanced',
         custom_terms_text: previewApi.normalizeCustomTermsText(settingsDom.customTermsInput.value),
         journal_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
@@ -261,6 +265,11 @@ function loadAiSettings() {
     }
     settingsDom.cmosStrictInput.checked = typeof parsed.cmos_strict_mode === 'boolean' ? parsed.cmos_strict_mode : true;
     settingsDom.onlineReferenceValidationInput.checked = typeof parsed.online_reference_validation === 'boolean' ? parsed.online_reference_validation : true;
+    if (settingsDom.doiInsertionModeInput) {
+        settingsDom.doiInsertionModeInput.value = (parsed.doi_insertion_mode === 'strict' || parsed.doi_insertion_mode === 'balanced')
+            ? parsed.doi_insertion_mode
+            : 'balanced';
+    }
     if (settingsDom.onlineReferenceSerperFallbackInput) {
         if (typeof parsed.online_reference_serper_fallback === 'boolean') {
             settingsDom.onlineReferenceSerperFallbackInput.checked = parsed.online_reference_serper_fallback;

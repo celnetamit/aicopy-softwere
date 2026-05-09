@@ -276,6 +276,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
         cmos_strict_mode: true,
         online_reference_validation: onlineReferenceValidationEnabled,
         online_reference_serper_fallback: serperFallbackEnabled,
+        doi_insertion_mode: 'balanced',
         domain_profile: 'auto',
         custom_terms: [],
         journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
@@ -310,6 +311,7 @@ function buildProcessingOptionsFromRuntimeSettings() {
         cmos_strict_mode: editing.cmos_strict_mode !== false,
         online_reference_validation: onlineReferenceValidationEnabled,
         online_reference_serper_fallback: serperFallbackEnabled,
+        doi_insertion_mode: editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced',
         domain_profile: String(editing.domain_profile || 'auto'),
         custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
         journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
@@ -918,6 +920,7 @@ function applyAdminGlobalSettingsForm(settings) {
     if (authDom.adminSettingCmosStrict) authDom.adminSettingCmosStrict.checked = editing.cmos_strict_mode !== false;
     if (authDom.adminSettingOnlineReferenceValidation) authDom.adminSettingOnlineReferenceValidation.checked = editing.online_reference_validation !== false;
     if (authDom.adminSettingOnlineReferenceSerperFallback) authDom.adminSettingOnlineReferenceSerperFallback.checked = editing.online_reference_serper_fallback !== false;
+    if (authDom.adminSettingDoiInsertionMode) authDom.adminSettingDoiInsertionMode.value = editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced';
     if (authDom.adminSettingDomainProfile) authDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
     if (authDom.adminSettingCustomTerms) {
         const terms = Array.isArray(editing.custom_terms) ? editing.custom_terms : [];
@@ -950,6 +953,7 @@ function collectAdminGlobalSettingsForm() {
             cmos_strict_mode: authDom.adminSettingCmosStrict ? authDom.adminSettingCmosStrict.checked : true,
             online_reference_validation: authDom.adminSettingOnlineReferenceValidation ? authDom.adminSettingOnlineReferenceValidation.checked : true,
             online_reference_serper_fallback: authDom.adminSettingOnlineReferenceSerperFallback ? authDom.adminSettingOnlineReferenceSerperFallback.checked : true,
+            doi_insertion_mode: authDom.adminSettingDoiInsertionMode ? String(authDom.adminSettingDoiInsertionMode.value || 'balanced') : 'balanced',
             domain_profile: authDom.adminSettingDomainProfile ? String(authDom.adminSettingDomainProfile.value || 'auto') : 'auto',
             custom_terms: authDom.adminSettingCustomTerms ? appAuth.preview.parseCustomTerms(authDom.adminSettingCustomTerms.value) : []
         },

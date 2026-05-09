@@ -65,6 +65,11 @@
                         <input type="checkbox" id="opt-online-reference-serper-fallback" checked>
                         <span>Allow Serper Fallback</span>
                     </label>
+                    <label class="field-label" for="opt-doi-insertion-mode">DOI Insertion Mode</label>
+                    <select id="opt-doi-insertion-mode" class="input-field">
+                        <option value="balanced" selected>Balanced (insert likely match with needs review)</option>
+                        <option value="strict">Strict (insert only high-confidence DOI)</option>
+                    </select>
                     <p class="hint-text">Checks journal-style references against public metadata services during processing. You can turn this off per run.</p>
                     <p class="hint-text">Recommended for scientific/medical/legal editing with protected terminology.</p>
                     <label class="field-label" for="domain-profile">Domain Dictionary</label>
@@ -431,6 +436,13 @@
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-online-reference-validation" checked><span>Online Ref Validation</span></label>
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-online-reference-serper-fallback" checked><span>Serper Fallback</span></label>
                             </div>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-doi-insertion-mode">DOI Insertion Mode</label>
+                            <select id="admin-setting-doi-insertion-mode" class="input-field">
+                                <option value="balanced" selected>Balanced</option>
+                                <option value="strict">Strict</option>
+                            </select>
                         </div>
 
                         <div class="admin-settings-row">
