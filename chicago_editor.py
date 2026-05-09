@@ -1279,9 +1279,14 @@ class ChicagoEditor:
             place = (place_pub.group("place") or "").strip(" ,.;")
             publisher = (place_pub.group("publisher") or "").strip(" ,.;")
         else:
-            pub_only = re.match(r'^(?P<publisher>[^;:]+?)\s*$', pre_year)
-            if pub_only:
-                publisher = (pub_only.group("publisher") or "").strip(" ,.;")
+            comma_place_pub = re.match(r'^(?P<place>[^,;:]+?)\s*,\s*(?P<publisher>[^,;:]+?)\s*$', pre_year)
+            if comma_place_pub:
+                place = (comma_place_pub.group("place") or "").strip(" ,.;")
+                publisher = (comma_place_pub.group("publisher") or "").strip(" ,.;")
+            else:
+                pub_only = re.match(r'^(?P<publisher>[^;:]+?)\s*$', pre_year)
+                if pub_only:
+                    publisher = (pub_only.group("publisher") or "").strip(" ,.;")
 
         segments: List[str] = []
         if place and publisher:
@@ -1581,7 +1586,16 @@ class ChicagoEditor:
         elif str(metadata.get("source_type") or "") == "book":
             authors_norm = self._normalize_author_block(authors, profile) if authors else ''
             title_norm = self._format_reference_title(title, profile) if title else ''
-            tail_norm = self._normalize_book_tail(tail)
+            book_tail_seed = tail
+            journal_hint = (journal or "").strip().strip(".")
+            # If parser treated place/publisher as "journal" and tail is just year,
+            # stitch them back so book-tail normalization can recover `place: publisher; year`.
+            if journal_hint and re.fullmatch(r'\s*(?:19|20)\d{2}\.?\s*', str(tail or '')):
+                if ',' in journal_hint:
+                    book_tail_seed = f"{journal_hint}; {str(tail or '').strip().rstrip('.')}"
+                elif ';' not in journal_hint:
+                    book_tail_seed = f"{journal_hint}; {str(tail or '').strip().rstrip('.')}"
+            tail_norm = self._normalize_book_tail(book_tail_seed)
             segments = [part.rstrip('.') for part in [authors_norm, title_norm] if part]
             if tail_norm:
                 segments.append(tail_norm)
@@ -1602,7 +1616,116 @@ class ChicagoEditor:
 
         if normalized and not normalized.endswith('.'):
             normalized += '.'
-        return self._inject_missing_placeholders_inline(normalized, metadata)
+        metadata_post = self._analyze_reference_entry(normalized)
+        placeholder_injected = self._inject_missing_placeholders_inline(normalized, metadata_post)
+        final_shape = self._finalize_reference_shape(placeholder_injected, metadata_post, profile)
+        return str(final_shape.get("entry") or placeholder_injected)
+
+    def _reference_shape_templates(self) -> Dict[str, str]:
+        """Human-readable reference shape templates by source type."""
+        return {
+            "journal": "Author AB, Author CD. Title in sentence case. J Abbrev. 2024;10(2):100-110. doi: 10.xxxx/xxxxx.",
+            "book": "Author AB. Book title in sentence case. Place: Publisher; 2024.",
+            "chapter": "Author AB. Chapter title. In: Editor AB, editor. Book title. Place: Publisher; 2024. p. 100-110.",
+            "website": "Organization or Author AB. Page title [Internet]. Place: Publisher; 2024 [cited 2026 May 09]. Available from: https://example.org.",
+            "generic": "Author AB. Title. 2024.",
+        }
+
+    def _final_shape_check(self, source_type: str, entry: str) -> Tuple[bool, List[str]]:
+        """Validate reference against coarse end-shape expectations."""
+        text = re.sub(r'\s+', ' ', str(entry or '')).strip()
+        if not text:
+            return False, ["empty reference entry"]
+
+        reasons: List[str] = []
+        if not re.search(r'\b(?:19|20)\d{2}\b', text):
+            reasons.append("missing year")
+
+        normalized_type = source_type if source_type in {"journal", "book", "chapter", "website"} else "generic"
+        if normalized_type == "journal":
+            if not re.search(r'\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*:\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?', text):
+                reasons.append("missing or malformed volume/pages segment")
+            if not re.search(r'\.\s+[A-Za-z].+\.\s+(?:19|20)\d{2}\s*;', text):
+                reasons.append("journal sequence should be title. journal. year;volume:pages")
+        elif normalized_type == "book":
+            if not re.search(r'[^.;]+:\s*[^.;]+;\s*(?:19|20)\d{2}', text) and not re.search(r'\[place missing\]\s*:\s*[^.;]+;\s*(?:19|20)\d{2}', text):
+                reasons.append("book entry should contain place: publisher; year")
+        elif normalized_type == "chapter":
+            if not re.search(r'(?i)\bIn:\s*', text):
+                reasons.append("chapter entry missing In: editor block")
+            if not re.search(r'[^.;]+:\s*[^.;]+;\s*(?:19|20)\d{2}', text):
+                reasons.append("chapter entry missing place: publisher; year")
+        elif normalized_type == "website":
+            if "[Internet]" not in text:
+                reasons.append("website entry missing [Internet] marker")
+            if not re.search(r'(?i)\bAvailable from:\s*(https?://\S+|www\.\S+)', text):
+                reasons.append("website entry missing Available from URL")
+            if not re.search(r'(?i)\[cited [^\]]+\]', text):
+                reasons.append("website entry missing cited date")
+
+        return len(reasons) == 0, reasons
+
+    def _attempt_final_shape_repair(self, source_type: str, entry: str) -> str:
+        """Apply conservative final-shape repairs before manual-review fallback."""
+        text = re.sub(r'\s+', ' ', str(entry or '')).strip()
+        if not text:
+            return text
+
+        if source_type == "website":
+            if "[Internet]" not in text:
+                text = re.sub(
+                    r'^(\s*(?:[^.]+\.)\s*)(.+?)\.\s*',
+                    lambda m: f"{m.group(1)}{m.group(2)} [Internet]. ",
+                    text,
+                    count=1,
+                )
+            if not re.search(r'(?i)\[cited [^\]]+\]', text):
+                year_match = re.search(r'\b(?:19|20)\d{2}\b', text)
+                if year_match:
+                    idx = year_match.end()
+                    text = f"{text[:idx]} [cited date missing]{text[idx:]}"
+                else:
+                    text = text.rstrip(". ") + " [cited date missing]."
+            if re.search(r'(?i)\bAvailable from:\s*$', text):
+                text += " [url missing]"
+        elif source_type in {"book", "chapter"}:
+            text = re.sub(
+                r'(?P<place>[^.;,\[\]]+?)\s*,\s*(?P<publisher>[^.;,\[\]]+?)\s*,\s*(?P<year>(?:19|20)\d{2})',
+                lambda m: f"{m.group('place').strip()}: {m.group('publisher').strip()}; {m.group('year').strip()}",
+                text,
+                count=1,
+            )
+        elif source_type == "journal":
+            volpg = re.search(r';\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*:\s*[A-Za-z]?\d+\s*[-–]\s*[A-Za-z]?\d+', text)
+            if not volpg:
+                year_match = re.search(r'\b(?:19|20)\d{2}\b', text)
+                if year_match:
+                    text = text[:year_match.end()] + ";[volume missing]:[page missing]." + text[year_match.end():]
+
+        text = re.sub(r'\s{2,}', ' ', text).strip()
+        text = re.sub(r'\s+([,:.])', r'\1', text)
+        if text and not text.endswith('.'):
+            text += '.'
+        return text
+
+    def _finalize_reference_shape(self, entry: str, metadata: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+        """Run final shape validation/repair and mark irreparable entries for manual review."""
+        _ = profile  # Reserved for future profile-specific shape strictness.
+        source_type = str((metadata or {}).get("source_type") or "generic")
+        candidate = re.sub(r'\s+', ' ', str(entry or '')).strip()
+        passed, reasons = self._final_shape_check(source_type, candidate)
+        if passed:
+            return {"entry": candidate, "passed": True, "repaired": False, "reasons": []}
+
+        repaired = self._attempt_final_shape_repair(source_type, candidate)
+        repaired_ok, repaired_reasons = self._final_shape_check(source_type, repaired)
+        if repaired_ok:
+            return {"entry": repaired, "passed": True, "repaired": True, "reasons": reasons}
+
+        reason_text = ", ".join(repaired_reasons[:3]) if repaired_reasons else "shape mismatch"
+        flagged = repaired.rstrip(". ")
+        flagged += f". [needs manual review: {reason_text}]."
+        return {"entry": flagged, "passed": False, "repaired": True, "reasons": repaired_reasons or reasons}
 
     def _inject_missing_placeholders_inline(self, text: str, metadata: Dict[str, Any]) -> str:
         """Insert missing-field placeholders near their expected field position."""
@@ -2522,6 +2645,34 @@ class ChicagoEditor:
             for spec in self._reference_missing_specs(metadata):
                 missing_by_code[str(spec["code"])].append(number)
 
+        gate_summary: Dict[str, Any] = {
+            "total": 0,
+            "passed": 0,
+            "auto_repaired": 0,
+            "failed": 0,
+            "needs_manual_review_numbers": [],
+            "reasons_by_number": {},
+            "templates": self._reference_shape_templates(),
+        }
+        for item in ref_entries:
+            number = int(item.get("number") or 0)
+            entry = str(item.get("entry") or "")
+            if number <= 0 or not entry.strip():
+                continue
+            metadata = self._analyze_reference_entry(entry)
+            gate_summary["total"] += 1
+            result = self._finalize_reference_shape(entry, metadata, {})
+            if bool(result.get("passed")):
+                gate_summary["passed"] += 1
+                if bool(result.get("repaired")):
+                    gate_summary["auto_repaired"] += 1
+                continue
+            gate_summary["failed"] += 1
+            gate_summary["needs_manual_review_numbers"].append(number)
+            reasons = result.get("reasons") if isinstance(result.get("reasons"), list) else []
+            gate_summary["reasons_by_number"][str(number)] = [str(reason) for reason in reasons[:3]]
+        details["reference_quality_gate"] = gate_summary
+
         for code, numbers in missing_by_code.items():
             if numbers:
                 bump(code, len(numbers))
@@ -2545,6 +2696,7 @@ class ChicagoEditor:
             "reference_missing_editor": "chapter entry/entries missing editor",
             "reference_missing_cited_date": "website entry/entries missing cited date",
             "reference_missing_url": "website entry/entries missing URL",
+            "reference_final_shape_failed": "reference entry/entries need manual review after final-shape validation",
         }
         ordered_codes = sorted(issue_counts.keys(), key=lambda key: (-issue_counts[key], key))
         messages = [
@@ -2572,6 +2724,9 @@ class ChicagoEditor:
             "failed": bool(len(book_numbers) > 0 and book_issues > 0),
             "issues": book_issues,
         }
+        if int(gate_summary.get("failed", 0)) > 0:
+            bump("reference_final_shape_failed", int(gate_summary.get("failed", 0)))
+            details["reference_final_shape_failed_numbers"] = list(gate_summary.get("needs_manual_review_numbers", []))
 
         return {
             "summary": {

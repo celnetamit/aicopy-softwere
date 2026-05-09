@@ -492,6 +492,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
         const summary = safeValidator.summary && typeof safeValidator.summary === 'object'
             ? safeValidator.summary
             : {};
+        const details = safeValidator.details && typeof safeValidator.details === 'object'
+            ? safeValidator.details
+            : {};
         const categoryCounts = safeValidator.category_counts && typeof safeValidator.category_counts === 'object'
             ? safeValidator.category_counts
             : {};
@@ -543,6 +546,40 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += '</div>';
         } else {
             html += '<div class="validator-ok">No citation/reference validation issues detected.</div>';
+        }
+        const qualityGate = details.reference_quality_gate && typeof details.reference_quality_gate === 'object'
+            ? details.reference_quality_gate
+            : null;
+        if (qualityGate) {
+            const total = Number(qualityGate.total || 0);
+            const passed = Number(qualityGate.passed || 0);
+            const repaired = Number(qualityGate.auto_repaired || 0);
+            const failed = Number(qualityGate.failed || 0);
+            const manualNumbers = Array.isArray(qualityGate.needs_manual_review_numbers)
+                ? qualityGate.needs_manual_review_numbers.slice(0, 8)
+                : [];
+            const reasonsByNumber = qualityGate.reasons_by_number && typeof qualityGate.reasons_by_number === 'object'
+                ? qualityGate.reasons_by_number
+                : {};
+            html += '<div class="validator-messages">';
+            html += '<div class="validator-messages-title">Reference Quality Gate</div>';
+            html += '<div class="validator-categories">';
+            html += `<span class="validator-chip">Checked: ${total}</span>`;
+            html += `<span class="validator-chip">Passed: ${passed}</span>`;
+            html += `<span class="validator-chip">Auto-Repaired: ${repaired}</span>`;
+            html += `<span class="validator-chip">Manual Review: ${failed}</span>`;
+            html += '</div>';
+            if (manualNumbers.length > 0) {
+                html += '<ul>';
+                manualNumbers.forEach((num) => {
+                    const key = String(Number(num || 0));
+                    const reasons = Array.isArray(reasonsByNumber[key]) ? reasonsByNumber[key] : [];
+                    const reasonText = reasons.length > 0 ? reasons.join(', ') : 'shape mismatch';
+                    html += `<li>[${Number(num || 0)}] needs manual review: ${previewHelpers.escapeHtml(reasonText)}</li>`;
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
         }
         html += '</section>';
 

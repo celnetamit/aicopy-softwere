@@ -670,6 +670,27 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertTrue(bool(book_validation.get("passed")))
         self.assertEqual(int(book_validation.get("issues", 0)), 0)
 
+    def test_reference_quality_gate_summary_is_exposed(self):
+        source = (
+            "Body cites [1,2].\n"
+            "References\n"
+            "[1] Alpha AB. Valid journal title. J Test. 2024;10(2):100-110.\n"
+            "[2] Broken ref with no year and no valid tail.\n"
+        )
+        report = self.editor.build_citation_reference_validator_report(source, {})
+        gate = report.get("details", {}).get("reference_quality_gate", {})
+        self.assertEqual(int(gate.get("total", 0)), 2)
+        self.assertGreaterEqual(int(gate.get("failed", 0)), 1)
+        self.assertIn(2, gate.get("needs_manual_review_numbers", []))
+
+    def test_format_references_flags_irreparable_entries_for_manual_review(self):
+        source = (
+            "References\n"
+            "This entry has no detectable structure at all\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("[needs manual review:", out)
+
     def test_append_online_reference_links_prefers_doi_over_source_url(self):
         source = (
             "Body cites [1].\n"
