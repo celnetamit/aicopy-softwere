@@ -755,6 +755,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("[1] Alpha AB. Complete title. Journal of Testing. 2024;10(2):100-110.", out)
         enrichment = report.get("online_validation", {}).get("enrichment", {})
         self.assertEqual(int(enrichment.get("fields_filled", 0)), 5)
+        self.assertEqual(int(enrichment.get("autofill_full", 0)), 1)
 
     def test_append_online_reference_links_rejects_doi_when_strict_checks_fail(self):
         source = (
@@ -878,9 +879,37 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("New York: Academic Press; 2020", out)
         enrichment = report.get("online_validation", {}).get("enrichment", {})
         self.assertGreaterEqual(int(enrichment.get("fields_filled", 0)), 3)
+        self.assertEqual(int(enrichment.get("autofill_full", 0)), 1)
         trail = enrichment.get("trail", [])
         self.assertEqual(len(trail), 1)
         self.assertEqual(trail[0].get("confidence"), "verified")
+
+    def test_append_online_reference_links_marks_partial_autofill_when_some_placeholders_unfilled(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. [title missing]. [journal missing]. [year missing];[volume missing]:[page missing].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.97,
+                        "matched_title": "Complete title",
+                        "matched_year": "2024",
+                    }
+                ],
+            }
+        }
+        _ = self.editor.append_online_reference_links(source, report, {"online_reference_validation": True})
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("autofill_partial", 0)), 1)
+        trail = enrichment.get("trail", [])
+        first = trail[0] if trail and isinstance(trail[0], dict) else {}
+        self.assertEqual(first.get("autofill_status"), "partial")
 
 
 class ProcessorRegressionTests(unittest.TestCase):

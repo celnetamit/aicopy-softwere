@@ -644,6 +644,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += `<span class="validator-chip">DOI Inserted: ${Number(enrichment.doi_inserted || 0)}</span>`;
             html += `<span class="validator-chip">DOI Inserted (Needs Review): ${Number(enrichment.doi_needs_review_inserted || 0)}</span>`;
             html += `<span class="validator-chip">DOI Rejected: ${Number(enrichment.doi_rejected || 0)}</span>`;
+            html += `<span class="validator-chip">Autofill Full: ${Number(enrichment.autofill_full || 0)}</span>`;
+            html += `<span class="validator-chip">Autofill Partial: ${Number(enrichment.autofill_partial || 0)}</span>`;
+            html += `<span class="validator-chip">Autofill None: ${Number(enrichment.autofill_none || 0)}</span>`;
             html += '</div>';
 
             if (onlineMessages.length > 0) {
@@ -704,7 +707,8 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                         line += 'Not inserted';
                     }
                     const chips = Array.isArray(item && item.doi_reason_chips) ? item.doi_reason_chips : [];
-                    const chipText = chips.slice(0, 4).map((chip) => `[${String(chip)}]`).join(' ');
+                    const autofillChips = Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [];
+                    const chipText = chips.slice(0, 4).concat(autofillChips.slice(0, 3)).map((chip) => `[${String(chip)}]`).join(' ');
                     if (chipText) {
                         line += ` ${chipText}`;
                     }

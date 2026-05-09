@@ -2032,6 +2032,9 @@ class ChicagoEditor:
             "references_considered": 0,
             "fields_filled": 0,
             "fields_filled_by_type": {},
+            "autofill_full": 0,
+            "autofill_partial": 0,
+            "autofill_none": 0,
             "doi_inserted": 0,
             "doi_needs_review_inserted": 0,
             "doi_rejected": 0,
@@ -2100,6 +2103,13 @@ class ChicagoEditor:
                 enrichment["fields_filled"] += 1
                 by_type = enrichment["fields_filled_by_type"]
                 by_type[field_name] = int(by_type.get(field_name, 0)) + 1
+            autofill_status = str(fill_report.get("autofill_status") or "none")
+            if autofill_status == "full":
+                enrichment["autofill_full"] += 1
+            elif autofill_status == "partial":
+                enrichment["autofill_partial"] += 1
+            else:
+                enrichment["autofill_none"] += 1
 
             doi = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
             doi_rejected = False
@@ -2160,6 +2170,9 @@ class ChicagoEditor:
                 "source": str(validated.get("source") or ""),
                 "confidence": confidence,
                 "fields_filled": fill_report.get("fields", []),
+                "autofill_status": autofill_status,
+                "autofill_expected_fields": fill_report.get("expected_fields", []),
+                "autofill_chips": fill_report.get("autofill_chips", []),
                 "doi_inserted": bool(doi),
                 "doi_needs_review": doi_needs_review,
                 "doi_rejected": doi_rejected,
@@ -2177,12 +2190,15 @@ class ChicagoEditor:
         validated: Dict[str, Any],
         metadata: Dict[str, Any],
     ) -> Tuple[str, Dict[str, Any]]:
-        """Fill explicit [field missing] placeholders from high-confidence metadata."""
+        """Fill explicit [field missing] placeholders from high-confidence metadata.
+
+        Safety rule: fill-only-missing. Existing non-placeholder user text is never overwritten.
+        """
         entry = str(entry_text or "")
         status = str(validated.get("status") or "").strip().lower()
         score = float(validated.get("score") or 0.0)
         if status != "verified" or ("score" in validated and score < 0.88):
-            return entry, {"fields": []}
+            return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:untrusted_source"]}
 
         updates = {
             "title": str(validated.get("matched_title") or "").strip().rstrip("."),
@@ -2206,8 +2222,11 @@ class ChicagoEditor:
         }
 
         filled: List[str] = []
+        expected: List[str] = []
         result = entry
         for field_name, placeholder in replacement_map.items():
+            if re.search(re.escape(placeholder), result, flags=re.IGNORECASE):
+                expected.append(field_name)
             value = updates.get(field_name, "")
             if not value:
                 continue
@@ -2215,7 +2234,24 @@ class ChicagoEditor:
             if changed:
                 result = next_result
                 filled.append(field_name)
-        return result, {"fields": filled}
+        expected_unique = list(dict.fromkeys(expected))
+        if len(expected_unique) == 0:
+            status_label = "none"
+        elif len(filled) >= len(expected_unique):
+            status_label = "full"
+        elif len(filled) > 0:
+            status_label = "partial"
+        else:
+            status_label = "none"
+        chips = [f"autofill:{status_label}"]
+        if expected_unique:
+            chips.append(f"expected:{len(expected_unique)}")
+        if filled:
+            chips.append(f"filled:{len(filled)}")
+        if expected_unique and len(filled) < len(expected_unique):
+            missing_left = len(expected_unique) - len(filled)
+            chips.append(f"remaining:{missing_left}")
+        return result, {"fields": filled, "expected_fields": expected_unique, "autofill_status": status_label, "autofill_chips": chips}
 
     def _replace_missing_placeholder(self, text: str, placeholder: str, value: str) -> Tuple[str, bool]:
         """Replace a single placeholder token case-insensitively."""
