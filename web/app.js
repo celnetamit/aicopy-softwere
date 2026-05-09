@@ -12,6 +12,7 @@ let assistantUnreadCount = 0;
 let assistantCurrentTaskKey = '';
 let assistantActionInFlight = false;
 const ASSISTANT_REQUEST_TIMEOUT_MS = 15000;
+const assistantRequestLogEntries = [];
 
 function setStatus(message, type) {
     const statusEl = document.getElementById('status');
@@ -409,6 +410,39 @@ function showAssistantToast(message) {
     }, 3200);
 }
 
+function renderAssistantRequestLog() {
+    if (!mainDom.assistantRequestLogList) return;
+    if (!assistantRequestLogEntries.length) {
+        mainDom.assistantRequestLogList.textContent = 'No requests yet.';
+        return;
+    }
+    const rows = assistantRequestLogEntries
+        .slice(-10)
+        .reverse()
+        .map((entry) => {
+            const retried = entry.retried ? 'yes' : 'no';
+            const ms = Number(entry.latencyMs || 0);
+            const status = appMain.helpers.escapeHtml(String(entry.status || 'unknown'));
+            const action = appMain.helpers.escapeHtml(String(entry.action || 'assistant'));
+            return `<li>${action}: ${status} | ${ms}ms | retried=${retried}</li>`;
+        })
+        .join('');
+    mainDom.assistantRequestLogList.innerHTML = `<ul>${rows}</ul>`;
+}
+
+function pushAssistantRequestLogEntry(action, status, latencyMs, retried) {
+    assistantRequestLogEntries.push({
+        action: String(action || 'assistant'),
+        status: String(status || 'unknown'),
+        latencyMs: Math.max(0, Math.floor(Number(latencyMs || 0))),
+        retried: retried === true,
+    });
+    while (assistantRequestLogEntries.length > 10) {
+        assistantRequestLogEntries.shift();
+    }
+    renderAssistantRequestLog();
+}
+
 function setAssistantActionsLoading(loading, label) {
     assistantActionInFlight = loading === true;
     const controls = [
@@ -430,9 +464,10 @@ function setAssistantActionsLoading(loading, label) {
     }
 }
 
-function callAssistantWithRetry(executor, onComplete) {
+function callAssistantWithRetry(actionName, executor, onComplete) {
     let attempts = 0;
     let done = false;
+    const startedAt = Date.now();
     const run = () => {
         attempts += 1;
         let timeoutId = window.setTimeout(() => {
@@ -443,6 +478,8 @@ function callAssistantWithRetry(executor, onComplete) {
                 return;
             }
             done = true;
+            const elapsed = Date.now() - startedAt;
+            pushAssistantRequestLogEntry(actionName, 'timeout', elapsed, attempts > 1);
             onComplete({ success: false, error: 'Request timed out' });
         }, ASSISTANT_REQUEST_TIMEOUT_MS);
         executor((response) => {
@@ -455,7 +492,11 @@ function callAssistantWithRetry(executor, onComplete) {
                 return;
             }
             done = true;
-            onComplete(response || { success: false, error: 'Empty response' });
+            const finalResponse = response || { success: false, error: 'Empty response' };
+            const elapsed = Date.now() - startedAt;
+            const status = finalResponse.success === true ? 'success' : 'failed';
+            pushAssistantRequestLogEntry(actionName, status, elapsed, attempts > 1);
+            onComplete(finalResponse);
         });
     };
     run();
@@ -812,7 +853,7 @@ function askAssistantQuestion() {
     if (message) appendAssistantChatMessage('user', message);
     appendAssistantChatMessage('assistant', 'Preparing diagnostics...');
     setAssistantActionsLoading(true, 'Assistant request in progress...');
-    callAssistantWithRetry((done) => {
+    callAssistantWithRetry('ask', (done) => {
         eel.assistant_query({
             task_id: taskId,
             message,
@@ -852,7 +893,7 @@ function assistantReprocessCurrentTask() {
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Reprocessing current task...');
     setAssistantActionsLoading(true, 'Assistant is reprocessing current task...');
-    callAssistantWithRetry((done) => {
+    callAssistantWithRetry('reprocess', (done) => {
         eel.assistant_reprocess_task(taskId, options)(done);
     }, (response) => {
         setAssistantActionsLoading(false);
@@ -891,7 +932,7 @@ function assistantApplyCurrentDecisions() {
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Applying current correction decisions...');
     setAssistantActionsLoading(true, 'Assistant is applying correction decisions...');
-    callAssistantWithRetry((done) => {
+    callAssistantWithRetry('apply_decisions', (done) => {
         eel.assistant_apply_group_decisions(
             taskId,
             groupDecisions,
@@ -934,7 +975,7 @@ function retryWithRecommendedSettings() {
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Retrying with recommended settings...');
     setAssistantActionsLoading(true, 'Retrying with recommended settings...');
-    callAssistantWithRetry((done) => {
+    callAssistantWithRetry('retry_recommended', (done) => {
         eel.assistant_reprocess_task(taskId, retryOptions)(done);
     }, (response) => {
         setAssistantActionsLoading(false);
@@ -1129,6 +1170,7 @@ applyProcessingModeProviderContext('', '');
 renderFallbackInsightsFromCurrentState();
 restoreAssistantChatHistoryForCurrentTask();
 setAssistantUnreadCount(0);
+renderAssistantRequestLog();
 mainAuth.checkAuthenticatedUser();
 refreshProcessButtonState();
 

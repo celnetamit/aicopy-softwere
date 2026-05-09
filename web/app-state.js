@@ -219,6 +219,8 @@ app.dom = {
     assistantApplyDecisionsBtn: document.getElementById('assistant-apply-decisions-btn'),
     assistantIncludeAdminActivityInput: document.getElementById('assistant-include-admin-activity'),
     assistantDiagnostics: document.getElementById('assistant-diagnostics'),
+    assistantRequestLog: document.getElementById('assistant-request-log'),
+    assistantRequestLogList: document.getElementById('assistant-request-log-list'),
     assistantEndpointStatus: document.getElementById('assistant-endpoint-status'),
     assistantLastSuccess: document.getElementById('assistant-last-success'),
     assistantLastError: document.getElementById('assistant-last-error'),

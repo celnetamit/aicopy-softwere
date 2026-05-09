@@ -591,6 +591,35 @@ section h2 {
     line-height: 1.45;
 }
 
+.assistant-request-log {
+    margin-bottom: 10px;
+    border: 1px solid #2f446a;
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: rgba(20, 30, 56, 0.7);
+}
+
+.assistant-request-log > summary {
+    cursor: pointer;
+    color: #d3e3ff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#assistant-request-log-list {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #bed3f3;
+    line-height: 1.4;
+    max-height: 140px;
+    overflow: auto;
+}
+
+#assistant-request-log-list ul {
+    margin: 0;
+    padding-left: 16px;
+}
+
 .assistant-fallback-panel {
     margin-bottom: 10px;
     border: 1px solid #3f547c;
