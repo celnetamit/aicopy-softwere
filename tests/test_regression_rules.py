@@ -613,6 +613,28 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertRegex(out, r"\[place missing\]\s*:\s*Academic Press;\s*2020")
         self.assertRegex(out, r"2022\s*\[cited date missing\]\.\s*Available from:")
 
+    def test_book_reference_tail_normalizes_to_place_publisher_year_pattern(self):
+        source = (
+            "References\n"
+            "Moore JC. Introduction to Biochemistry. New York ,  Academic Press , 2020.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("New York: Academic Press; 2020.", out)
+
+    def test_citation_report_exposes_book_validation_summary(self):
+        source = (
+            "Intro cites [1, 2].\n"
+            "References\n"
+            "[1] Moore JC. Introduction to Biochemistry. New York: Academic Press; 2020.\n"
+            "[2] Alpha AB. Complete title. J Test. 2024;10(2):100-110.\n"
+        )
+        report = self.editor.build_citation_reference_validator_report(source, {})
+        details = report.get("details", {})
+        book_validation = details.get("book_validation", {})
+        self.assertEqual(int(book_validation.get("total_books", 0)), 1)
+        self.assertTrue(bool(book_validation.get("passed")))
+        self.assertEqual(int(book_validation.get("issues", 0)), 0)
+
     def test_append_online_reference_links_prefers_doi_over_source_url(self):
         source = (
             "Body cites [1].\n"

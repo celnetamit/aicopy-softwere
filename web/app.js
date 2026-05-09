@@ -466,6 +466,16 @@ function deriveRunStagesFromState() {
         : {};
     const onlineSummary = online.summary && typeof online.summary === 'object' ? online.summary : {};
     const summary = report.summary && typeof report.summary === 'object' ? report.summary : {};
+    const details = report.details && typeof report.details === 'object' ? report.details : {};
+    const sourceTypeNumbers = details.source_type_numbers && typeof details.source_type_numbers === 'object'
+        ? details.source_type_numbers
+        : {};
+    const bookValidation = details.book_validation && typeof details.book_validation === 'object'
+        ? details.book_validation
+        : {};
+    const categoryCounts = report.category_counts && typeof report.category_counts === 'object'
+        ? report.category_counts
+        : {};
     const audit = mainState.fileContent.processingAudit && typeof mainState.fileContent.processingAudit === 'object'
         ? mainState.fileContent.processingAudit
         : {};
@@ -475,10 +485,25 @@ function deriveRunStagesFromState() {
     const serperEnabled = online.serper_enabled === true;
     const checked = Number(onlineSummary.checked || 0);
     const refCount = Number(summary.references || 0);
+    const bookCount = Number(
+        bookValidation.total_books
+            || (Array.isArray(sourceTypeNumbers.book) ? sourceTypeNumbers.book.length : 0)
+            || 0
+    );
+    const bookIssueCount = Number(bookValidation.issues || 0)
+        || Number(categoryCounts.reference_missing_place || 0)
+        || Number(categoryCounts.reference_missing_publisher || 0)
+        || 0;
+    const bookStatus = bookCount > 0 ? (bookIssueCount > 0 ? 'failed' : 'done') : 'skipped';
     return [
         { name: 'Spelling check', status: 'done' },
         { name: 'Grammar check', status: 'done' },
         { name: 'Reference parsing', status: refCount > 0 ? 'done' : 'skipped' },
+        {
+            name: 'Book references',
+            status: bookStatus,
+            meta: `books=${bookCount}${bookCount > 0 ? `, issues=${bookIssueCount}` : ''}`,
+        },
         {
             name: 'Reference validation',
             status: online.enabled === true ? (Number(onlineSummary.error || 0) > 0 ? 'failed' : 'done') : 'skipped',

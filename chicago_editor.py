@@ -1228,6 +1228,48 @@ class ChicagoEditor:
             pieces.append(f'doi: {doi_value}')
         return '. '.join(piece.rstrip('.').strip() for piece in pieces if piece).strip()
 
+    def _normalize_book_tail(self, tail: str) -> str:
+        """Normalize book metadata to canonical 'Place: Publisher; Year' form."""
+        text = re.sub(r'\s+', ' ', tail or '').strip()
+        if not text:
+            return text
+
+        text = text.strip().strip('.,;')
+        text = re.sub(r'(?i)\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$', lambda m: m.group(0).strip("()[] "), text)
+        year_match = re.search(r'\b((?:19|20)\d{2})\b', text)
+        year = year_match.group(1) if year_match else ""
+        pre_year = text[:year_match.start()].strip(" ,.;") if year_match else text
+
+        place = ""
+        publisher = ""
+        place_pub = re.match(r'^(?P<place>[^:;]+?)\s*:\s*(?P<publisher>[^;]+?)\s*$', pre_year)
+        if place_pub:
+            place = (place_pub.group("place") or "").strip(" ,.;")
+            publisher = (place_pub.group("publisher") or "").strip(" ,.;")
+        else:
+            pub_only = re.match(r'^(?P<publisher>[^;:]+?)\s*$', pre_year)
+            if pub_only:
+                publisher = (pub_only.group("publisher") or "").strip(" ,.;")
+
+        segments: List[str] = []
+        if place and publisher:
+            segments.append(f"{place}: {publisher}")
+        elif place:
+            segments.append(f"{place}:")
+        elif publisher:
+            segments.append(publisher)
+        if year:
+            if segments:
+                segments[-1] = f"{segments[-1]}; {year}"
+            else:
+                segments.append(year)
+
+        normalized = ". ".join(part for part in segments if part).strip()
+        if not normalized:
+            normalized = text
+        normalized = re.sub(r'\s{2,}', ' ', normalized).strip(" ,.;")
+        return normalized
+
     def _missing_placeholder(self, field_label: str) -> str:
         """Return stable bracketed placeholder text for missing metadata."""
         return f'[{field_label} missing]'
@@ -1497,6 +1539,15 @@ class ChicagoEditor:
             pieces = [p.rstrip('.') for p in [authors_norm, title_norm, third_segment] if p]
             normalized = '. '.join(pieces).strip()
             normalized = re.sub(r'\s+([,:.])', r'\1', normalized)
+            normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
+        elif str(metadata.get("source_type") or "") == "book":
+            authors_norm = self._normalize_author_block(authors, profile) if authors else ''
+            title_norm = self._format_reference_title(title, profile) if title else ''
+            tail_norm = self._normalize_book_tail(tail)
+            segments = [part.rstrip('.') for part in [authors_norm, title_norm] if part]
+            if tail_norm:
+                segments.append(tail_norm)
+            normalized = '. '.join(part for part in segments if part).strip()
             normalized = re.sub(r'\s{2,}', ' ', normalized).strip()
         else:
             normalized = candidate
@@ -2120,6 +2171,13 @@ class ChicagoEditor:
             "reference_missing_editor_numbers": [],
             "reference_missing_cited_date_numbers": [],
             "reference_missing_url_numbers": [],
+            "source_type_numbers": {
+                "journal": [],
+                "book": [],
+                "chapter": [],
+                "website": [],
+                "generic": [],
+            },
         }
 
         def bump(code: str, amount: int = 1):
@@ -2214,6 +2272,10 @@ class ChicagoEditor:
             if not entry.strip():
                 continue
             metadata = self._analyze_reference_entry(entry)
+            source_type = str(metadata.get("source_type") or "generic")
+            if source_type not in details["source_type_numbers"]:
+                source_type = "generic"
+            details["source_type_numbers"][source_type].append(number)
             for spec in self._reference_missing_specs(metadata):
                 missing_by_code[str(spec["code"])].append(number)
 
@@ -2258,6 +2320,15 @@ class ChicagoEditor:
         citation_issue_total = sum(count for code, count in issue_counts.items() if code in citation_issue_codes)
         reference_issue_total = sum(count for code, count in issue_counts.items() if code not in citation_issue_codes)
         online_validation = self._build_online_reference_validation_report(ref_entries, options or {})
+        book_numbers = details.get("source_type_numbers", {}).get("book", [])
+        book_issue_codes = {"reference_missing_author", "reference_missing_title", "reference_missing_place", "reference_missing_publisher", "reference_missing_year"}
+        book_issues = sum(int(issue_counts.get(code, 0)) for code in book_issue_codes)
+        details["book_validation"] = {
+            "total_books": len(book_numbers),
+            "passed": bool(len(book_numbers) > 0 and book_issues == 0),
+            "failed": bool(len(book_numbers) > 0 and book_issues > 0),
+            "issues": book_issues,
+        }
 
         return {
             "summary": {
