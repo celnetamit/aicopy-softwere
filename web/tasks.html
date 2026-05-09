@@ -81,6 +81,57 @@
                 </section>
             </section>
         </main>
+        <button class="assistant-chat-toggle" id="assistant-chat-toggle" type="button" aria-label="Open Assistant">
+            AI
+            <span class="assistant-unread-badge hidden" id="assistant-unread-badge">0</span>
+        </button>
+        <div class="assistant-toast hidden" id="assistant-toast"></div>
+        <section class="assistant-chat-panel hidden" id="assistant-chat-panel" aria-label="Assistant chat">
+            <div class="assistant-chat-header">
+                <strong>Assistant</strong>
+                <button id="assistant-chat-close" type="button" class="btn-text">Close</button>
+            </div>
+            <div class="assistant-banner hidden" id="assistant-unavailable-banner" role="alert">
+                Assistant unavailable right now. Please retry in a moment.
+            </div>
+            <p class="assistant-dashboard-hint hidden" id="assistant-dashboard-hint">
+                You are on dashboard. Open a task to use assistant actions on that task.
+            </p>
+            <div class="assistant-output" id="assistant-output">Assistant output appears here.</div>
+            <div class="assistant-suggestions" id="assistant-suggestions"></div>
+            <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask about spelling, references, citations, or diagnostics."></textarea>
+            <label class="checkbox-item">
+                <input type="checkbox" id="assistant-include-admin-activity">
+                <span>Include admin activity snapshot (admin only)</span>
+            </label>
+            <div class="assistant-actions">
+                <button class="btn-secondary" id="assistant-ask-btn" type="button">Send</button>
+                <button class="btn-secondary" id="assistant-reprocess-btn" type="button">Reprocess</button>
+                <button class="btn-secondary" id="assistant-apply-decisions-btn" type="button">Apply Decisions</button>
+                <button class="btn-secondary assistant-retry-btn" id="assistant-retry-recommended-btn" type="button">Retry Recommended</button>
+            </div>
+            <div class="assistant-diagnostics" id="assistant-diagnostics">
+                <div><strong>Diagnostics</strong></div>
+                <div>Endpoint: <span id="assistant-endpoint-status">idle</span></div>
+                <div>Last success: <span id="assistant-last-success">never</span></div>
+                <div>Last error: <span id="assistant-last-error">none</span></div>
+            </div>
+            <button class="btn-secondary assistant-copy-btn" id="assistant-copy-diagnostics-btn" type="button">Copy Diagnostics</button>
+            <details class="assistant-request-log" id="assistant-request-log">
+                <summary>Request Log</summary>
+                <div id="assistant-request-log-list">No requests yet.</div>
+            </details>
+            <details class="assistant-run-stages" id="assistant-run-stages">
+                <summary>Run Stages</summary>
+                <div id="assistant-run-stages-list">No run data yet.</div>
+            </details>
+            <details class="assistant-fallback-panel hidden" id="assistant-fallback-panel">
+                <summary>Why fallback?</summary>
+                <p class="assistant-fallback-summary" id="assistant-fallback-summary">No fallback details yet.</p>
+                <div class="assistant-fallback-reasons" id="assistant-fallback-reasons"></div>
+                <div class="assistant-fallback-recommendations" id="assistant-fallback-recommendations"></div>
+            </details>
+        </section>
     </div>
 
 {{SCRIPT_BUNDLE_FRAGMENT}}
