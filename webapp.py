@@ -1082,11 +1082,22 @@ def _assistant_qna_response(
     ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
     lower = str(message or "").strip().lower()
 
-    lines = [
-        "Assistant Phase 1 is active with read-only diagnostics and one safe action: reprocess task.",
-        f"Runtime editing: spelling={bool(editing.get('spelling', True))}, sentence_case={bool(editing.get('sentence_case', True))}, punctuation={bool(editing.get('punctuation', True))}, chicago_style={bool(editing.get('chicago_style', True))}.",
-        f"Runtime AI: enabled={bool(ai.get('enabled', True))}, provider={str(ai.get('provider', 'ollama'))}, model={str(ai.get('model', 'llama3.1'))}.",
-    ]
+    def _looks_like_tulsi_question(text: str) -> bool:
+        return "tulsi" in text and ("word" in text or "capital" in text or "lower" in text or "upper" in text)
+
+    def _plain_answer_for_message(text: str) -> str:
+        if _looks_like_tulsi_question(text):
+            return (
+                "Use 'Tulsi' when it is a specific plant name or cultural/sacred name (as in your sentence). "
+                "Use 'tulsi' only for generic mention."
+            )
+        if "reference" in text or "citation" in text:
+            return "References are checked for author/title/year and source-type rules. If format still looks wrong, run Retry Recommended once."
+        if "spell" in text or "grammar" in text:
+            return "Spelling and grammar are enabled. If output still looks weak, use Retry Recommended to reduce fallback sections."
+        return "I can help with one thing at a time: wording, spelling, references, citations, or retry settings."
+
+    lines = [_plain_answer_for_message(lower)]
 
     suggestions: list[str] = []
     if "spell" in lower or "grammar" in lower:
@@ -1098,27 +1109,37 @@ def _assistant_qna_response(
     if "decision" in lower or "accept" in lower or "reject" in lower:
         suggestions.append("Use mode=action with action=apply_correction_group_decisions and pass group_decisions to apply accept/reject choices safely.")
 
+    wants_diagnostics = (
+        "diagnostic" in lower
+        or "status" in lower
+        or "why" in lower
+        or "fallback" in lower
+        or "score" in lower
+        or "runtime" in lower
+    )
+
     task_snapshot = {}
     if task is not None:
         task_snapshot = _task_diagnostics_snapshot(task)
-        lines.append(
-            f"Task {task_snapshot.get('task', {}).get('id', '')}: status={task_snapshot.get('task', {}).get('status', '')}, "
-            f"word_count={task_snapshot.get('task', {}).get('word_count', 0)}, citation_issues={task_snapshot.get('citation_issue_total', 0)}."
-        )
-        guardrails = task_snapshot.get("cmos_guardrails", {})
-        if isinstance(guardrails, dict) and guardrails:
+        if wants_diagnostics:
             lines.append(
-                f"CMOS guardrails: status={guardrails.get('status', 'unknown')}, compliance_score={guardrails.get('compliance_score', 0)}."
+                f"Task status: {task_snapshot.get('task', {}).get('status', '')}, words: {task_snapshot.get('task', {}).get('word_count', 0)}, "
+                f"citation issues: {task_snapshot.get('citation_issue_total', 0)}."
             )
-        if task_snapshot.get("processing_note"):
-            lines.append(f"Last processing note: {task_snapshot.get('processing_note')}")
+        guardrails = task_snapshot.get("cmos_guardrails", {})
+        if wants_diagnostics and isinstance(guardrails, dict) and guardrails:
+            lines.append(
+                f"CMOS: {guardrails.get('status', 'unknown')} (score {guardrails.get('compliance_score', 0)})."
+            )
+        if wants_diagnostics and task_snapshot.get("processing_note"):
+            lines.append(f"Last note: {task_snapshot.get('processing_note')}")
 
     admin_activity = {}
-    if include_admin_activity and context.role == ROLE_ADMIN:
+    if include_admin_activity and context.role == ROLE_ADMIN and wants_diagnostics:
         admin_activity = _assistant_admin_activity_snapshot()
         counts = admin_activity.get("user_counts", {}) if isinstance(admin_activity, dict) else {}
         lines.append(
-            f"Admin activity snapshot: users total={int(counts.get('total', 0) or 0)}, "
+            f"Admin snapshot: users total={int(counts.get('total', 0) or 0)}, "
             f"active={int(counts.get('active', 0) or 0)}, inactive={int(counts.get('inactive', 0) or 0)}."
         )
         suggestions.append("Review top event types and recent events to spot recurring operational issues.")
