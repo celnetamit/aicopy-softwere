@@ -2037,6 +2037,7 @@ class ChicagoEditor:
             "autofill_none": 0,
             "doi_inserted": 0,
             "doi_needs_review_inserted": 0,
+            "doi_override_inserted": 0,
             "doi_rejected": 0,
             "rejected_numbers": [],
             "trail": [],
@@ -2118,6 +2119,7 @@ class ChicagoEditor:
             doi_reason_chips: List[str] = []
             status = str(validated.get("status") or "").strip().lower()
             doi_mode = str(enrichment.get("doi_mode") or "balanced")
+            trusted_override = bool((options or {}).get("trusted_verified_doi_override", True))
             if doi:
                 if status == "likely_match" and doi_mode == "balanced":
                     doi_needs_review = True
@@ -2129,11 +2131,29 @@ class ChicagoEditor:
                     doi_reason_chips = list(decision.get("chips") or [])
                     if not bool(decision.get("allow")):
                         doi_reject_reasons = [str(x) for x in (decision.get("reasons") or [])]
-                        doi_reason_chips.extend([f"blocked:{r}" for r in doi_reject_reasons[:3]])
-                        enrichment["doi_rejected"] += 1
-                        enrichment["rejected_numbers"].append(number)
-                        doi = ""
-                        doi_rejected = True
+                        source_name = str(validated.get("source") or "").strip().lower()
+                        source_url_value = self._normalize_source_url_value(
+                            str(validated.get("matched_source_url") or validated.get("source_url") or "")
+                        )
+                        # Override for trusted verified DOI sources (e.g., Crossref DOI URL),
+                        # so [21]-type cases are inserted instead of rejected.
+                        can_override = (
+                            trusted_override
+                            and status == "verified"
+                            and source_name in {"crossref", "openalex", "serper"}
+                            and bool(source_url_value)
+                            and "doi.org/" in source_url_value.lower()
+                        )
+                        if can_override:
+                            enrichment["doi_inserted"] += 1
+                            enrichment["doi_override_inserted"] += 1
+                            doi_reason_chips.extend(["override:trusted_verified_source", f"override_source:{source_name}"])
+                        else:
+                            doi_reason_chips.extend([f"blocked:{r}" for r in doi_reject_reasons[:3]])
+                            enrichment["doi_rejected"] += 1
+                            enrichment["rejected_numbers"].append(number)
+                            doi = ""
+                            doi_rejected = True
                     else:
                         enrichment["doi_inserted"] += 1
                 if status != "likely_match" and not doi_rejected and not doi_needs_review and not doi_reason_chips:

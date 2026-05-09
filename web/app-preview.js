@@ -643,6 +643,7 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += `<span class="validator-chip">DOI Mode: ${previewHelpers.escapeHtml(String(enrichment.doi_mode || 'balanced'))}</span>`;
             html += `<span class="validator-chip">DOI Inserted: ${Number(enrichment.doi_inserted || 0)}</span>`;
             html += `<span class="validator-chip">DOI Inserted (Needs Review): ${Number(enrichment.doi_needs_review_inserted || 0)}</span>`;
+            html += `<span class="validator-chip">DOI Inserted (Trusted Override): ${Number(enrichment.doi_override_inserted || 0)}</span>`;
             html += `<span class="validator-chip">DOI Rejected: ${Number(enrichment.doi_rejected || 0)}</span>`;
             html += `<span class="validator-chip">Autofill Full: ${Number(enrichment.autofill_full || 0)}</span>`;
             html += `<span class="validator-chip">Autofill Partial: ${Number(enrichment.autofill_partial || 0)}</span>`;

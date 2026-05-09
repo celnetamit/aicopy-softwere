@@ -833,6 +833,41 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("mode:balanced", chips)
         self.assertIn("status:likely_match", chips)
 
+    def test_append_online_reference_links_trusted_verified_override_inserts_doi(self):
+        source = (
+            "Body cites [21].\n"
+            "References\n"
+            "[21] Alpha AB. Different local title. J Test. 2024;10(2):100-110.\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 21,
+                        "status": "verified",
+                        "source": "crossref",
+                        "score": 0.95,
+                        "matched_title": "Another remote title",
+                        "matched_doi": "10.62030/2025janpaper3",
+                        "matched_source_url": "https://doi.org/10.62030/2025janpaper3",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(
+            source,
+            report,
+            {"online_reference_validation": True, "strict_doi_mode": True, "trusted_verified_doi_override": True},
+        )
+        self.assertIn("doi: 10.62030/2025janpaper3.", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("doi_override_inserted", 0)), 1)
+        trail = enrichment.get("trail", [])
+        first = trail[0] if trail and isinstance(trail[0], dict) else {}
+        chips = first.get("doi_reason_chips", [])
+        self.assertIn("override:trusted_verified_source", chips)
+
     def test_allow_doi_insert_accepts_year_plus_minus_one_when_title_author_match(self):
         reference_metadata = {
             "authors": "Alpha AB",
