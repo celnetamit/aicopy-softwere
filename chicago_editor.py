@@ -2099,7 +2099,7 @@ class ChicagoEditor:
 
             enrichment["references_considered"] += 1
             entry_metadata = self._analyze_reference_entry(entry_text)
-            updated_entry, fill_report = self._fill_missing_fields_from_validated_metadata(entry_text, validated, entry_metadata)
+            updated_entry, fill_report = self._fill_missing_fields_from_validated_metadata(entry_text, validated, entry_metadata, options)
             for field_name in fill_report.get("fields", []):
                 enrichment["fields_filled"] += 1
                 by_type = enrichment["fields_filled_by_type"]
@@ -2209,6 +2209,7 @@ class ChicagoEditor:
         entry_text: str,
         validated: Dict[str, Any],
         metadata: Dict[str, Any],
+        options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """Fill explicit [field missing] placeholders from high-confidence metadata.
 
@@ -2217,8 +2218,12 @@ class ChicagoEditor:
         entry = str(entry_text or "")
         status = str(validated.get("status") or "").strip().lower()
         score = float(validated.get("score") or 0.0)
+        require_verified_doi = bool((options or {}).get("verified_doi_autocomplete", True))
+        doi_value = self._normalize_doi_value(str(validated.get("matched_doi") or validated.get("doi") or ""))
         if status != "verified" or ("score" in validated and score < 0.88):
             return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:untrusted_source"]}
+        if require_verified_doi and not doi_value:
+            return entry, {"fields": [], "expected_fields": [], "autofill_status": "none", "autofill_chips": ["autofill:none", "reason:verified_doi_required"]}
 
         updates = {
             "title": str(validated.get("matched_title") or "").strip().rstrip("."),

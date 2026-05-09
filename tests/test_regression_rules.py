@@ -745,7 +745,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
                         "matched_year": "2024",
                         "matched_volume": "10(2)",
                         "matched_pages": "100-110",
-                        "matched_doi": "",
+                        "matched_doi": "10.1000/alpha-fill",
                         "matched_first_author": "Alpha",
                     }
                 ],
@@ -904,6 +904,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
                         "matched_place": "New York",
                         "matched_publisher": "Academic Press",
                         "matched_year": "2020",
+                        "matched_doi": "10.1000/bookfill",
                         "matched_source_url": "https://example.org/book",
                     }
                 ],
@@ -935,6 +936,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
                         "score": 0.97,
                         "matched_title": "Complete title",
                         "matched_year": "2024",
+                        "matched_doi": "10.1000/partialfill",
                     }
                 ],
             }
@@ -945,6 +947,36 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         trail = enrichment.get("trail", [])
         first = trail[0] if trail and isinstance(trail[0], dict) else {}
         self.assertEqual(first.get("autofill_status"), "partial")
+
+    def test_append_online_reference_links_skips_autofill_without_verified_doi_when_mode_enabled(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. [title missing]. [journal missing]. [year missing];[volume missing]:[page missing].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.98,
+                        "matched_title": "Complete title",
+                        "matched_journal": "Journal of Testing",
+                        "matched_year": "2024",
+                    }
+                ],
+            }
+        }
+        out = self.editor.append_online_reference_links(
+            source,
+            report,
+            {"online_reference_validation": True, "verified_doi_autocomplete": True},
+        )
+        self.assertIn("[title missing]", out)
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("autofill_none", 0)), 1)
 
 
 class ProcessorRegressionTests(unittest.TestCase):

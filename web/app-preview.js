@@ -718,6 +718,31 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                 html += '</ul></div>';
             }
 
+            const unresolvedOnly = enrichmentTrail.filter((item) => {
+                const autofillStatus = String(item && item.autofill_status || 'none');
+                const doiRejected = Boolean(item && item.doi_rejected);
+                const doiNeedsReview = Boolean(item && item.doi_needs_review);
+                return doiRejected || doiNeedsReview || autofillStatus !== 'full';
+            }).slice(0, 25);
+            if (unresolvedOnly.length > 0) {
+                html += '<div class="validator-messages">';
+                html += '<div class="validator-messages-title">Manual Review Only (Unresolved)</div><ul>';
+                unresolvedOnly.forEach((item) => {
+                    const number = Number(item && item.number || 0);
+                    const autofillStatus = String(item && item.autofill_status || 'none');
+                    const chips = Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [];
+                    const doiRejected = Boolean(item && item.doi_rejected);
+                    const doiNeedsReview = Boolean(item && item.doi_needs_review);
+                    let line = `[${number}] Autofill: ${autofillStatus}`;
+                    if (doiRejected) line += ' | DOI: rejected';
+                    if (doiNeedsReview) line += ' | DOI: needs review';
+                    const chipText = chips.slice(0, 4).map((chip) => `[${String(chip)}]`).join(' ');
+                    if (chipText) line += ` ${chipText}`;
+                    html += `<li>${previewHelpers.escapeHtml(line)}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
             if (flaggedEntries.length > 0) {
                 html += '<div class="validator-messages">';
                 html += '<div class="validator-messages-title">References To Review</div><ul>';
