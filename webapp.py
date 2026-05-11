@@ -883,7 +883,24 @@ def _upload_docx_to_task(context: SessionContext, file_name: str, byte_data: byt
 def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     processor = DocumentProcessor()
     original_text = str(task.get("original_text") or "")
-    full_corrected_text = processor.process_text(original_text, options)
+    processing_source_text = original_text
+    safe_options = dict(options or {})
+    if bool(safe_options.get("unresolved_reference_only", False)):
+        processing_source_text = (
+            str(task.get("full_corrected_text") or "")
+            or str(task.get("corrected_text") or "")
+            or original_text
+        )
+        # Focus this mode on reference cleanup speed/safety.
+        safe_options["spelling"] = False
+        safe_options["sentence_case"] = False
+        safe_options["punctuation"] = False
+        safe_options["chicago_style"] = True
+        ai_opts = safe_options.get("ai", {}) if isinstance(safe_options.get("ai"), dict) else {}
+        ai_opts["enabled"] = False
+        safe_options["ai"] = ai_opts
+
+    full_corrected_text = processor.process_text(processing_source_text, safe_options)
     corrected_text = full_corrected_text
 
     process_payload = _build_process_payload(
@@ -900,7 +917,7 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         corrected_text=corrected_text,
         full_corrected_text=full_corrected_text,
         word_count=process_payload["word_count"],
-        options=options,
+        options=safe_options,
         reports=reports,
     )
     if updated is None:
@@ -913,7 +930,10 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         actor_user_id=context.user_id,
         entity_type="task",
         entity_id=str(task.get("id") or ""),
-        metadata={"word_count": process_payload["word_count"]},
+        metadata={
+            "word_count": process_payload["word_count"],
+            "unresolved_reference_only": bool(safe_options.get("unresolved_reference_only", False)),
+        },
     )
 
     return process_payload

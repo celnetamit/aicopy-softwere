@@ -685,6 +685,7 @@ function setAssistantActionsLoading(loading, label) {
         mainDom.assistantReprocessBtn,
         mainDom.assistantApplyDecisionsBtn,
         mainDom.assistantRetryRecommendedBtn,
+        mainDom.assistantRerunUnresolvedBtn,
     ];
     controls.forEach((btn) => {
         if (!btn) return;
@@ -1236,6 +1237,57 @@ function retryWithRecommendedSettings() {
     });
 }
 
+function rerunUnresolvedReferencesOnly() {
+    if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
+    if (assistantActionInFlight) return;
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    if (!taskId) {
+        setStatus('Load a task before rerunning unresolved references.', 'warning');
+        return;
+    }
+    const baseOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    const retryOptions = Object.assign({}, baseOptions, {
+        unresolved_reference_only: true,
+        spelling: false,
+        sentence_case: false,
+        punctuation: false,
+        chicago_style: true
+    });
+    const aiOptions = baseOptions && baseOptions.ai && typeof baseOptions.ai === 'object'
+        ? Object.assign({}, baseOptions.ai)
+        : {};
+    aiOptions.enabled = false;
+    retryOptions.ai = aiOptions;
+
+    const providerModel = getProviderModelFromOptions(retryOptions);
+    toggleAssistantChat(true);
+    appendAssistantChatMessage('assistant', 'Rerunning unresolved references only...');
+    setAssistantActionsLoading(true, 'Rerunning unresolved references only...');
+    callAssistantWithRetry('rerun_unresolved_references', (done) => {
+        eel.assistant_reprocess_task(taskId, retryOptions)(done);
+    }, (response) => {
+        setAssistantActionsLoading(false);
+        if (!(response && response.success && response.result && response.result.success)) {
+            const errorMessage = response && response.error ? String(response.error) : 'Request failed';
+            setAssistantUnavailable(true, errorMessage);
+            updateAssistantDiagnostics('failed', errorMessage, 0);
+            appendAssistantChatMessage('assistant', `Unresolved references rerun failed: ${errorMessage}`);
+            setStatus('Unresolved references rerun failed', 'error');
+            alert('Unresolved references rerun error: ' + errorMessage);
+            return;
+        }
+        setAssistantUnavailable(false);
+        updateAssistantDiagnostics('ok', 'none', Date.now());
+        applyProcessResponseToState(response.result, { keepGroupDecisions: false });
+        applyProcessingModeProviderContext(providerModel.provider, providerModel.model);
+        appendAssistantChatMessage('assistant', 'Unresolved references rerun complete.');
+        switch_tab('corrected');
+        mainAuth.refreshTaskHistory();
+        setStatus('Unresolved references rerun complete', 'success');
+        showAssistantToast('Unresolved references rerun completed.');
+    });
+}
+
 function setGroupDecision(groupKey, accepted) {
     if (!mainConstants.CORRECTION_GROUP_ORDER.includes(groupKey)) return;
     mainState.fileContent.groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
@@ -1386,6 +1438,7 @@ appMain.actions = {
     assistantReprocessCurrentTask,
     assistantApplyCurrentDecisions,
     retryWithRecommendedSettings,
+    rerunUnresolvedReferencesOnly,
     copyAssistantDiagnostics,
     toggleAssistantChat,
     restoreAssistantChatHistoryForCurrentTask,
