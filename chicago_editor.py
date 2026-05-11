@@ -1371,10 +1371,21 @@ class ChicagoEditor:
     def _detect_reference_source_type(self, entry: str, authors: str, title: str, journal: str, tail: str) -> str:
         """Classify a reference into coarse NLM source types for validation."""
         candidate = self._strip_missing_placeholders(re.sub(r'\s+', ' ', entry or '').strip())
+        lower_candidate = candidate.lower()
+        lower_journal = str(journal or "").lower()
+        has_proceedings_marker = bool(
+            re.search(r'(?i)\b(?:proceedings|proc\.?|spie|conference|symposium)\b', lower_candidate)
+            or re.search(r'(?i)\b(?:proceedings|proc\.?|spie|conference|symposium)\b', lower_journal)
+        )
+        has_doi = bool(re.search(r'(?i)\b(?:doi:\s*)?10\.\d{4,9}/[^\s<>"\']+', candidate))
         if re.search(r'(?i)(?:^|[.])\s*In:?\s+', candidate):
+            if has_proceedings_marker:
+                return "proceedings"
             return "chapter"
         if re.search(r'(?i)\[Internet\]|Available from:|https?://|www\.', candidate):
             return "website"
+        if has_proceedings_marker and (has_doi or re.search(r'(?i)\bVol\.?\s*\d+\b', candidate)):
+            return "proceedings"
         if re.search(
             r'\)\.\s*[^.]+\.\s*[^,]+,\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*,\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?',
             candidate
@@ -1384,7 +1395,9 @@ class ChicagoEditor:
             return "journal"
         if re.search(r':\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?\b', candidate) and journal:
             return "journal"
-        if re.search(r'(?i)\b(?:doi:\s*)?10\.\d{4,9}/[^\s<>"\']+', candidate):
+        if has_doi:
+            if has_proceedings_marker:
+                return "proceedings"
             return "journal"
         if re.search(r'(?i)\b\d+(?:st|nd|rd|th)\s+ed\.?\b', candidate):
             return "book"
@@ -1487,7 +1500,7 @@ class ChicagoEditor:
         source_type = str(metadata.get("source_type") or "generic")
         has_contributor = bool(metadata.get("has_author")) or bool(metadata.get("has_editor"))
 
-        if source_type == "journal":
+        if source_type in {"journal", "proceedings"}:
             checks = [
                 ("author", "reference_missing_author", "reference_missing_author_numbers", bool(metadata.get("has_author"))),
                 ("title", "reference_missing_title", "reference_missing_title_numbers", bool(metadata.get("has_title"))),
@@ -1675,6 +1688,7 @@ class ChicagoEditor:
         """Human-readable reference shape templates by source type."""
         return {
             "journal": "Author AB, Author CD. Title in sentence case. J Abbrev. 2024;10(2):100-110. doi: 10.xxxx/xxxxx.",
+            "proceedings": "Author AB, Author CD. Title in sentence case. In: Proceedings/Event title. 2024;Vol. 12107:13-20. doi: 10.xxxx/xxxxx.",
             "book": "Author AB. Book title in sentence case. Place: Publisher; 2024.",
             "chapter": "Author AB. Chapter title. In: Editor AB, editor. Book title. Place: Publisher; 2024. p. 100-110.",
             "website": "Organization or Author AB. Page title [Internet]. Place: Publisher; 2024 [cited 2026 May 09]. Available from: https://example.org.",
@@ -1691,12 +1705,19 @@ class ChicagoEditor:
         if not re.search(r'\b(?:19|20)\d{2}\b', text):
             reasons.append("missing year")
 
-        normalized_type = source_type if source_type in {"journal", "book", "chapter", "website"} else "generic"
-        if normalized_type == "journal":
+        normalized_type = source_type if source_type in {"journal", "proceedings", "book", "chapter", "website"} else "generic"
+        if normalized_type in {"journal", "proceedings"}:
             if not re.search(r'\s*;\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*:\s*[A-Za-z]?\d+(?:\s*[-–]\s*[A-Za-z]?\d+)?', text):
-                reasons.append("missing or malformed volume/pages segment")
+                if normalized_type == "proceedings":
+                    if not re.search(r'(?i)\bVol\.?\s*\d+\b', text):
+                        reasons.append("missing or malformed volume/pages segment")
+                else:
+                    reasons.append("missing or malformed volume/pages segment")
             if not re.search(r'\.\s+[A-Za-z].+\.\s+(?:19|20)\d{2}\s*;', text):
-                reasons.append("journal sequence should be title. journal. year;volume:pages")
+                if normalized_type == "proceedings" and re.search(r'(?i)\b(?:proceedings|spie|conference)\b', text):
+                    pass
+                else:
+                    reasons.append("journal sequence should be title. journal. year;volume:pages")
         elif normalized_type == "book":
             if not re.search(r'[^.;]+:\s*[^.;]+;\s*(?:19|20)\d{2}', text) and not re.search(r'\[place missing\]\s*:\s*[^.;]+;\s*(?:19|20)\d{2}', text):
                 reasons.append("book entry should contain place: publisher; year")
@@ -1739,13 +1760,17 @@ class ChicagoEditor:
             if re.search(r'(?i)\bAvailable from:\s*$', text):
                 text += " [url missing]"
         elif source_type in {"book", "chapter"}:
+            # Preserve existing author/title/journal-like strings when DOI-backed lines
+            # look like journal/proceedings references; avoid destructive reshaping.
+            if re.search(r'(?i)\b(?:doi:\s*)?10\.\d{4,9}/[^\s<>"\']+', text) and re.search(r'(?i)\b(?:journal|science|ieee|proceedings|conference|spie)\b', text):
+                return text if text.endswith('.') else f"{text}."
             text = re.sub(
                 r'(?P<place>[^.;,\[\]]+?)\s*,\s*(?P<publisher>[^.;,\[\]]+?)\s*,\s*(?P<year>(?:19|20)\d{2})',
                 lambda m: f"{m.group('place').strip()}: {m.group('publisher').strip()}; {m.group('year').strip()}",
                 text,
                 count=1,
             )
-        elif source_type == "journal":
+        elif source_type in {"journal", "proceedings"}:
             volpg = re.search(r';\s*[A-Za-z]?\d+(?:\([^)]+\))?\s*:\s*[A-Za-z]?\d+\s*[-–]\s*[A-Za-z]?\d+', text)
             if not volpg:
                 year_match = re.search(r'\b(?:19|20)\d{2}\b', text)
@@ -2117,6 +2142,11 @@ class ChicagoEditor:
 
             enrichment["references_considered"] += 1
             entry_metadata = self._analyze_reference_entry(entry_text)
+            matched_source_type = str(validated.get("matched_source_type") or "").strip().lower()
+            if matched_source_type in {"journal", "proceedings", "book", "chapter", "website"}:
+                entry_metadata["source_type"] = matched_source_type
+            manual_reason_match = re.search(r'(?i)\[needs manual review:\s*([^\]]+)\]', entry_text)
+            why_manual_review = manual_reason_match.group(1).strip() if manual_reason_match else ""
             updated_entry, fill_report = self._fill_missing_fields_from_validated_metadata(entry_text, validated, entry_metadata, options)
             for field_name in fill_report.get("fields", []):
                 enrichment["fields_filled"] += 1
@@ -2228,6 +2258,7 @@ class ChicagoEditor:
                 "doi_rejected": doi_rejected,
                 "doi_reject_reasons": doi_reject_reasons,
                 "doi_reason_chips": doi_reason_chips,
+                "why_manual_review": why_manual_review,
             })
 
         if isinstance(citation_report, dict):
@@ -2777,6 +2808,7 @@ class ChicagoEditor:
             "reference_missing_url_numbers": [],
             "source_type_numbers": {
                 "journal": [],
+                "proceedings": [],
                 "book": [],
                 "chapter": [],
                 "website": [],
@@ -3439,6 +3471,14 @@ class ChicagoEditor:
         if isinstance(editors, list) and editors and isinstance(editors[0], dict):
             editor_name = str(editors[0].get("family") or editors[0].get("name") or "").strip()
         pages = str(item.get("page") or "").strip()
+        raw_type = str(item.get("type") or "").strip().lower()
+        reference_type = "journal"
+        if raw_type in {"proceedings-article", "proceedings", "report-paper"} or re.search(r'(?i)\b(?:proceedings|conference|spie)\b', container_title):
+            reference_type = "proceedings"
+        elif raw_type in {"book-chapter", "reference-entry"}:
+            reference_type = "chapter"
+        elif raw_type in {"book", "monograph"}:
+            reference_type = "book"
         return {
             "source": "crossref",
             "title": str(title or "").strip(),
@@ -3454,6 +3494,7 @@ class ChicagoEditor:
             "doi": str(item.get("DOI") or "").strip(),
             "source_url": str(item.get("URL") or "").strip(),
             "first_author": first_author,
+            "reference_type": reference_type,
         }
 
     def _normalize_openalex_candidate(self, item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -3483,6 +3524,7 @@ class ChicagoEditor:
             "doi": doi.strip(),
             "source_url": str(item.get("id") or "").strip(),
             "first_author": first_author,
+            "reference_type": "journal",
         }
 
     def _assess_online_metadata_match(
@@ -3544,6 +3586,7 @@ class ChicagoEditor:
             "matched_source_url": str(candidate.get("source_url") or ""),
             "source_url": str(candidate.get("source_url") or ""),
             "matched_first_author": str(candidate.get("first_author") or ""),
+            "matched_source_type": str(candidate.get("reference_type") or ""),
         }
 
     def _extract_reference_first_author(self, author_block: str) -> str:

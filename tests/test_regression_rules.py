@@ -317,6 +317,16 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("Biophilia and the conservation ethic", out)
         self.assertNotIn("[volume missing]", out)
 
+    def test_detect_reference_source_type_prefers_proceedings_for_spie_style(self):
+        source = (
+            "References\n"
+            "Gregory C, Hilton JA, Violette K, et al. Colloidal quantum dot sensor bandwidth and thermal stability: progress and outlook. "
+            "In: Proceedings SPIE Infrared Technology and Applications XLVIII. 2022;Vol. 12107:13-20. doi:10.1117/12.2618320.\n"
+        )
+        out = self.editor.format_references_vancouver_numbered(source, {})
+        self.assertIn("doi: 10.1117/12.2618320.", out)
+        self.assertNotIn("book entry should contain place: publisher; year", out)
+
     def test_citation_reference_validator_is_source_type_aware(self):
         source = (
             "Introduction cites [1, 2, 3].\n"
@@ -1030,6 +1040,36 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         trail = enrichment.get("trail", [])
         first = trail[0] if trail and isinstance(trail[0], dict) else {}
         self.assertEqual(first.get("autofill_status"), "partial")
+
+    def test_append_online_reference_links_trail_includes_manual_review_reason(self):
+        source = (
+            "Body cites [1].\n"
+            "References\n"
+            "[1] Alpha AB. [title missing]. [journal missing]. 2024;[volume missing]:[page missing]. [needs manual review: missing or malformed volume/pages segment].\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "score": 0.98,
+                        "matched_source_type": "journal",
+                        "matched_title": "Complete title",
+                        "matched_journal": "Journal of Testing",
+                        "matched_year": "2024",
+                        "matched_volume": "10(2)",
+                        "matched_pages": "100-110",
+                        "matched_doi": "10.1000/alpha-manual",
+                    }
+                ],
+            }
+        }
+        _ = self.editor.append_online_reference_links(source, report, {"online_reference_validation": True})
+        trail = (report.get("online_validation", {}).get("enrichment", {}) or {}).get("trail", [])
+        self.assertTrue(trail)
+        self.assertIn("missing or malformed volume/pages segment", str(trail[0].get("why_manual_review") or ""))
 
     def test_append_online_reference_links_skips_autofill_without_verified_doi_when_mode_enabled(self):
         source = (
