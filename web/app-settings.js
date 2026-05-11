@@ -526,6 +526,7 @@ function bindSettingsEvents() {
     });
     if (settingsDom.browseFileBtn) settingsDom.browseFileBtn.addEventListener('click', () => settingsDom.fileInput.click());
     if (settingsDom.processBtn) settingsDom.processBtn.addEventListener('click', () => appSettingsRoot.actions.process_document());
+    if (settingsDom.rerunUnresolvedBtn) settingsDom.rerunUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.rerunUnresolvedReferencesOnly());
     if (settingsDom.saveCleanBtn) settingsDom.saveCleanBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('clean'));
     if (settingsDom.saveHighlightBtn) settingsDom.saveHighlightBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('highlighted'));
     if (settingsDom.clearBtn) settingsDom.clearBtn.addEventListener('click', () => appSettingsRoot.actions.clear_all());

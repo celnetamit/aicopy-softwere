@@ -29,10 +29,14 @@ function setStatus(message, type) {
 }
 
 function refreshProcessButtonState() {
-    if (!mainDom.processBtn) {
-        return;
+    const canProcess = !(mainState.isFileLoading || mainState.isProcessingDocument || !String(mainState.fileContent.original || '').trim());
+    if (mainDom.processBtn) {
+        mainDom.processBtn.disabled = !canProcess;
     }
-    mainDom.processBtn.disabled = mainState.isFileLoading || mainState.isProcessingDocument || !String(mainState.fileContent.original || '').trim();
+    if (mainDom.rerunUnresolvedBtn) {
+        const hasTask = !!String(mainState.fileContent.taskId || '').trim();
+        mainDom.rerunUnresolvedBtn.disabled = mainState.isFileLoading || mainState.isProcessingDocument || !hasTask;
+    }
 }
 
 function setProgress(progress) {
@@ -681,6 +685,7 @@ function copyAssistantDiagnostics() {
 function setAssistantActionsLoading(loading, label) {
     assistantActionInFlight = loading === true;
     const controls = [
+        mainDom.rerunUnresolvedBtn,
         mainDom.assistantAskBtn,
         mainDom.assistantReprocessBtn,
         mainDom.assistantApplyDecisionsBtn,
