@@ -393,7 +393,7 @@ function renderPageDocument(content, isHtmlInput) {
     return html;
 }
 
-function renderCorrectionsPanel(report, nounReport, domainReport, journalProfileReport, citationReferenceReport, processingAudit, groupDecisions) {
+function renderCorrectionsPanel(report, nounReport, domainReport, journalProfileReport, citationReferenceReport, processingAudit, groupDecisions, rerunActionMeta) {
     const safeReport = report && typeof report === 'object' ? report : null;
     if (!safeReport) {
         return '<div class="corrections-panel"><p class="cor-empty">No correction report available yet. Process a document first.</p></div>';
@@ -541,7 +541,7 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
         html += '</div>';
 
         if (sortedCategories.length > 0) {
-            html += '<div class="validator-categories">';
+        html += '<div class="validator-categories">';
             sortedCategories.forEach(([code, count]) => {
                 html += `<span class="validator-chip">${previewHelpers.escapeHtml(humanizeCategory(code))}: ${Number(count || 0)}</span>`;
             });
@@ -648,6 +648,10 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += `<span class="validator-chip">Autofill Full: ${Number(enrichment.autofill_full || 0)}</span>`;
             html += `<span class="validator-chip">Autofill Partial: ${Number(enrichment.autofill_partial || 0)}</span>`;
             html += `<span class="validator-chip">Autofill None: ${Number(enrichment.autofill_none || 0)}</span>`;
+            if (rerunActionMeta && typeof rerunActionMeta === 'object' && String(rerunActionMeta.action || '') === 'rerun_unresolved_references') {
+                const pathLabel = String(rerunActionMeta.label || '').trim() || 'Used unknown path';
+                html += `<span class="validator-chip">Rerun Path: ${previewHelpers.escapeHtml(pathLabel)}</span>`;
+            }
             html += '</div>';
 
             if (onlineMessages.length > 0) {
@@ -949,7 +953,8 @@ function renderCurrentPreview() {
             previewState.fileContent.journalProfileReport,
             previewState.fileContent.citationReferenceReport,
             previewState.fileContent.processingAudit,
-            previewState.fileContent.groupDecisions
+            previewState.fileContent.groupDecisions,
+            previewState.fileContent.rerunActionMeta
         );
         return;
     }

@@ -198,6 +198,7 @@ function handleLoadResponse(displayName) {
             mainState.fileContent.domainReport = null;
             mainState.fileContent.journalProfileReport = null;
             mainState.fileContent.citationReferenceReport = null;
+            mainState.fileContent.rerunActionMeta = null;
             mainState.fileContent.groupDecisions = null;
             mainState.fileContent.processingAudit = null;
             appMain.syncWindowFileContent();
@@ -323,6 +324,9 @@ function applyProcessResponseToState(response, options = {}) {
     mainState.fileContent.domainReport = response.domain_report || null;
     mainState.fileContent.journalProfileReport = response.journal_profile_report || null;
     mainState.fileContent.citationReferenceReport = response.citation_reference_report || null;
+    mainState.fileContent.rerunActionMeta = options.rerunActionMeta && typeof options.rerunActionMeta === 'object'
+        ? Object.assign({}, options.rerunActionMeta)
+        : null;
     mainState.fileContent.processingAudit = response.processing_audit || null;
     mainState.fileContent.groupDecisions = keepGroupDecisions
         ? mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions)
@@ -1273,7 +1277,7 @@ function rerunUnresolvedReferencesOnly() {
     appendAssistantChatMessage('assistant', 'Rerunning unresolved references only...');
     setAssistantActionsLoading(true, 'Rerunning unresolved references only...');
 
-    const finish = (response) => {
+    const finish = (response, rerunPath) => {
         setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
@@ -1286,7 +1290,15 @@ function rerunUnresolvedReferencesOnly() {
         }
         setAssistantUnavailable(false);
         updateAssistantDiagnostics('ok', 'none', Date.now());
-        applyProcessResponseToState(response.result, { keepGroupDecisions: false });
+        applyProcessResponseToState(response.result, {
+            keepGroupDecisions: false,
+            rerunActionMeta: {
+                action: 'rerun_unresolved_references',
+                path: String(rerunPath || 'unknown'),
+                label: rerunPath === 'assistant_endpoint' ? 'Used assistant endpoint' : (rerunPath === 'direct_process_fallback' ? 'Used direct fallback' : 'Used unknown path'),
+                at: Date.now()
+            }
+        });
         applyProcessingModeProviderContext(providerModel.provider, providerModel.model);
         appendAssistantChatMessage('assistant', 'Unresolved references rerun complete.');
         switch_tab('corrected');
@@ -1298,7 +1310,7 @@ function rerunUnresolvedReferencesOnly() {
     if (typeof eel !== 'undefined' && typeof eel.assistant_reprocess_task === 'function') {
         callAssistantWithRetry('rerun_unresolved_references', (done) => {
             eel.assistant_reprocess_task(taskId, retryOptions)(done);
-        }, finish);
+        }, (response) => finish(response, 'assistant_endpoint'));
         return;
     }
 
@@ -1312,7 +1324,7 @@ function rerunUnresolvedReferencesOnly() {
                 }
                 done({ success: false, error: response && response.error ? String(response.error) : 'Fallback processing failed' });
             });
-        }, finish);
+        }, (response) => finish(response, 'direct_process_fallback'));
         return;
     }
 

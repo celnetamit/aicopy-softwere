@@ -327,6 +327,22 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('id="process-btn"', html)
         self.assertNotIn("{{", html)
 
+    def test_task_detail_rerun_unresolved_button_has_safe_label_and_tooltip(self):
+        status, html = self.client.request_text("GET", "/tasks/example-task-id")
+        self.assertEqual(status, 200)
+        self.assertIn('id="rerun-unresolved-btn"', html)
+        self.assertIn("Rerun Unresolved Refs (Safe)", html)
+        self.assertIn("Rerun only unresolved references using safe settings", html)
+
+    def test_rerun_unresolved_frontend_has_direct_process_fallback_path(self):
+        app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
+        with open(app_js_path, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("rerun_unresolved_references_fallback", source)
+        self.assertIn("assistant_reprocess_task", source)
+        self.assertIn("eel.process_document(retryOptions, taskId)", source)
+        self.assertIn("Used direct fallback", source)
+
     def test_json_response_sanitizes_non_finite_numbers(self):
         response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})
         payload = json.loads(response.body)

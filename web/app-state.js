@@ -16,6 +16,7 @@ function createEmptyFileContent() {
         domainReport: null,
         journalProfileReport: null,
         citationReferenceReport: null,
+        rerunActionMeta: null,
         groupDecisions: null,
         processingAudit: null
     };
