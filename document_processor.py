@@ -536,6 +536,9 @@ class DocumentProcessor:
             domain_for_prompt = "general"
 
         journal_profile = self.editor.resolve_journal_profile(options)
+        cmos_profile = str(options.get("cmos_profile", "strict") or "strict").strip().lower()
+        if cmos_profile not in ("core", "strict", "journal_custom"):
+            cmos_profile = "strict"
         ai_first_cmos = self._is_ai_first_cmos_mode(options)
         initials_rule = "without periods (Smith AB)" if not bool(journal_profile.get("initials_with_periods")) else "with periods (Smith A.B.)"
         title_rule = "sentence case" if str(journal_profile.get("title_case", "sentence")) == "sentence" else "title case"
@@ -1296,6 +1299,9 @@ Final consistent manuscript:"""
         if domain_for_prompt not in ("general", "medical", "engineering", "law"):
             domain_for_prompt = "general"
         journal_profile = self.editor.resolve_journal_profile(options)
+        cmos_profile = str(options.get("cmos_profile", "strict") or "strict").strip().lower()
+        if cmos_profile not in ("core", "strict", "journal_custom"):
+            cmos_profile = "strict"
         ai_first_cmos = self._is_ai_first_cmos_mode(options)
         initials_rule = (
             "use author initials without periods (e.g., Smith AB)"
@@ -1339,6 +1345,10 @@ Final consistent manuscript:"""
   * Use em-dash (—) without spaces for interruptions
   * Keep keyword lines in this style: Keywords: Key one, Key two, Key three
 """)
+        if cmos_profile == "strict":
+            instructions.append(
+                "- Enforce strict CMOS body-content consistency: serial comma, standard abbreviation punctuation (e.g., i.e., e.g., etc.), and consistent formal prose mechanics"
+            )
         if ai_first_cmos:
             instructions.append(
                 "- Work as a professional CMOS copy editor: use context-aware grammar, usage, and capitalization judgment instead of rigid pattern substitutions"
@@ -2223,6 +2233,42 @@ Corrected manuscript:"""
                 chunks.append(escaped)
         return "".join(chunks)
 
+    def _strip_citation_tokens_for_prose_diff(self, line: str) -> str:
+        """Strip citation tokens so prose/style diffs ignore citation-number churn."""
+        source = str(line or "")
+        source = re.sub(r'\[(?:\s*\d+\s*(?:[-–]\s*\d+)?\s*)(?:,\s*\d+\s*(?:[-–]\s*\d+)?\s*)*\]', '', source)
+        source = re.sub(r'\((?:[^()]*?\b\d{4}[a-z]?\b[^()]*)\)', '', source)
+        source = re.sub(r'\s{2,}', ' ', source)
+        source = re.sub(r'\s+([,.;:!?])', r'\1', source)
+        return source.strip()
+
+    def build_prose_only_diff_text(self, original: str, corrected: str) -> str:
+        """Build unified diff on body text while filtering citation-number churn."""
+        original_lines = (original or "").split('\n')
+        corrected_lines = (corrected or "").split('\n')
+        original_ref_flags = self._reference_line_flags(original_lines)
+        corrected_ref_flags = self._reference_line_flags(corrected_lines)
+
+        original_body = [
+            line for idx, line in enumerate(original_lines)
+            if idx < len(original_ref_flags) and not bool(original_ref_flags[idx])
+        ]
+        corrected_body = [
+            line for idx, line in enumerate(corrected_lines)
+            if idx < len(corrected_ref_flags) and not bool(corrected_ref_flags[idx])
+        ]
+
+        original_masked = [self._strip_citation_tokens_for_prose_diff(line) for line in original_body]
+        corrected_masked = [self._strip_citation_tokens_for_prose_diff(line) for line in corrected_body]
+        diff_lines = list(difflib.unified_diff(
+            original_masked,
+            corrected_masked,
+            fromfile="before_body_prose_only.txt",
+            tofile="after_body_prose_only.txt",
+            lineterm="",
+        ))
+        return '\n'.join(diff_lines)
+
     def _foreign_terms_catalog(self) -> List[str]:
         """Return sorted foreign terms that should be italicized in output."""
         if hasattr(self.editor, "get_foreign_term_style_catalog"):
@@ -2546,6 +2592,36 @@ Corrected manuscript:"""
             "total": total,
             "counts": counts,
             "groups": groups,
+        }
+
+    def build_strict_cmos_issues_summary(self, original: str, corrected: str, options: Optional[Dict] = None) -> Dict:
+        """Return compact CMOS-focused counts for quick post-run QA."""
+        safe_options = options if isinstance(options, dict) else {}
+        report = self.build_corrections_report(original or "", corrected or "")
+        counts = report.get("counts", {}) if isinstance(report, dict) else {}
+        safe_counts = counts if isinstance(counts, dict) else {}
+
+        capitalization = int(safe_counts.get("capitalization", 0) or 0)
+        punctuation = int(safe_counts.get("punctuation", 0) or 0)
+        style = int(safe_counts.get("style", 0) or 0)
+        spelling = int(safe_counts.get("spelling", 0) or 0)
+        total = capitalization + punctuation + style + spelling
+
+        cmos_profile = str(safe_options.get("cmos_profile", "strict") or "strict").strip().lower()
+        if cmos_profile not in ("core", "strict", "journal_custom"):
+            cmos_profile = "strict"
+
+        return {
+            "enabled": bool(safe_options.get("chicago_style", True)),
+            "strict_mode": bool(safe_options.get("cmos_strict_mode", True)),
+            "cmos_profile": cmos_profile,
+            "total": total,
+            "counts": {
+                "capitalization": capitalization,
+                "punctuation": punctuation,
+                "style": style,
+                "spelling": spelling,
+            },
         }
 
     def _normalize_group_decisions(self, group_decisions: Optional[Dict]) -> Dict[str, bool]:

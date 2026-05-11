@@ -393,7 +393,18 @@ function renderPageDocument(content, isHtmlInput) {
     return html;
 }
 
-function renderCorrectionsPanel(report, nounReport, domainReport, journalProfileReport, citationReferenceReport, processingAudit, groupDecisions, rerunActionMeta) {
+function renderCorrectionsPanel(
+    report,
+    nounReport,
+    domainReport,
+    journalProfileReport,
+    citationReferenceReport,
+    processingAudit,
+    groupDecisions,
+    rerunActionMeta,
+    proseOnlyDiff,
+    strictCmosIssues
+) {
     const safeReport = report && typeof report === 'object' ? report : null;
     if (!safeReport) {
         return '<div class="corrections-panel"><p class="cor-empty">No correction report available yet. Process a document first.</p></div>';
@@ -444,6 +455,33 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
     const cmosGuardrails = auditSummary.cmos_guardrails && typeof auditSummary.cmos_guardrails === 'object'
         ? auditSummary.cmos_guardrails
         : null;
+    const safeStrictIssues = strictCmosIssues && typeof strictCmosIssues === 'object' ? strictCmosIssues : {};
+    const strictCounts = safeStrictIssues.counts && typeof safeStrictIssues.counts === 'object'
+        ? safeStrictIssues.counts
+        : {};
+    const strictTotal = Number(safeStrictIssues.total || 0);
+    html += '<section class="profile-card">';
+    html += '<div class="profile-title">Strict CMOS Issues</div>';
+    html += `<div class="profile-summary">Mode: <strong>${safeStrictIssues.strict_mode ? 'Strict' : 'Standard'}</strong> | Profile: <strong>${previewHelpers.escapeHtml(String(safeStrictIssues.cmos_profile || 'strict'))}</strong> | Total: <strong>${strictTotal}</strong></div>`;
+    html += '<div class="profile-rules">';
+    html += `<span class="profile-chip">Capitalization: ${Number(strictCounts.capitalization || 0)}</span>`;
+    html += `<span class="profile-chip">Punctuation: ${Number(strictCounts.punctuation || 0)}</span>`;
+    html += `<span class="profile-chip">Style: ${Number(strictCounts.style || 0)}</span>`;
+    html += `<span class="profile-chip">Spelling: ${Number(strictCounts.spelling || 0)}</span>`;
+    html += '</div>';
+    html += '</section>';
+
+    const safeProseOnlyDiff = String(proseOnlyDiff || '').trim();
+    html += '<section class="profile-card">';
+    html += '<div class="profile-title">Prose-Only Diff</div>';
+    html += '<div class="profile-summary">Citation-number churn is filtered. Review only prose/style deltas.</div>';
+    html += '<div class="prose-diff-actions">';
+    html += '<button class="decision-btn" onclick="copyProseOnlyDiff()">Copy Diff</button>';
+    html += '<button class="decision-btn" onclick="downloadProseOnlyDiff()">Download Diff</button>';
+    html += '</div>';
+    html += `<pre class="prose-only-diff-box">${previewHelpers.escapeHtml(safeProseOnlyDiff || 'No prose/style diff available yet. Process a task first.')}</pre>`;
+    html += '</section>';
+
     if (cmosGuardrails) {
         const score = Number(cmosGuardrails.compliance_score || 0);
         const status = String(cmosGuardrails.status || 'needs_attention');
@@ -983,7 +1021,9 @@ function renderCurrentPreview() {
             previewState.fileContent.citationReferenceReport,
             previewState.fileContent.processingAudit,
             previewState.fileContent.groupDecisions,
-            previewState.fileContent.rerunActionMeta
+            previewState.fileContent.rerunActionMeta,
+            previewState.fileContent.proseOnlyDiff,
+            previewState.fileContent.strictCmosIssues
         );
         return;
     }

@@ -1247,6 +1247,38 @@ class ProcessorRegressionTests(unittest.TestCase):
         )
         self.assertEqual(html.count('<em class="foreign-term">mutatis mutandis</em>'), 1)
 
+    def test_prose_only_diff_hides_citation_number_churn(self):
+        processor = DocumentProcessor()
+        original = (
+            "Intro cites [4].\n"
+            "This are sample text.\n"
+            "References\n"
+            "[4] Alpha AB. Example.\n"
+        )
+        corrected = (
+            "Intro cites [1].\n"
+            "This is sample text.\n"
+            "References\n"
+            "[1] Alpha AB. Example.\n"
+        )
+        diff_text = processor.build_prose_only_diff_text(original, corrected)
+        self.assertIn("This are sample text.", diff_text)
+        self.assertIn("This is sample text.", diff_text)
+        self.assertNotIn("Intro cites [4].", diff_text)
+        self.assertNotIn("Intro cites [1].", diff_text)
+
+    def test_strict_cmos_issues_summary_reports_core_counts(self):
+        processor = DocumentProcessor()
+        summary = processor.build_strict_cmos_issues_summary(
+            "this are sample text.",
+            "This is sample text.",
+            {"chicago_style": True, "cmos_strict_mode": True, "cmos_profile": "strict"},
+        )
+        self.assertTrue(summary.get("enabled"))
+        self.assertTrue(summary.get("strict_mode"))
+        self.assertEqual(summary.get("cmos_profile"), "strict")
+        self.assertIn("counts", summary)
+
     def test_process_text_rule_mode_sets_expected_note(self):
         processor = DocumentProcessor()
         result = processor.process_text(
@@ -1270,6 +1302,24 @@ class ProcessorRegressionTests(unittest.TestCase):
         self.assertIn("references", out)
         self.assertIn("grammar", out)
         self.assertIn("the draft", out)
+
+    def test_keywords_line_preserves_item_casing(self):
+        out = ChicagoEditor().normalize_keywords_line(
+            "keywords: Multi-scale modeling, Quark Confinement, DNA, eDNA"
+        )
+        self.assertIn("Keywords:", out)
+        self.assertIn("Multi-scale modeling", out)
+        self.assertIn("Quark Confinement", out)
+        self.assertIn("DNA", out)
+        self.assertIn("eDNA", out)
+
+    def test_strict_latin_abbreviation_keeps_etc_period_without_forced_comma(self):
+        out = ChicagoEditor().apply_cmos_profile_rule_pack(
+            "Examples include metals, salts, etc.) and more.",
+            {"cmos_profile": "strict"},
+        )
+        self.assertIn("etc.)", out)
+        self.assertNotIn("etc.,)", out)
 
     def test_ai_first_cmos_mode_skips_second_full_rule_language_pass(self):
         processor = DocumentProcessor()

@@ -1518,6 +1518,27 @@ section h2 {
     margin-bottom: 4px;
 }
 
+.prose-diff-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.prose-only-diff-box {
+    margin: 0;
+    max-height: 280px;
+    overflow: auto;
+    border: 1px solid rgba(164, 197, 238, 0.35);
+    border-radius: 8px;
+    padding: 10px;
+    background: rgba(8, 19, 34, 0.55);
+    color: #d8e9ff;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
 .profile-ok {
     margin-top: 6px;
     font-size: 12px;

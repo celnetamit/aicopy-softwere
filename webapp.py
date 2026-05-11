@@ -68,6 +68,7 @@ DEFAULT_ADMIN_EMAILS = [
 
 MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 APP_SETTING_KEY_GLOBAL_RUNTIME = "global_runtime_settings"
+APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS = "reference_unresolved_trends"
 
 
 def _parse_csv_env(key: str, default_values):
@@ -356,7 +357,7 @@ def _default_global_runtime_settings() -> Dict:
             "auto_resolve_unresolved_references": True,
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
-            "cmos_profile": "core",
+            "cmos_profile": "strict",
             "custom_terms": [],
         },
         "ai": {
@@ -420,9 +421,9 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
     domain = str(editing_in.get("domain_profile", defaults["editing"]["domain_profile"]) or "auto").strip().lower()
     if domain not in ("auto", "general", "medical", "engineering", "law"):
         domain = "auto"
-    cmos_profile = str(editing_in.get("cmos_profile", defaults["editing"]["cmos_profile"]) or "core").strip().lower()
+    cmos_profile = str(editing_in.get("cmos_profile", defaults["editing"]["cmos_profile"]) or "strict").strip().lower()
     if cmos_profile not in ("core", "strict", "journal_custom"):
-        cmos_profile = "core"
+        cmos_profile = "strict"
     doi_mode = str(editing_in.get("doi_insertion_mode", defaults["editing"]["doi_insertion_mode"]) or "balanced").strip().lower()
     if doi_mode not in ("strict", "balanced"):
         doi_mode = "balanced"
@@ -522,7 +523,10 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["auto_resolve_unresolved_references"] = bool(editing.get("auto_resolve_unresolved_references", True))
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
-    opts["cmos_profile"] = str(editing.get("cmos_profile", "core"))
+    resolved_cmos_profile = str(editing.get("cmos_profile", "strict"))
+    if bool(editing.get("cmos_strict_mode", True)) and resolved_cmos_profile == "core":
+        resolved_cmos_profile = "strict"
+    opts["cmos_profile"] = resolved_cmos_profile
     opts["custom_terms"] = list(editing.get("custom_terms", []))
     opts["journal_profile"] = "vancouver_nlm"
     opts["reference_profile"] = "vancouver_nlm"
@@ -717,8 +721,15 @@ def _build_download_filename(original_file_name: str, file_type: str) -> str:
     return f"{prefix}_{base_name}.docx"
 
 
-def _build_process_payload(processor: DocumentProcessor, task_row: Dict, corrected_text: str, full_corrected_text: str) -> Dict:
+def _build_process_payload(
+    processor: DocumentProcessor,
+    task_row: Dict,
+    corrected_text: str,
+    full_corrected_text: str,
+    options: Optional[Dict] = None,
+) -> Dict:
     original_text = str(task_row.get("original_text") or "")
+    corrections_report = processor.build_corrections_report(original_text, corrected_text)
     return {
         "success": True,
         "task_id": str(task_row.get("id") or ""),
@@ -727,8 +738,10 @@ def _build_process_payload(processor: DocumentProcessor, task_row: Dict, correct
         "full_corrected_text": full_corrected_text or corrected_text,
         "word_count": len(str(corrected_text or "").split()),
         "redline_html": processor.build_redline_html(original_text, corrected_text),
+        "prose_only_diff": processor.build_prose_only_diff_text(original_text, corrected_text),
+        "strict_cmos_issues": processor.build_strict_cmos_issues_summary(original_text, corrected_text, options or {}),
         "corrected_annotated_html": processor.build_foreign_annotated_html(corrected_text),
-        "corrections_report": processor.build_corrections_report(original_text, corrected_text),
+        "corrections_report": corrections_report,
         "noun_report": processor.build_noun_report(corrected_text),
         "domain_report": processor.get_domain_report(),
         "journal_profile_report": processor.get_journal_profile_report(),
@@ -741,6 +754,8 @@ def _build_process_payload(processor: DocumentProcessor, task_row: Dict, correct
 def _extract_reports_from_process_payload(process_payload: Dict) -> Dict:
     return {
         "redline_html": process_payload.get("redline_html", ""),
+        "prose_only_diff": process_payload.get("prose_only_diff", ""),
+        "strict_cmos_issues": process_payload.get("strict_cmos_issues") or {},
         "corrected_annotated_html": process_payload.get("corrected_annotated_html", ""),
         "corrections_report": process_payload.get("corrections_report") or {},
         "noun_report": process_payload.get("noun_report") or {},
@@ -924,7 +939,13 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         task_row=task,
         corrected_text=corrected_text,
         full_corrected_text=full_corrected_text,
+        options=safe_options,
     )
+
+    try:
+        _append_reference_unresolved_trend_sample(task=task, process_payload=process_payload)
+    except Exception:
+        pass
 
     reports = _extract_reports_from_process_payload(process_payload)
     updated = _STORE.update_task_processing_result(
@@ -955,6 +976,73 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     return process_payload
 
 
+def _append_reference_unresolved_trend_sample(task: Dict, process_payload: Dict) -> None:
+    """Store lightweight unresolved-reference trend sample for admin diagnostics."""
+    report = process_payload.get("citation_reference_report", {}) if isinstance(process_payload, dict) else {}
+    if not isinstance(report, dict):
+        return
+    online = report.get("online_validation", {}) if isinstance(report.get("online_validation"), dict) else {}
+    enrichment = online.get("enrichment", {}) if isinstance(online.get("enrichment"), dict) else {}
+    trail = enrichment.get("trail", []) if isinstance(enrichment.get("trail"), list) else []
+    entries = online.get("entries", []) if isinstance(online.get("entries"), list) else []
+
+    unresolved_by_source: Dict[str, int] = {}
+    unresolved_by_reason: Dict[str, int] = {}
+    unresolved_total = 0
+
+    for item in trail:
+        if not isinstance(item, dict):
+            continue
+        autofill_status = str(item.get("autofill_status") or "none").strip().lower()
+        doi_rejected = bool(item.get("doi_rejected"))
+        doi_needs_review = bool(item.get("doi_needs_review"))
+        unresolved = autofill_status != "full" or doi_rejected or doi_needs_review
+        if not unresolved:
+            continue
+        unresolved_total += 1
+        source_name = str(item.get("source") or "unknown").strip().lower() or "unknown"
+        unresolved_by_source[source_name] = int(unresolved_by_source.get(source_name, 0)) + 1
+        reason = str(item.get("why_manual_review") or "").strip().lower()
+        if not reason:
+            chips = item.get("autofill_chips", []) if isinstance(item.get("autofill_chips"), list) else []
+            reason = str(chips[0] if chips else "autofill_not_full").strip().lower()
+        unresolved_by_reason[reason] = int(unresolved_by_reason.get(reason, 0)) + 1
+
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "").strip().lower()
+        if status not in {"not_found", "mismatch", "ambiguous", "error"}:
+            continue
+        unresolved_total += 1
+        source_name = str(item.get("source") or "unknown").strip().lower() or "unknown"
+        unresolved_by_source[source_name] = int(unresolved_by_source.get(source_name, 0)) + 1
+        reason = str(item.get("reason") or status).strip().lower() or status
+        unresolved_by_reason[reason] = int(unresolved_by_reason.get(reason, 0)) + 1
+
+    sample = {
+        "timestamp": int(time.time()),
+        "task_id": str(task.get("id") or ""),
+        "task_name": str(task.get("file_name") or ""),
+        "unresolved_total": int(unresolved_total),
+        "by_source": unresolved_by_source,
+        "by_reason": unresolved_by_reason,
+    }
+
+    row = _STORE.get_app_setting(APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS)
+    current = row.get("value") if isinstance(row, dict) else {}
+    runs = current.get("runs") if isinstance(current, dict) else []
+    if not isinstance(runs, list):
+        runs = []
+    runs.append(sample)
+    runs = runs[-20:]
+    _STORE.upsert_app_setting(
+        key=APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS,
+        value={"runs": runs},
+        updated_by_user_id=None,
+    )
+
+
 def _apply_group_decisions(context: SessionContext, task: Dict, group_decisions: Dict, fallback_full_corrected: str = "") -> Dict:
     original_text = str(task.get("original_text") or "")
     full_corrected = str(task.get("full_corrected_text") or "") or str(fallback_full_corrected or "")
@@ -971,6 +1059,7 @@ def _apply_group_decisions(context: SessionContext, task: Dict, group_decisions:
         task_row=task,
         corrected_text=corrected_text,
         full_corrected_text=full_corrected,
+        options=task.get("options", {}),
     )
     reports = _extract_reports_from_process_payload(process_payload)
 
@@ -1378,6 +1467,24 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
             raw_diagnostics = {}
 
     serper_configured = bool(raw_diagnostics.get("serper_configured"))
+    trend_row = _STORE.get_app_setting(APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS)
+    trend_value = trend_row.get("value") if isinstance(trend_row, dict) else {}
+    trend_runs = trend_value.get("runs") if isinstance(trend_value, dict) else []
+    if not isinstance(trend_runs, list):
+        trend_runs = []
+    trend_runs = trend_runs[-20:]
+    trend_by_source: Dict[str, int] = {}
+    trend_by_reason: Dict[str, int] = {}
+    for run in trend_runs:
+        if not isinstance(run, dict):
+            continue
+        by_source = run.get("by_source", {}) if isinstance(run.get("by_source"), dict) else {}
+        by_reason = run.get("by_reason", {}) if isinstance(run.get("by_reason"), dict) else {}
+        for key, value in by_source.items():
+            trend_by_source[str(key)] = int(trend_by_source.get(str(key), 0)) + int(value or 0)
+        for key, value in by_reason.items():
+            trend_by_reason[str(key)] = int(trend_by_reason.get(str(key), 0)) + int(value or 0)
+
     return {
         "generated_at": int(time.time()),
         "global_runtime": {
@@ -1395,6 +1502,12 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
         "cache": raw_diagnostics.get("cache", {}),
         "lookup_metrics_last_run": raw_diagnostics.get("lookup_metrics", {}),
         "lookup_metrics_last_run_at": int(raw_diagnostics.get("lookup_metrics_updated_at", 0) or 0),
+        "unresolved_trends": {
+            "window_runs": len(trend_runs),
+            "runs": trend_runs,
+            "totals_by_source": trend_by_source,
+            "totals_by_reason": trend_by_reason,
+        },
     }
 
 
@@ -1408,6 +1521,11 @@ def _reset_reference_validation_diagnostics_payload() -> Dict:
             removed_entries = int(editor.reset_online_validation_cache() or 0)
         except Exception:
             removed_entries = 0
+    _STORE.upsert_app_setting(
+        key=APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS,
+        value={"runs": []},
+        updated_by_user_id=None,
+    )
     diagnostics = _build_reference_validation_diagnostics_payload()
     return {
         "removed_cache_entries": removed_entries,

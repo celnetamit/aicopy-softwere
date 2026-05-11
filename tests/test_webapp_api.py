@@ -336,6 +336,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('id="assistant-unresolved-panel"', html)
         self.assertIn('id="assistant-unresolved-sort"', html)
         self.assertIn('id="assistant-unresolved-rerun-btn"', html)
+        self.assertIn('id="assistant-unresolved-rerun-autofixable-btn"', html)
         self.assertIn('id="assistant-export-unresolved-btn"', html)
 
     def test_admin_dashboard_contains_new_reference_automation_controls(self):
@@ -343,6 +344,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('id="admin-setting-online-reference-validation-admin-cap"', html)
         self.assertIn('id="admin-setting-auto-resolve-unresolved-references"', html)
+        self.assertIn('id="admin-reference-unresolved-trend-summary"', html)
+        self.assertIn('id="admin-reference-diagnostics-trends-output"', html)
 
     def test_version_endpoint_and_footer_use_shared_version_source(self):
         version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
@@ -395,6 +398,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         runtime = diagnostics.get("global_runtime") or {}
         self.assertIn("online_reference_validation_admin_cap", runtime)
         self.assertEqual(int(runtime.get("online_reference_validation_admin_cap", 0)), 150)
+        self.assertIn("unresolved_trends", diagnostics)
 
     def test_rerun_unresolved_frontend_has_direct_process_fallback_path(self):
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
@@ -427,6 +431,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         with open(settings_js_path, "r", encoding="utf-8") as handle:
             settings_source = handle.read()
         self.assertIn("assistantUnresolvedRerunBtn", settings_source)
+        self.assertIn("assistantUnresolvedRerunAutofixableBtn", settings_source)
         self.assertIn("assistantExportUnresolvedBtn", settings_source)
         self.assertIn("assistantUnresolvedSort", settings_source)
 
@@ -465,6 +470,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertEqual(payload.get("task_id"), task_id)
+        self.assertIn("prose_only_diff", payload)
+        self.assertIsInstance(payload.get("prose_only_diff"), str)
+        self.assertIn("strict_cmos_issues", payload)
+        self.assertIsInstance(payload.get("strict_cmos_issues"), dict)
 
         status, payload = self.client.request("GET", f"/api/tasks/{task_id}/download", query={"type": "clean"})
         self.assertEqual(status, 200)

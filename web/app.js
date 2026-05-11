@@ -319,6 +319,8 @@ function applyProcessResponseToState(response, options = {}) {
     mainState.fileContent.fullCorrectedText = response.full_corrected_text || response.text || '';
     mainState.fileContent.correctedAnnotatedHtml = response.corrected_annotated_html || '';
     mainState.fileContent.redline = response.redline_html || '';
+    mainState.fileContent.proseOnlyDiff = response.prose_only_diff || '';
+    mainState.fileContent.strictCmosIssues = response.strict_cmos_issues || null;
     mainState.fileContent.corrections = response.corrections_report || null;
     mainState.fileContent.nounReport = response.noun_report || null;
     mainState.fileContent.domainReport = response.domain_report || null;
@@ -678,6 +680,12 @@ function renderAssistantQuickSummaryFromState() {
         ? mainState.fileContent.citationReferenceReport
         : {};
     const citationSummary = citation.summary && typeof citation.summary === 'object' ? citation.summary : {};
+    const strictIssues = mainState.fileContent.strictCmosIssues && typeof mainState.fileContent.strictCmosIssues === 'object'
+        ? mainState.fileContent.strictCmosIssues
+        : {};
+    const strictCounts = strictIssues.counts && typeof strictIssues.counts === 'object'
+        ? strictIssues.counts
+        : {};
     const mode = String(audit.mode || '').toLowerCase();
     const fallbackSections = Number(summary.fallback_sections || 0);
     const totalSections = Number(summary.total_sections || 0);
@@ -687,6 +695,11 @@ function renderAssistantQuickSummaryFromState() {
     const cmosScore = Number(cmos.compliance_score || 0);
     const citationIssues = Number(citationSummary.citation_issues || 0);
     const referenceIssues = Number(citationSummary.reference_issues || 0);
+    const strictTotal = Number(strictIssues.total || 0);
+    const strictPunctuation = Number(strictCounts.punctuation || 0);
+    const strictCapitalization = Number(strictCounts.capitalization || 0);
+    const strictStyle = Number(strictCounts.style || 0);
+    const strictSpelling = Number(strictCounts.spelling || 0);
 
     if (!mainState.fileContent.taskId) {
         mainDom.assistantQuickSummary.textContent = 'Open a task to view quality status and recommended next step.';
@@ -697,11 +710,12 @@ function renderAssistantQuickSummaryFromState() {
         ? `AI accepted ${acceptedSections}/${totalSections}; fallback ${fallbackSections}/${totalSections}.`
         : 'Section-level acceptance data not available.';
     const modeInfo = mode ? `Mode: ${mode}.` : 'Mode: unknown.';
+    const strictInfo = `Strict CMOS total: ${strictTotal} (P:${strictPunctuation} C:${strictCapitalization} S:${strictStyle} Sp:${strictSpelling}).`;
     const qualityInfo = `CMOS: ${cmosStatus} (${cmosScore}). Citation issues: ${citationIssues}. Reference issues: ${referenceIssues}.`;
     let recommendation = 'Next: Ask assistant "what should I retry?" for guided settings.';
     if (fallbackSections > 0) recommendation = 'Next: Use "Retry Recommended" to reduce fallback sections.';
     if (citationIssues === 0 && referenceIssues === 0 && fallbackSections === 0) recommendation = 'Status looks healthy. You can export clean/redline output.';
-    mainDom.assistantQuickSummary.textContent = `${sectionInfo} ${qualityInfo} ${modeInfo} ${recommendation}`;
+    mainDom.assistantQuickSummary.textContent = `${sectionInfo} ${strictInfo} ${qualityInfo} ${modeInfo} ${recommendation}`;
 }
 
 function collectUnresolvedReferenceItemsFromState() {
@@ -725,10 +739,21 @@ function collectUnresolvedReferenceItemsFromState() {
         const doiRejected = Boolean(item && item.doi_rejected);
         const doiNeedsReview = Boolean(item && item.doi_needs_review);
         if (!(doiRejected || doiNeedsReview || autofillStatus !== 'full')) return;
+        const whyManualReview = String(item && item.why_manual_review || '').trim();
+        const fixability = classifyUnresolvedFixability({
+            status: doiRejected ? 'doi_rejected' : (doiNeedsReview ? 'doi_needs_review' : `autofill_${autofillStatus}`),
+            whyManualReview,
+            reasons: []
+                .concat(Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [])
+                .concat(Array.isArray(item && item.auto_resolve_chips) ? item.auto_resolve_chips : [])
+                .concat(Array.isArray(item && item.doi_reason_chips) ? item.doi_reason_chips : [])
+        });
         byNumber.set(number, {
             number,
             severity: doiRejected ? 3 : (doiNeedsReview ? 2 : 1),
             status: doiRejected ? 'doi_rejected' : (doiNeedsReview ? 'doi_needs_review' : `autofill_${autofillStatus}`),
+            fixability,
+            whyManualReview,
             reasons: []
                 .concat(Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [])
                 .concat(Array.isArray(item && item.auto_resolve_chips) ? item.auto_resolve_chips : [])
@@ -748,10 +773,29 @@ function collectUnresolvedReferenceItemsFromState() {
         current.severity = Math.max(Number(current.severity || 1), severity);
         current.status = String(current.status || status);
         if (item && item.reason) current.reasons.push(String(item.reason));
+        current.fixability = classifyUnresolvedFixability({
+            status: current.status,
+            whyManualReview: String(current.whyManualReview || ''),
+            reasons: current.reasons
+        });
         byNumber.set(number, current);
     });
 
     return Array.from(byNumber.values());
+}
+
+function classifyUnresolvedFixability(payload) {
+    const status = String(payload && payload.status || '').toLowerCase();
+    const whyManualReview = String(payload && payload.whyManualReview || '').toLowerCase();
+    const reasons = Array.isArray(payload && payload.reasons) ? payload.reasons.map((v) => String(v || '').toLowerCase()) : [];
+    const signal = `${status} ${whyManualReview} ${reasons.join(' ')}`;
+    if (signal.includes('autofill_partial') || signal.includes('doi_needs_review') || signal.includes('likely_match')) {
+        return 'auto-fixable';
+    }
+    if (signal.includes('not_found') || signal.includes('error') || signal.includes('untrusted_source')) {
+        return 'needs-source';
+    }
+    return 'needs-human-judgment';
 }
 
 function sortUnresolvedItems(items) {
@@ -783,9 +827,13 @@ function renderUnresolvedReferencesPanelFromState() {
     const rows = items.map((item) => {
         const number = Number(item.number || 0);
         const status = String(item.status || 'unresolved').replaceAll('_', ' ');
+        const fixability = String(item.fixability || 'needs-human-judgment');
+        const whyManualReview = String(item.whyManualReview || '').trim();
         const reasons = Array.isArray(item.reasons) ? item.reasons.filter(Boolean).slice(0, 3) : [];
         const reasonText = reasons.map((reason) => `[${appMain.helpers.escapeHtml(String(reason))}]`).join(' ');
-        return `<li>[${number}] ${appMain.helpers.escapeHtml(status)} ${reasonText}</li>`;
+        const reasonChip = whyManualReview ? `[manual:${appMain.helpers.escapeHtml(whyManualReview)}]` : '';
+        const fixabilityChip = `[fixability:${appMain.helpers.escapeHtml(fixability)}]`;
+        return `<li>[${number}] ${appMain.helpers.escapeHtml(status)} ${fixabilityChip} ${reasonChip} ${reasonText}</li>`;
     }).join('');
     mainDom.assistantUnresolvedList.innerHTML = `<ul>${rows}</ul>`;
 }
@@ -894,6 +942,47 @@ function copyAssistantDiagnostics() {
         fallbackCopy();
     }
     showAssistantToast('Diagnostics copied.');
+}
+
+function copyProseOnlyDiff() {
+    const text = String(mainState.fileContent.proseOnlyDiff || '').trim();
+    if (!text) {
+        setStatus('No prose-only diff available to copy.', 'warning');
+        return;
+    }
+    const fallbackCopy = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (err) {}
+        try { document.body.removeChild(ta); } catch (err) {}
+    };
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy());
+    } else {
+        fallbackCopy();
+    }
+    setStatus('Prose-only diff copied.', 'success');
+}
+
+function downloadProseOnlyDiff() {
+    const text = String(mainState.fileContent.proseOnlyDiff || '').trim();
+    if (!text) {
+        setStatus('No prose-only diff available to download.', 'warning');
+        return;
+    }
+    const taskId = String(mainState.fileContent.taskId || 'task').trim() || 'task';
+    const blob = new Blob([text + '\n'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `prose_only_diff_${taskId}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setStatus('Prose-only diff downloaded.', 'success');
 }
 
 function setAssistantActionsLoading(loading, label) {
@@ -1457,6 +1546,14 @@ function retryWithRecommendedSettings() {
 }
 
 function rerunUnresolvedReferencesOnly() {
+    runUnresolvedReferencesWithMode('all');
+}
+
+function rerunAutoFixableReferencesOnly() {
+    runUnresolvedReferencesWithMode('auto_fixable');
+}
+
+function runUnresolvedReferencesWithMode(filterMode) {
     if (assistantActionInFlight) {
         setStatus('Another assistant action is already running. Please wait a moment.', 'warning');
         return;
@@ -1471,6 +1568,7 @@ function rerunUnresolvedReferencesOnly() {
     const baseOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     const retryOptions = Object.assign({}, baseOptions, {
         unresolved_reference_only: true,
+        unresolved_fixability_filter: String(filterMode || 'all'),
         spelling: false,
         sentence_case: false,
         punctuation: false,
@@ -1487,8 +1585,9 @@ function rerunUnresolvedReferencesOnly() {
         ? mainState.fileContent.citationReferenceReport
         : {};
     toggleAssistantChat(true);
-    appendAssistantChatMessage('assistant', 'Rerunning unresolved references only...');
-    setAssistantActionsLoading(true, 'Rerunning unresolved references only...');
+    const modeLabel = String(filterMode || 'all') === 'auto_fixable' ? 'auto-fixable unresolved references' : 'unresolved references';
+    appendAssistantChatMessage('assistant', `Rerunning ${modeLabel}...`);
+    setAssistantActionsLoading(true, `Rerunning ${modeLabel}...`);
 
     const finish = (response, rerunPath) => {
         setAssistantActionsLoading(false);
@@ -1506,7 +1605,7 @@ function rerunUnresolvedReferencesOnly() {
         applyProcessResponseToState(response.result, {
             keepGroupDecisions: false,
             rerunActionMeta: {
-                action: 'rerun_unresolved_references',
+                action: String(filterMode || 'all') === 'auto_fixable' ? 'rerun_auto_fixable_unresolved_references' : 'rerun_unresolved_references',
                 path: String(rerunPath || 'unknown'),
                 label: rerunPath === 'assistant_endpoint' ? 'Used assistant endpoint' : (rerunPath === 'direct_process_fallback' ? 'Used direct fallback' : 'Used unknown path'),
                 delta: buildUnresolvedRerunDelta(beforeReportSnapshot, response.result.citation_reference_report || {}),
@@ -1517,11 +1616,11 @@ function rerunUnresolvedReferencesOnly() {
         const delta = buildUnresolvedRerunDelta(beforeReportSnapshot, response.result.citation_reference_report || {});
         appendAssistantChatMessage(
             'assistant',
-            `Unresolved references rerun complete. Before: ${delta.before_unresolved}, After: ${delta.after_unresolved}, Resolved: ${delta.resolved_delta}${delta.regressed_delta > 0 ? `, Regressed: ${delta.regressed_delta}` : ''}.`
+            `Unresolved references rerun complete. Before: ${delta.before_unresolved}, After: ${delta.after_unresolved}, Resolved: ${delta.resolved_delta}${delta.regressed_delta > 0 ? `, Regressed: ${delta.regressed_delta}` : ''}. Mode: ${modeLabel}.`
         );
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
-        setStatus(`Unresolved references rerun complete (${delta.before_unresolved} -> ${delta.after_unresolved})`, 'success');
+        setStatus(`Rerun complete (${modeLabel}) (${delta.before_unresolved} -> ${delta.after_unresolved})`, 'success');
         showAssistantToast('Unresolved references rerun completed.');
     };
 
@@ -1706,7 +1805,10 @@ appMain.actions = {
     assistantApplyCurrentDecisions,
     retryWithRecommendedSettings,
     rerunUnresolvedReferencesOnly,
+    rerunAutoFixableReferencesOnly,
     copyAssistantDiagnostics,
+    copyProseOnlyDiff,
+    downloadProseOnlyDiff,
     exportUnresolvedReferencesReport,
     toggleAssistantChat,
     restoreAssistantChatHistoryForCurrentTask,
@@ -1721,6 +1823,8 @@ appMain.actions = {
 
 window.setGroupDecision = setGroupDecision;
 window.applyAllGroupDecisions = applyAllGroupDecisions;
+window.copyProseOnlyDiff = copyProseOnlyDiff;
+window.downloadProseOnlyDiff = downloadProseOnlyDiff;
 
 mainAuth.updateAdminGlobalAiProviderUI(false);
 mainAuth.updateAdminAiValidationHint();

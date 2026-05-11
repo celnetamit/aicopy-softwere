@@ -750,11 +750,50 @@ class ChicagoEditor:
             )
             # Tighten common abbreviation spacing.
             result = re.sub(r'(?i)\b(fig|eq|ref)\.\s+(\d)', lambda m: f"{m.group(1).capitalize()}. {m.group(2)}", result)
+            # Strict content-level CMOS normalization for body prose.
+            result = self._strict_cmos_content_pack(result)
 
         if profile == "journal_custom":
             # Journal-custom keeps title/sentence tuning conservative but enforces DOI label form.
             result = re.sub(r'(?i)\bdoi\s*:\s*', 'doi: ', result)
 
+        return result
+
+    def _strict_cmos_content_pack(self, text: str) -> str:
+        """Apply safe, body-text CMOS normalizations for strict mode."""
+        result = str(text or "")
+        result = self._apply_serial_comma_general(result)
+        result = self._normalize_vs_abbreviation(result)
+        result = self._normalize_latin_abbreviations(result)
+        result = self._normalize_time_abbreviations(result)
+        return result
+
+    def _apply_serial_comma_general(self, text: str) -> str:
+        """Insert serial comma in common lower/upper-case three-item lists."""
+        return re.sub(
+            r'\b([A-Za-z][A-Za-z-]*,\s+[A-Za-z][A-Za-z-]*)\s+and\s+([A-Za-z][A-Za-z-]*)\b',
+            r'\1, and \2',
+            text,
+        )
+
+    def _normalize_vs_abbreviation(self, text: str) -> str:
+        """CMOS preference: 'vs.' instead of bare 'vs' in running text."""
+        return re.sub(r'(?i)\bvs\b(?!\.)', 'vs.', text)
+
+    def _normalize_latin_abbreviations(self, text: str) -> str:
+        """Ensure CMOS punctuation/spacing for common Latin abbreviations."""
+        result = str(text or "")
+        # Preserve standard "etc." and only add a terminal period when bare "etc" appears.
+        result = re.sub(r'(?i)\betc(?!\.)(?=[\s;:)\].]|$)', 'etc.', result)
+        return result
+
+    def _normalize_time_abbreviations(self, text: str) -> str:
+        """Use lowercase am/pm with periods in prose."""
+        result = str(text or "")
+        result = re.sub(r'\b([0-9]{1,2})\s*AM\b', r'\1 a.m.', result)
+        result = re.sub(r'\b([0-9]{1,2})\s*PM\b', r'\1 p.m.', result)
+        result = re.sub(r'\b([0-9]{1,2})\s*am\b', r'\1 a.m.', result)
+        result = re.sub(r'\b([0-9]{1,2})\s*pm\b', r'\1 p.m.', result)
         return result
 
     def _rule_tulsi_specific_vs_generic(self, text: str) -> str:
@@ -968,14 +1007,7 @@ class ChicagoEditor:
         return '\n'.join(output_lines)
 
     def normalize_keywords_line(self, text: str) -> str:
-        """Normalize `Keyword:` / `Keywords:` lines with sentence-case items."""
-        def normalize_item(item: str) -> str:
-            item = item.strip()
-            if not item:
-                return item
-            if len(item) <= 4 and item.isupper():
-                return item
-            return item[0].upper() + item[1:].lower() if len(item) > 1 else item.upper()
+        """Normalize `Keyword:` / `Keywords:` label while preserving item casing."""
 
         output_lines = []
         for line in text.split('\n'):
@@ -986,7 +1018,8 @@ class ChicagoEditor:
 
             raw_prefix = str(match.group(1) or "")
             prefix = "Keywords: " if re.search(r'keywords', raw_prefix, flags=re.IGNORECASE) else "Keyword: "
-            items = [normalize_item(part) for part in match.group(2).split(',')]
+            # Keep author-provided technical/brand casing in each keyword item.
+            items = [part.strip() for part in match.group(2).split(',')]
             output_lines.append(prefix + ', '.join(items))
 
         return '\n'.join(output_lines)
@@ -2140,6 +2173,14 @@ class ChicagoEditor:
                 output.append(line)
                 continue
 
+            fixability_filter = str((options or {}).get("unresolved_fixability_filter") or "all").strip().lower()
+            if fixability_filter == "auto_fixable":
+                validation_status = str(validated.get("status") or "").strip().lower()
+                # Safe mode: only retry entries likely to be resolved automatically.
+                if validation_status not in {"verified", "likely_match"}:
+                    output.append(line)
+                    continue
+
             enrichment["references_considered"] += 1
             entry_metadata = self._analyze_reference_entry(entry_text)
             matched_source_type = str(validated.get("matched_source_type") or "").strip().lower()
@@ -2241,6 +2282,13 @@ class ChicagoEditor:
                 confidence = "likely"
             else:
                 confidence = "needs_review"
+            fixability = self._classify_unresolved_fixability(
+                status=status,
+                autofill_status=autofill_status,
+                why_manual_review=why_manual_review,
+                doi_rejected=doi_rejected,
+                doi_needs_review=doi_needs_review,
+            )
             enrichment["trail"].append({
                 "number": number,
                 "source_type": str(entry_metadata.get("source_type") or "generic"),
@@ -2259,11 +2307,32 @@ class ChicagoEditor:
                 "doi_reject_reasons": doi_reject_reasons,
                 "doi_reason_chips": doi_reason_chips,
                 "why_manual_review": why_manual_review,
+                "fixability": fixability,
             })
 
         if isinstance(citation_report, dict):
             citation_report["online_validation"] = online
         return '\n'.join(output)
+
+    def _classify_unresolved_fixability(
+        self,
+        status: str,
+        autofill_status: str,
+        why_manual_review: str,
+        doi_rejected: bool,
+        doi_needs_review: bool,
+    ) -> str:
+        """Classify unresolved references for UI/action targeting."""
+        status_value = str(status or "").strip().lower()
+        auto_value = str(autofill_status or "").strip().lower()
+        reason_value = str(why_manual_review or "").strip().lower()
+        if auto_value in {"partial"} or doi_needs_review or status_value in {"likely_match"}:
+            return "auto-fixable"
+        if status_value in {"not_found", "error"}:
+            return "needs-source"
+        if doi_rejected and "low" in reason_value:
+            return "needs-source"
+        return "needs-human-judgment"
 
     def _fill_missing_fields_from_validated_metadata(
         self,

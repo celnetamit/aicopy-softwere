@@ -354,6 +354,8 @@ function applyTaskDetailsToState(task) {
     authState.fileContent.fullCorrectedText = String(task.full_corrected_text || '');
     authState.fileContent.correctedAnnotatedHtml = String(reports.corrected_annotated_html || '');
     authState.fileContent.redline = String(reports.redline_html || '');
+    authState.fileContent.proseOnlyDiff = String(reports.prose_only_diff || '');
+    authState.fileContent.strictCmosIssues = reports.strict_cmos_issues || null;
     authState.fileContent.corrections = reports.corrections_report || null;
     authState.fileContent.nounReport = reports.noun_report || null;
     authState.fileContent.domainReport = reports.domain_report || null;
@@ -1108,6 +1110,30 @@ function renderAdminReferenceValidationDiagnostics(payload) {
         authDom.adminReferenceDiagnosticsOutput.textContent = JSON.stringify(safe, null, 2);
     } catch (_err) {
         authDom.adminReferenceDiagnosticsOutput.textContent = String(safe);
+    }
+    const trends = safe.unresolved_trends && typeof safe.unresolved_trends === 'object'
+        ? safe.unresolved_trends
+        : {};
+    if (authDom.adminReferenceUnresolvedTrendSummary) {
+        const runs = Number(trends.window_runs || 0);
+        const bySource = trends.totals_by_source && typeof trends.totals_by_source === 'object' ? trends.totals_by_source : {};
+        const topSource = Object.entries(bySource).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0];
+        authDom.adminReferenceUnresolvedTrendSummary.textContent = runs > 0
+            ? `Unresolved trends: last ${runs} runs. Top source: ${topSource ? `${topSource[0]} (${topSource[1]})` : 'n/a'}.`
+            : 'Unresolved trends: no runs yet.';
+    }
+    if (authDom.adminReferenceDiagnosticsTrendsOutput) {
+        const compact = {
+            window_runs: Number(trends.window_runs || 0),
+            totals_by_source: trends.totals_by_source || {},
+            totals_by_reason: trends.totals_by_reason || {},
+            runs: Array.isArray(trends.runs) ? trends.runs : []
+        };
+        try {
+            authDom.adminReferenceDiagnosticsTrendsOutput.textContent = JSON.stringify(compact, null, 2);
+        } catch (_err) {
+            authDom.adminReferenceDiagnosticsTrendsOutput.textContent = String(compact);
+        }
     }
 }
 
