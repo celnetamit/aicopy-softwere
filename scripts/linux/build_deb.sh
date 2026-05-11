@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_ID="manuscript-editor"
 APP_NAME="Manuscript Editor"
-VERSION="${1:-1.0.0}"
+DEFAULT_VERSION="$(tr -d '[:space:]' < "${ROOT_DIR}/VERSION")"
+if [[ -z "${DEFAULT_VERSION}" ]]; then
+  DEFAULT_VERSION="1.0.0"
+fi
+VERSION="${1:-${DEFAULT_VERSION}}"
 ARCH="${2:-$(dpkg --print-architecture)}"
 
 BUILD_ROOT="${ROOT_DIR}/build/deb"

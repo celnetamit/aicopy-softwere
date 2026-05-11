@@ -1,5 +1,5 @@
 #define MyAppName "Manuscript Editor"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion Trim(FileRead("..\..\VERSION"))
 #define MyAppPublisher "Manuscript Editor"
 #define MyAppExeName "ManuscriptEditor.exe"
 #define MySourceDir "..\..\dist\ManuscriptEditor"

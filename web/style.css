@@ -107,6 +107,15 @@ header p {
     letter-spacing: 0.4px;
 }
 
+#app-version-chip {
+    margin-top: 2px;
+    font-size: 10px;
+    color: #f8d9a0;
+    border: 1px solid #74592c;
+    border-radius: 999px;
+    padding: 1px 7px;
+}
+
 main {
     display: flex;
     flex: 1;

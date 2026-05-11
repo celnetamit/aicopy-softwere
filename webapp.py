@@ -22,6 +22,7 @@ from bottle import Bottle, HTTPResponse, request, response, run, static_file
 
 from app_store import AppStore, ROLE_ADMIN, STATUS_ACTIVE, STATUS_INACTIVE, SessionContext
 from document_processor import DocumentProcessor
+from version_info import APP_VERSION, WEB_ASSET_VERSION
 
 
 try:
@@ -34,7 +35,6 @@ except Exception:  # pragma: no cover - optional import if auth deps missing
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT_DIR, "web")
-WEB_ASSET_VERSION = "20260509r57"
 REQUIRED_WEB_ASSETS = (
     "index.html",
     "tasks.html",
@@ -1405,6 +1405,7 @@ def _render_html_shell(
     _ensure_web_assets()
     fragment_values = {
         "ASSET_VERSION": WEB_ASSET_VERSION,
+        "APP_VERSION": APP_VERSION,
     }
     fragment_values["LOGIN_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/login.html"), fragment_values)
     fragment_values["APP_HEADER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_header.html"), fragment_values)
@@ -1491,6 +1492,18 @@ def api_health():
             "status": "ok",
             "storage_backend": _STORE.backend,
             "auth_required": True,
+            "version": APP_VERSION,
+        }
+    )
+
+
+@app.get("/api/version")
+def api_version():
+    return _json_response(
+        {
+            "success": True,
+            "version": APP_VERSION,
+            "asset_version": WEB_ASSET_VERSION,
         }
     )
 

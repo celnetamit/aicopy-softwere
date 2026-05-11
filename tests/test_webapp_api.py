@@ -334,6 +334,40 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("Rerun Unresolved Refs (Safe)", html)
         self.assertIn("Rerun only unresolved references using safe settings", html)
 
+    def test_version_endpoint_and_footer_use_shared_version_source(self):
+        version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+        with open(version_file, "r", encoding="utf-8") as handle:
+            expected_version = handle.read().strip()
+        self.assertTrue(expected_version)
+
+        status, payload = self.client.request("GET", "/api/version")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("version"), expected_version)
+        self.assertEqual(payload.get("asset_version"), f"v{expected_version}")
+
+        status, html = self.client.request_text("GET", "/tasks/example-task-id")
+        self.assertEqual(status, 200)
+        self.assertIn(f"v{expected_version}", html)
+
+    def test_packaging_defaults_read_shared_version_file(self):
+        version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+        with open(version_file, "r", encoding="utf-8") as handle:
+            expected_version = handle.read().strip()
+        self.assertTrue(expected_version)
+
+        linux_script_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "linux", "build_deb.sh")
+        with open(linux_script_path, "r", encoding="utf-8") as handle:
+            linux_script = handle.read()
+        self.assertIn('DEFAULT_VERSION="$(tr -d', linux_script)
+        self.assertIn('${ROOT_DIR}/VERSION', linux_script)
+        self.assertIn('VERSION="${1:-${DEFAULT_VERSION}}"', linux_script)
+
+        windows_iss_path = os.path.join(os.path.dirname(__file__), "..", "packaging", "windows", "ManuscriptEditor.iss")
+        with open(windows_iss_path, "r", encoding="utf-8") as handle:
+            windows_iss = handle.read()
+        self.assertIn('#define MyAppVersion Trim(FileRead("..\\..\\VERSION"))', windows_iss)
+
     def test_rerun_unresolved_frontend_has_direct_process_fallback_path(self):
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
         with open(app_js_path, "r", encoding="utf-8") as handle:

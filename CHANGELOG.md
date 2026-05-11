@@ -8,7 +8,28 @@ The format is inspired by Keep a Changelog and this project follows Semantic Ver
 
 ### Added
 
-- Release checklist document covering versioning, changelog flow, upgrade notes, and rollback steps.
+- (none yet)
+
+## [1.1.0] - 2026-05-11
+
+### Added
+
+- Assistant Phase 1 rollout with read-only diagnostics, safe task reprocess action, and in-app assistant chat widget.
+- Assistant resiliency upgrades: explicit unavailable banners, dashboard/task context hints, request logs, fallback insights, retry controls, and run-stage indicators.
+- New rerun action for unresolved references with safe mode defaults and visible execution-path telemetry.
+- Reference quality hardening:
+  - stricter author-initial formatting behavior
+  - stronger book-entry validation and indicators
+  - DOI match thresholds and reason chips
+  - DOI insertion override for verified high-confidence matches
+  - verified DOI auto-complete with fill-only-missing safety mode
+  - autofill outcome states (`Full`, `Partial`, `None`) and unresolved-only review filter
+- CMOS Expansion Layer Phase 2 foundations (settings, diagnostics, first rule pack).
+- Version governance improvements:
+  - centralized `VERSION` source (`1.1.0`)
+  - `/api/version` endpoint
+  - UI-visible version badge and footer version binding
+  - package defaults wired to shared version source
 
 ## [1.0.0] - 2026-04-17
 
