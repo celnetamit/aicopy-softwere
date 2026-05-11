@@ -1243,11 +1243,15 @@ function retryWithRecommendedSettings() {
 }
 
 function rerunUnresolvedReferencesOnly() {
-    if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
-    if (assistantActionInFlight) return;
+    if (assistantActionInFlight) {
+        setStatus('Another assistant action is already running. Please wait a moment.', 'warning');
+        return;
+    }
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
         setStatus('Load a task before rerunning unresolved references.', 'warning');
+        toggleAssistantChat(true);
+        appendAssistantChatMessage('assistant', 'Please open a task first, then run unresolved references rerun.');
         return;
     }
     const baseOptions = mainAuth.buildProcessingOptionsFromRuntimeSettings();
@@ -1268,9 +1272,8 @@ function rerunUnresolvedReferencesOnly() {
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Rerunning unresolved references only...');
     setAssistantActionsLoading(true, 'Rerunning unresolved references only...');
-    callAssistantWithRetry('rerun_unresolved_references', (done) => {
-        eel.assistant_reprocess_task(taskId, retryOptions)(done);
-    }, (response) => {
+
+    const finish = (response) => {
         setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
             const errorMessage = response && response.error ? String(response.error) : 'Request failed';
@@ -1290,7 +1293,35 @@ function rerunUnresolvedReferencesOnly() {
         mainAuth.refreshTaskHistory();
         setStatus('Unresolved references rerun complete', 'success');
         showAssistantToast('Unresolved references rerun completed.');
-    });
+    };
+
+    if (typeof eel !== 'undefined' && typeof eel.assistant_reprocess_task === 'function') {
+        callAssistantWithRetry('rerun_unresolved_references', (done) => {
+            eel.assistant_reprocess_task(taskId, retryOptions)(done);
+        }, finish);
+        return;
+    }
+
+    if (typeof eel !== 'undefined' && typeof eel.process_document === 'function') {
+        appendAssistantChatMessage('assistant', 'Assistant action endpoint is unavailable, using direct process fallback.');
+        callAssistantWithRetry('rerun_unresolved_references_fallback', (done) => {
+            eel.process_document(retryOptions, taskId)(function (response) {
+                if (response && response.success) {
+                    done({ success: true, result: response });
+                    return;
+                }
+                done({ success: false, error: response && response.error ? String(response.error) : 'Fallback processing failed' });
+            });
+        }, finish);
+        return;
+    }
+
+    setAssistantActionsLoading(false);
+    const bridgeError = 'Bridge unavailable: cannot call assistant or process endpoints.';
+    setAssistantUnavailable(true, bridgeError);
+    updateAssistantDiagnostics('failed', bridgeError, 0);
+    appendAssistantChatMessage('assistant', `Unresolved references rerun failed: ${bridgeError}`);
+    setStatus('Rerun unresolved references is unavailable in this mode.', 'warning');
 }
 
 function setGroupDecision(groupKey, accepted) {
