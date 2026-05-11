@@ -353,6 +353,7 @@ def _default_global_runtime_settings() -> Dict:
             "online_reference_validation": True,
             "online_reference_serper_fallback": True,
             "online_reference_validation_admin_cap": 150,
+            "auto_resolve_unresolved_references": True,
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
             "cmos_profile": "core",
@@ -454,6 +455,11 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
                 1,
                 500,
             ),
+            "auto_resolve_unresolved_references": _bool(
+                editing_in,
+                "auto_resolve_unresolved_references",
+                defaults["editing"]["auto_resolve_unresolved_references"],
+            ),
             "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
             "cmos_profile": cmos_profile,
@@ -513,6 +519,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["online_reference_validation"] = bool(editing.get("online_reference_validation", True))
     opts["online_reference_serper_fallback"] = bool(editing.get("online_reference_serper_fallback", True))
     opts["online_reference_validation_admin_cap"] = int(editing.get("online_reference_validation_admin_cap", 150))
+    opts["auto_resolve_unresolved_references"] = bool(editing.get("auto_resolve_unresolved_references", True))
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
     opts["cmos_profile"] = str(editing.get("cmos_profile", "core"))
@@ -1376,6 +1383,7 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
             "online_reference_validation": online_validation_enabled,
             "online_reference_serper_fallback": serper_requested,
             "online_reference_validation_admin_cap": int(editing.get("online_reference_validation_admin_cap", 150) or 150),
+            "auto_resolve_unresolved_references": bool(editing.get("auto_resolve_unresolved_references", True)),
         },
         "serper": {
             "configured": serper_configured,

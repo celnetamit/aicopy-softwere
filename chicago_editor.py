@@ -2031,12 +2031,16 @@ class ChicagoEditor:
             "enabled": True,
             "strict_doi_mode": bool((options or {}).get("strict_doi_mode", True)),
             "doi_mode": str((options or {}).get("doi_insertion_mode", "balanced")).strip().lower(),
+            "auto_resolve_enabled": bool((options or {}).get("auto_resolve_unresolved_references", True)),
             "references_considered": 0,
             "fields_filled": 0,
             "fields_filled_by_type": {},
             "autofill_full": 0,
             "autofill_partial": 0,
             "autofill_none": 0,
+            "auto_resolved": 0,
+            "still_unresolved": 0,
+            "confidence_rejected": 0,
             "doi_inserted": 0,
             "doi_needs_review_inserted": 0,
             "doi_override_inserted": 0,
@@ -2045,8 +2049,20 @@ class ChicagoEditor:
             "trail": [],
         }
 
+        online_entries = online.get("entries", []) if isinstance(online.get("entries"), list) else []
+        for raw_entry in online_entries:
+            if not isinstance(raw_entry, dict):
+                continue
+            if bool(raw_entry.get("auto_resolved")):
+                enrichment["auto_resolved"] += 1
+            if bool(raw_entry.get("confidence_rejected")):
+                enrichment["confidence_rejected"] += 1
+            status_value = str(raw_entry.get("status") or "").strip().lower()
+            if status_value in {"ambiguous", "not_found", "mismatch", "error"}:
+                enrichment["still_unresolved"] += 1
+
         validated_by_number: Dict[int, Dict[str, Any]] = {}
-        for entry in online.get("entries", []) if isinstance(online.get("entries"), list) else []:
+        for entry in online_entries:
             if not isinstance(entry, dict):
                 continue
             status = str(entry.get("status") or "").strip().lower()
@@ -2119,6 +2135,7 @@ class ChicagoEditor:
             doi_needs_review = False
             doi_reject_reasons: List[str] = []
             doi_reason_chips: List[str] = []
+            resolve_reason_chips: List[str] = list(validated.get("auto_resolve_chips") or [])
             status = str(validated.get("status") or "").strip().lower()
             doi_mode = str(enrichment.get("doi_mode") or "balanced")
             trusted_override = bool((options or {}).get("trusted_verified_doi_override", True))
@@ -2179,6 +2196,14 @@ class ChicagoEditor:
                 doi_needs_review=doi_needs_review,
             )
             output.append(f"{prefix}{updated_entry}")
+            unresolved_after = (
+                autofill_status != "full"
+                or doi_rejected
+                or doi_needs_review
+                or status in {"likely_match"}
+            )
+            if unresolved_after:
+                enrichment["still_unresolved"] += 1
             confidence = str(validated.get("status") or "").strip().lower()
             if confidence == "verified":
                 confidence = "verified"
@@ -2195,6 +2220,9 @@ class ChicagoEditor:
                 "autofill_status": autofill_status,
                 "autofill_expected_fields": fill_report.get("expected_fields", []),
                 "autofill_chips": fill_report.get("autofill_chips", []),
+                "auto_resolved": bool(validated.get("auto_resolved")),
+                "confidence_rejected": bool(validated.get("confidence_rejected")),
+                "auto_resolve_chips": resolve_reason_chips,
                 "doi_inserted": bool(doi),
                 "doi_needs_review": doi_needs_review,
                 "doi_rejected": doi_rejected,
@@ -3019,7 +3047,7 @@ class ChicagoEditor:
                 continue
 
             checked += 1
-            result = self._validate_reference_online(number, entry, metadata, allow_serper=serper_enabled)
+            result = self._validate_reference_online(number, entry, metadata, allow_serper=serper_enabled, options=options)
             summary["checked"] += 1
             status = str(result.get("status") or "error")
             if status != "skipped":
@@ -3211,6 +3239,7 @@ class ChicagoEditor:
         entry: str,
         metadata: Dict[str, Any],
         allow_serper: bool = True,
+        options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Run conservative online validation for one journal reference."""
         base = {
@@ -3253,12 +3282,37 @@ class ChicagoEditor:
             best = scored[0]
             second_score = float(scored[1].get("score") or 0) if len(scored) > 1 else 0.0
             best_score = float(best.get("score") or 0)
+            auto_resolve_enabled = bool((options or {}).get("auto_resolve_unresolved_references", True))
+            auto_resolve_min_score = 0.90
+            auto_resolve_min_gap = 0.12
             if best_score < 0.72:
                 base["reason"] = "Search results did not closely match the supplied reference metadata."
                 return base
-            if second_score >= 0.78 and abs(best_score - second_score) <= 0.03:
+            score_gap = best_score - second_score
+            if second_score >= 0.78 and auto_resolve_enabled and best_score >= auto_resolve_min_score and score_gap >= auto_resolve_min_gap:
+                best["status"] = "verified"
+                best["reason"] = "Auto-resolved similar online records using confidence gap policy."
+                best["auto_resolved"] = True
+                best["auto_resolve_chips"] = [
+                    "auto_resolve:yes",
+                    f"score:{best_score:.2f}",
+                    f"second:{second_score:.2f}",
+                    f"gap:{score_gap:.2f}",
+                    f"threshold_score:{auto_resolve_min_score:.2f}",
+                    f"threshold_gap:{auto_resolve_min_gap:.2f}",
+                ]
+            elif second_score >= 0.78 and abs(score_gap) <= 0.03:
                 best["status"] = "ambiguous"
                 best["reason"] = "Multiple similar online records matched this reference."
+                best["confidence_rejected"] = bool(auto_resolve_enabled)
+                best["auto_resolve_chips"] = [
+                    "auto_resolve:no",
+                    f"score:{best_score:.2f}",
+                    f"second:{second_score:.2f}",
+                    f"gap:{score_gap:.2f}",
+                    f"threshold_score:{auto_resolve_min_score:.2f}",
+                    f"threshold_gap:{auto_resolve_min_gap:.2f}",
+                ]
             elif best["status"] == "verified" and best_score < 0.93:
                 best["status"] = "likely_match"
                 best["reason"] = "A strong online match was found, but the citation was matched by search rather than DOI."

@@ -648,6 +648,9 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             html += `<span class="validator-chip">Autofill Full: ${Number(enrichment.autofill_full || 0)}</span>`;
             html += `<span class="validator-chip">Autofill Partial: ${Number(enrichment.autofill_partial || 0)}</span>`;
             html += `<span class="validator-chip">Autofill None: ${Number(enrichment.autofill_none || 0)}</span>`;
+            html += `<span class="validator-chip">Auto Resolved: ${Number(enrichment.auto_resolved || 0)}</span>`;
+            html += `<span class="validator-chip">Still Unresolved: ${Number(enrichment.still_unresolved || 0)}</span>`;
+            html += `<span class="validator-chip">Confidence Rejected: ${Number(enrichment.confidence_rejected || 0)}</span>`;
             if (rerunActionMeta && typeof rerunActionMeta === 'object' && String(rerunActionMeta.action || '') === 'rerun_unresolved_references') {
                 const pathLabel = String(rerunActionMeta.label || '').trim() || 'Used unknown path';
                 html += `<span class="validator-chip">Rerun Path: ${previewHelpers.escapeHtml(pathLabel)}</span>`;
@@ -713,7 +716,13 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                     }
                     const chips = Array.isArray(item && item.doi_reason_chips) ? item.doi_reason_chips : [];
                     const autofillChips = Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [];
-                    const chipText = chips.slice(0, 4).concat(autofillChips.slice(0, 3)).map((chip) => `[${String(chip)}]`).join(' ');
+                    const resolveChips = Array.isArray(item && item.auto_resolve_chips) ? item.auto_resolve_chips : [];
+                    const chipText = chips
+                        .slice(0, 4)
+                        .concat(autofillChips.slice(0, 3))
+                        .concat(resolveChips.slice(0, 4))
+                        .map((chip) => `[${String(chip)}]`)
+                        .join(' ');
                     if (chipText) {
                         line += ` ${chipText}`;
                     }
@@ -756,12 +765,17 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
                     const reason = String(item && item.reason || '');
                     const matchedTitle = String(item && item.matched_title || '');
                     const source = String(item && item.source || '');
+                    const resolveChips = Array.isArray(item && item.auto_resolve_chips) ? item.auto_resolve_chips : [];
                     let line = `[${number}] ${status}: ${reason}`;
                     if (matchedTitle) {
                         line += ` Match: ${matchedTitle}.`;
                     }
                     if (source) {
                         line += ` Source: ${source}.`;
+                    }
+                    if (resolveChips.length > 0) {
+                        const resolveText = resolveChips.slice(0, 4).map((chip) => `[${String(chip)}]`).join(' ');
+                        line += ` ${resolveText}`;
                     }
                     html += `<li>${previewHelpers.escapeHtml(line)}</li>`;
                 });

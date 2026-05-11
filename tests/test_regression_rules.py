@@ -624,6 +624,66 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(int(report.get("summary", {}).get("skipped", 0)), 2)
         self.assertEqual(mock_validate.call_count, 2)
 
+    def test_validate_reference_online_auto_resolves_ambiguous_when_gap_is_high(self):
+        metadata = {
+            "title": "Test title",
+            "authors": "Kaplan S",
+            "year": "2020",
+            "journal": "J Test",
+            "source_type": "journal",
+        }
+        with patch.object(self.editor, "_search_crossref_works", return_value=[{"id": "a"}, {"id": "b"}]):
+            with patch.object(self.editor, "_search_openalex_works", return_value=[]):
+                with patch.object(
+                    self.editor,
+                    "_assess_online_metadata_match",
+                    side_effect=[
+                        {"status": "verified", "score": 0.96, "source": "crossref", "matched_title": "A"},
+                        {"status": "verified", "score": 0.80, "source": "crossref", "matched_title": "B"},
+                    ],
+                ):
+                    result = self.editor._validate_reference_online(
+                        1,
+                        "[1] Kaplan S. Test title. J Test. 2020.",
+                        metadata,
+                        allow_serper=False,
+                        options={"auto_resolve_unresolved_references": True},
+                    )
+        self.assertEqual(str(result.get("status") or ""), "verified")
+        self.assertTrue(bool(result.get("auto_resolved")))
+        chips = result.get("auto_resolve_chips", [])
+        self.assertIn("auto_resolve:yes", chips)
+
+    def test_validate_reference_online_marks_confidence_rejected_when_ambiguous_persists(self):
+        metadata = {
+            "title": "Test title",
+            "authors": "Kaplan S",
+            "year": "2020",
+            "journal": "J Test",
+            "source_type": "journal",
+        }
+        with patch.object(self.editor, "_search_crossref_works", return_value=[{"id": "a"}, {"id": "b"}]):
+            with patch.object(self.editor, "_search_openalex_works", return_value=[]):
+                with patch.object(
+                    self.editor,
+                    "_assess_online_metadata_match",
+                    side_effect=[
+                        {"status": "verified", "score": 0.89, "source": "crossref", "matched_title": "A"},
+                        {"status": "verified", "score": 0.88, "source": "crossref", "matched_title": "B"},
+                    ],
+                ):
+                    result = self.editor._validate_reference_online(
+                        1,
+                        "[1] Kaplan S. Test title. J Test. 2020.",
+                        metadata,
+                        allow_serper=False,
+                        options={"auto_resolve_unresolved_references": True},
+                    )
+        self.assertEqual(str(result.get("status") or ""), "ambiguous")
+        self.assertTrue(bool(result.get("confidence_rejected")))
+        chips = result.get("auto_resolve_chips", [])
+        self.assertIn("auto_resolve:no", chips)
+
     @patch("chicago_editor.requests.post")
     def test_online_reference_validation_serper_fallback_can_be_disabled(self, mock_post):
         source = (
@@ -1035,6 +1095,38 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertIn("2024", out)
         enrichment = report.get("online_validation", {}).get("enrichment", {})
         self.assertEqual(int(enrichment.get("autofill_full", 0)), 1)
+
+    def test_append_online_reference_links_reports_auto_resolve_counters(self):
+        source = (
+            "References\n"
+            "[1] Alpha AB. [title missing]. 2020.\n"
+            "[2] Beta BC. [title missing]. 2021.\n"
+        )
+        report = {
+            "online_validation": {
+                "enabled": True,
+                "entries": [
+                    {
+                        "number": 1,
+                        "status": "verified",
+                        "auto_resolved": True,
+                        "matched_doi": "10.1000/alpha",
+                        "matched_title": "Alpha title",
+                    },
+                    {
+                        "number": 2,
+                        "status": "ambiguous",
+                        "confidence_rejected": True,
+                        "auto_resolve_chips": ["auto_resolve:no"],
+                    },
+                ],
+            },
+        }
+        _ = self.editor.append_online_reference_links(source, report, {"online_reference_validation": True})
+        enrichment = report.get("online_validation", {}).get("enrichment", {})
+        self.assertEqual(int(enrichment.get("auto_resolved", 0)), 1)
+        self.assertEqual(int(enrichment.get("confidence_rejected", 0)), 1)
+        self.assertGreaterEqual(int(enrichment.get("still_unresolved", 0)), 1)
 
     def test_append_online_reference_links_doi_second_pass_enriches_place_publisher_editor(self):
         source = (
