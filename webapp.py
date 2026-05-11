@@ -1183,13 +1183,14 @@ def _assistant_qna_response(
             lines.append(f"Last note: {task_snapshot.get('processing_note')}")
 
     admin_activity = {}
-    if include_admin_activity and context.role == ROLE_ADMIN and wants_diagnostics:
+    if include_admin_activity and context.role == ROLE_ADMIN:
         admin_activity = _assistant_admin_activity_snapshot()
         counts = admin_activity.get("user_counts", {}) if isinstance(admin_activity, dict) else {}
-        lines.append(
-            f"Admin snapshot: users total={int(counts.get('total', 0) or 0)}, "
-            f"active={int(counts.get('active', 0) or 0)}, inactive={int(counts.get('inactive', 0) or 0)}."
-        )
+        if wants_diagnostics:
+            lines.append(
+                f"Admin snapshot: users total={int(counts.get('total', 0) or 0)}, "
+                f"active={int(counts.get('active', 0) or 0)}, inactive={int(counts.get('inactive', 0) or 0)}."
+            )
         suggestions.append("Review top event types and recent events to spot recurring operational issues.")
 
     if not suggestions:

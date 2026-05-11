@@ -334,6 +334,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("Rerun Unresolved Refs (Safe)", html)
         self.assertIn("Rerun only unresolved references using safe settings", html)
 
+    def test_admin_dashboard_contains_new_reference_automation_controls(self):
+        status, html = self.client.request_text("GET", "/admin-dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn('id="admin-setting-online-reference-validation-admin-cap"', html)
+        self.assertIn('id="admin-setting-auto-resolve-unresolved-references"', html)
+
     def test_version_endpoint_and_footer_use_shared_version_source(self):
         version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
         with open(version_file, "r", encoding="utf-8") as handle:
@@ -926,6 +932,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
                 "punctuation": True,
                 "chicago_style": True,
                 "cmos_strict_mode": True,
+                "online_reference_validation_admin_cap": 220,
+                "auto_resolve_unresolved_references": False,
                 "domain_profile": "medical",
                 "cmos_profile": "strict",
                 "custom_terms": ["myocardial infarction", "HbA1c"],
@@ -951,6 +959,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         self.assertEqual(payload.get("settings", {}).get("editing", {}).get("domain_profile"), "medical")
         self.assertEqual(payload.get("settings", {}).get("editing", {}).get("cmos_profile"), "strict")
+        self.assertEqual(int(payload.get("settings", {}).get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
+        self.assertFalse(payload.get("settings", {}).get("editing", {}).get("auto_resolve_unresolved_references"))
 
         user_client = WsgiTestClient(webapp.app)
         status, payload = user_client.request("POST", "/api/auth/google-login", {"id_token": "test:user@conwiz.in"})
@@ -962,6 +972,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         user_settings = payload.get("settings", {})
         self.assertEqual(user_settings.get("editing", {}).get("domain_profile"), "medical")
         self.assertEqual(user_settings.get("editing", {}).get("cmos_profile"), "strict")
+        self.assertEqual(int(user_settings.get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
+        self.assertFalse(user_settings.get("editing", {}).get("auto_resolve_unresolved_references"))
         self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
         self.assertEqual(user_settings.get("ai", {}).get("agent_router_api_key", ""), "")
 

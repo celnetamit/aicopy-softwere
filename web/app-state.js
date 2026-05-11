@@ -181,6 +181,8 @@ app.dom = {
     adminSettingOnlineReferenceValidation: document.getElementById('admin-setting-online-reference-validation'),
     adminSettingOnlineReferenceSerperFallback: document.getElementById('admin-setting-online-reference-serper-fallback'),
     adminSettingDoiInsertionMode: document.getElementById('admin-setting-doi-insertion-mode'),
+    adminSettingOnlineReferenceValidationAdminCap: document.getElementById('admin-setting-online-reference-validation-admin-cap'),
+    adminSettingAutoResolveUnresolvedReferences: document.getElementById('admin-setting-auto-resolve-unresolved-references'),
     adminSettingDomainProfile: document.getElementById('admin-setting-domain-profile'),
     adminSettingCmosProfile: document.getElementById('admin-setting-cmos-profile'),
     adminSettingCustomTerms: document.getElementById('admin-setting-custom-terms'),

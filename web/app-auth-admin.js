@@ -925,6 +925,17 @@ function applyAdminGlobalSettingsForm(settings) {
     if (authDom.adminSettingOnlineReferenceValidation) authDom.adminSettingOnlineReferenceValidation.checked = editing.online_reference_validation !== false;
     if (authDom.adminSettingOnlineReferenceSerperFallback) authDom.adminSettingOnlineReferenceSerperFallback.checked = editing.online_reference_serper_fallback !== false;
     if (authDom.adminSettingDoiInsertionMode) authDom.adminSettingDoiInsertionMode.value = editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced';
+    if (authDom.adminSettingOnlineReferenceValidationAdminCap) {
+        authDom.adminSettingOnlineReferenceValidationAdminCap.value = authHelpers.clampInt(
+            editing.online_reference_validation_admin_cap,
+            1,
+            500,
+            150
+        );
+    }
+    if (authDom.adminSettingAutoResolveUnresolvedReferences) {
+        authDom.adminSettingAutoResolveUnresolvedReferences.checked = editing.auto_resolve_unresolved_references !== false;
+    }
     if (authDom.adminSettingDomainProfile) authDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
     if (authDom.adminSettingCmosProfile) {
         const profile = String(editing.cmos_profile || 'core');
@@ -962,6 +973,15 @@ function collectAdminGlobalSettingsForm() {
             online_reference_validation: authDom.adminSettingOnlineReferenceValidation ? authDom.adminSettingOnlineReferenceValidation.checked : true,
             online_reference_serper_fallback: authDom.adminSettingOnlineReferenceSerperFallback ? authDom.adminSettingOnlineReferenceSerperFallback.checked : true,
             doi_insertion_mode: authDom.adminSettingDoiInsertionMode ? String(authDom.adminSettingDoiInsertionMode.value || 'balanced') : 'balanced',
+            online_reference_validation_admin_cap: authHelpers.clampInt(
+                authDom.adminSettingOnlineReferenceValidationAdminCap ? authDom.adminSettingOnlineReferenceValidationAdminCap.value : 150,
+                1,
+                500,
+                150
+            ),
+            auto_resolve_unresolved_references: authDom.adminSettingAutoResolveUnresolvedReferences
+                ? authDom.adminSettingAutoResolveUnresolvedReferences.checked
+                : true,
             domain_profile: authDom.adminSettingDomainProfile ? String(authDom.adminSettingDomainProfile.value || 'auto') : 'auto',
             cmos_profile: authDom.adminSettingCmosProfile ? String(authDom.adminSettingCmosProfile.value || 'core') : 'core',
             custom_terms: authDom.adminSettingCustomTerms ? appAuth.preview.parseCustomTerms(authDom.adminSettingCustomTerms.value) : []

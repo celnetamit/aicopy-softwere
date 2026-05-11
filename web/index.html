@@ -454,6 +454,28 @@
                                 <option value="strict">Strict</option>
                             </select>
                         </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-online-reference-validation-admin-cap">Reference Validation Cap</label>
+                            <input
+                                id="admin-setting-online-reference-validation-admin-cap"
+                                class="input-field"
+                                type="number"
+                                min="1"
+                                max="500"
+                                step="1"
+                                value="150"
+                                placeholder="Max refs per manuscript"
+                            />
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-auto-resolve-unresolved-references">Verified DOI Auto-Resolve</label>
+                            <div class="admin-check-grid">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="admin-setting-auto-resolve-unresolved-references" checked>
+                                    <span>Auto-resolve unresolved references when confidence is high</span>
+                                </label>
+                            </div>
+                        </div>
 
                         <div class="admin-settings-row">
                             <label class="field-label admin-row-label" for="admin-setting-domain-profile">Domain Profile</label>
