@@ -8,6 +8,7 @@ import html
 import subprocess
 import tempfile
 import zipfile
+from datetime import datetime, timezone
 import requests
 from typing import Tuple, List, Dict, Optional, Set
 from collections import Counter
@@ -55,6 +56,7 @@ class DocumentProcessor:
         self._last_citation_reference_report: Dict = {}
         self._last_docx_package_report: Dict = {}
         self._nlp = None
+        self._revision_id = 1
 
     def _reset_processing_audit(self):
         """Reset per-run audit data."""
@@ -1666,16 +1668,33 @@ Corrected manuscript:"""
         if parent is not None:
             parent.remove(element)
 
-    def _append_text_segments_to_paragraph(self, paragraph: Paragraph, text: str, segment_type: Optional[str] = None):
+    def _append_text_segments_to_paragraph(
+        self,
+        paragraph: Paragraph,
+        text: str,
+        segment_type: Optional[str] = None,
+        use_revisions: bool = False,
+    ):
         """Append styled text to an existing paragraph."""
         if not text:
             return
         for is_missing, segment in self._iter_missing_placeholder_segments(text):
             if is_missing:
-                self._append_docx_run(paragraph, segment, segment_type=segment_type, is_missing=True)
+                if use_revisions and segment_type in ("insert", "delete"):
+                    self._append_revision_run(paragraph, segment, segment_type=segment_type, is_missing=True)
+                else:
+                    self._append_docx_run(paragraph, segment, segment_type=segment_type, is_missing=True)
                 continue
             for is_foreign, foreign_segment in self._iter_foreign_segments(segment):
-                self._append_docx_run(paragraph, foreign_segment, segment_type=segment_type, is_foreign=is_foreign)
+                if use_revisions and segment_type in ("insert", "delete"):
+                    self._append_revision_run(
+                        paragraph,
+                        foreign_segment,
+                        segment_type=segment_type,
+                        is_foreign=is_foreign,
+                    )
+                else:
+                    self._append_docx_run(paragraph, foreign_segment, segment_type=segment_type, is_foreign=is_foreign)
 
     def _configure_docx_document_defaults(self, doc: DocxDocument):
         """Apply base page and font defaults for generated DOCX documents."""
@@ -1769,7 +1788,12 @@ Corrected manuscript:"""
         if highlighted:
             original_body_text = self._classify_plaintext_line(original_text)["text"]
             for segment_type, segment_text in self._iter_diff_segments(original_body_text, body_text):
-                self._append_text_segments_to_paragraph(paragraph, segment_text, segment_type=segment_type)
+                self._append_text_segments_to_paragraph(
+                    paragraph,
+                    segment_text,
+                    segment_type=segment_type,
+                    use_revisions=True,
+                )
         else:
             self._append_text_segments_to_paragraph(paragraph, body_text)
         return paragraph
@@ -1827,7 +1851,12 @@ Corrected manuscript:"""
             self._clear_paragraph_content(textbox_paragraph)
             if highlighted:
                 for segment_type, segment_text in self._iter_diff_segments(current_original, current_desired):
-                    self._append_text_segments_to_paragraph(textbox_paragraph, segment_text, segment_type=segment_type)
+                    self._append_text_segments_to_paragraph(
+                        textbox_paragraph,
+                        segment_text,
+                        segment_type=segment_type,
+                        use_revisions=True,
+                    )
             else:
                 self._append_text_segments_to_paragraph(textbox_paragraph, current_desired)
 
@@ -1870,7 +1899,12 @@ Corrected manuscript:"""
         corrected_body, _ = self._split_paragraph_and_textboxes(paragraph, corrected)
         self._clear_paragraph_content(paragraph, keep_drawings=keep_drawings)
         for segment_type, segment_text in self._iter_diff_segments(original_body, corrected_body):
-            self._append_text_segments_to_paragraph(paragraph, segment_text, segment_type=segment_type)
+            self._append_text_segments_to_paragraph(
+                paragraph,
+                segment_text,
+                segment_type=segment_type,
+                use_revisions=True,
+            )
         self._sync_textboxes(paragraph, corrected, original_text=original, highlighted=True)
 
     def _insert_highlighted_paragraph_before_block(self, block: Dict, text: str):
@@ -2047,7 +2081,12 @@ Corrected manuscript:"""
                 paragraph_index += 1
                 self._clear_paragraph_content(block)
                 for segment_type, segment_text in self._iter_diff_segments(original_text, corrected_text):
-                    self._append_text_segments_to_paragraph(block, segment_text, segment_type=segment_type)
+                    self._append_text_segments_to_paragraph(
+                        block,
+                        segment_text,
+                        segment_type=segment_type,
+                        use_revisions=True,
+                    )
                 continue
 
             original_rows = original_tables[table_index]["rows"] if table_index < len(original_tables) else []
@@ -2062,11 +2101,18 @@ Corrected manuscript:"""
             original_text = original_paragraphs[idx]["text"] if idx < len(original_paragraphs) else ""
             corrected_text = corrected_paragraphs[idx]["text"] if idx < len(corrected_paragraphs) else ""
             for segment_type, segment_text in self._iter_diff_segments(original_text, corrected_text):
-                self._append_text_segments_to_paragraph(target_paragraph, segment_text, segment_type=segment_type)
+                self._append_text_segments_to_paragraph(
+                    target_paragraph,
+                    segment_text,
+                    segment_type=segment_type,
+                    use_revisions=True,
+                )
 
     def _apply_text_to_template_docx(self, source_docx_path: str, text: str, output_path: str, highlighted: bool = False):
         """Project corrected text back into the original DOCX structure."""
         doc = Document(source_docx_path)
+        if highlighted:
+            self._enable_track_revisions(doc)
         blocks = self._extract_docx_blocks(doc)
         corrected_lines = (text or "").split('\n')
         source_lines = [block.get("text", "") for block in blocks if block.get("consumes_text", True)]
@@ -2170,6 +2216,7 @@ Corrected manuscript:"""
             return
 
         doc = Document()
+        self._enable_track_revisions(doc)
         self._configure_docx_document_defaults(doc)
 
         original_lines = (original or "").split('\n')
@@ -2381,6 +2428,78 @@ Corrected manuscript:"""
         elif segment_type == "insert":
             run.font.color.rgb = self.REDLINE_INSERT_COLOR
         return run
+
+    def _next_revision_meta(self) -> Dict[str, str]:
+        """Return stable Word revision metadata for insert/delete elements."""
+        revision_id = str(int(self._revision_id))
+        self._revision_id += 1
+        return {
+            qn("w:id"): revision_id,
+            qn("w:author"): "Manuscript Editor",
+            qn("w:date"): datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        }
+
+    def _append_revision_run(
+        self,
+        paragraph: Paragraph,
+        text: str,
+        *,
+        segment_type: str,
+        is_foreign: bool = False,
+        is_missing: bool = False,
+    ):
+        """Append Word-compatible tracked revision XML (w:ins / w:del)."""
+        if not text:
+            return
+        if segment_type not in ("insert", "delete"):
+            self._append_docx_run(paragraph, text, segment_type=segment_type, is_foreign=is_foreign, is_missing=is_missing)
+            return
+
+        container_tag = "w:ins" if segment_type == "insert" else "w:del"
+        container = OxmlElement(container_tag)
+        for key, value in self._next_revision_meta().items():
+            container.set(key, value)
+
+        run_elm = OxmlElement("w:r")
+        rpr = OxmlElement("w:rPr")
+        if is_foreign:
+            italic = OxmlElement("w:i")
+            rpr.append(italic)
+        if segment_type == "delete":
+            strike = OxmlElement("w:strike")
+            rpr.append(strike)
+        if is_missing:
+            color = OxmlElement("w:color")
+            color.set(qn("w:val"), "808080")
+            rpr.append(color)
+        elif segment_type == "delete":
+            color = OxmlElement("w:color")
+            color.set(qn("w:val"), "FF9AA8")
+            rpr.append(color)
+        elif segment_type == "insert":
+            color = OxmlElement("w:color")
+            color.set(qn("w:val"), "2FBF71")
+            rpr.append(color)
+
+        run_elm.append(rpr)
+        text_tag = "w:delText" if segment_type == "delete" else "w:t"
+        text_elm = OxmlElement(text_tag)
+        if text[:1].isspace() or text[-1:].isspace() or "  " in text:
+            text_elm.set(qn("xml:space"), "preserve")
+        text_elm.text = text
+        run_elm.append(text_elm)
+        container.append(run_elm)
+        paragraph._p.append(container)
+
+    def _enable_track_revisions(self, doc: DocxDocument):
+        """Enable review markup mode in document settings for Office-compatible toggles."""
+        settings = doc.settings.element
+        ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        track_tag = f"{{{ns}}}trackRevisions"
+        if settings.find(track_tag) is not None:
+            return
+        track = OxmlElement("w:trackRevisions")
+        settings.append(track)
 
     def _build_annotated_html(self, text: str, include_foreign: bool = True) -> str:
         """Return HTML-safe text with placeholders/foreign terms wrapped for display."""

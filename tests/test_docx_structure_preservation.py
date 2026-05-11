@@ -591,10 +591,14 @@ class DocxStructurePreservationTests(unittest.TestCase):
             self.assertEqual(out_doc.paragraphs[0].text, "Executive Summary")
             self.assertEqual(out_doc.paragraphs[1].text, "")
             self.assertEqual(out_doc.paragraphs[2].style.name, "List Bullet")
-            self.assertIn("Old", out_doc.paragraphs[2].text)
-            self.assertIn("New bullet", out_doc.paragraphs[2].text)
-            self.assertIn("Body paragraph", out_doc.paragraphs[3].text)
-            self.assertIn("updated", out_doc.paragraphs[3].text)
+
+            # Track changes markup should be present for show/hide revisions in Office apps.
+            with zipfile.ZipFile(output_path, "r") as package:
+                document_xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
+                settings_xml = package.read("word/settings.xml").decode("utf-8", errors="ignore")
+            self.assertIn("<w:ins", document_xml)
+            self.assertIn("<w:del", document_xml)
+            self.assertIn("<w:trackRevisions", settings_xml)
         finally:
             os.unlink(output_path)
 

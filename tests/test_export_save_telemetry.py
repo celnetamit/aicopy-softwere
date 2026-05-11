@@ -54,18 +54,15 @@ class ExportSaveTelemetryTests(unittest.TestCase):
 
         try:
             main.processor.generate_highlighted_docx("old text", "new text", output_path)
-            doc = Document(output_path)
-            runs = [run for paragraph in doc.paragraphs for run in paragraph.runs if run.text.strip()]
+            with zipfile.ZipFile(output_path, "r") as package:
+                document_xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
+                settings_xml = package.read("word/settings.xml").decode("utf-8", errors="ignore")
 
-            deleted_runs = [run for run in runs if run.font.strike]
-            inserted_runs = [run for run in runs if run.font.underline]
-
-            self.assertTrue(deleted_runs)
-            self.assertTrue(inserted_runs)
-            self.assertEqual(str(deleted_runs[0].font.color.rgb), "FF9AA8")
-            self.assertEqual(str(inserted_runs[0].font.color.rgb), "2FBF71")
-            self.assertIsNone(deleted_runs[0].font.highlight_color)
-            self.assertIsNone(inserted_runs[0].font.highlight_color)
+            self.assertIn("<w:ins", document_xml)
+            self.assertIn("<w:del", document_xml)
+            self.assertIn('w:val="2FBF71"', document_xml)
+            self.assertIn('w:val="FF9AA8"', document_xml)
+            self.assertIn("<w:trackRevisions", settings_xml)
         finally:
             os.unlink(output_path)
 
@@ -90,9 +87,11 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             doc = Document(output_path)
             target = next(paragraph for paragraph in doc.paragraphs if paragraph.text == "Third paragraph stays the same.")
             self.assertTrue(target.runs)
-            self.assertFalse(any(run.font.strike for run in target.runs))
-            self.assertFalse(any(run.font.underline for run in target.runs))
-            self.assertFalse(any(str(run.font.color.rgb) == "C80000" for run in target.runs if run.font.color.rgb))
+            with zipfile.ZipFile(output_path, "r") as package:
+                document_xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
+            self.assertIn("Third paragraph stays the same.", document_xml)
+            self.assertNotIn("Third paragraph stays the same.</w:delText>", document_xml)
+            self.assertNotIn("Third paragraph stays the same.</w:t></w:r></w:ins>", document_xml)
         finally:
             os.unlink(output_path)
 
@@ -120,9 +119,11 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             doc = Document(output_path)
             target = next(paragraph for paragraph in doc.paragraphs if paragraph.text == "Third paragraph stays the same.")
             self.assertTrue(target.runs)
-            self.assertFalse(any(run.font.strike for run in target.runs))
-            self.assertFalse(any(run.font.underline for run in target.runs))
-            self.assertFalse(any(str(run.font.color.rgb) == "C80000" for run in target.runs if run.font.color.rgb))
+            with zipfile.ZipFile(output_path, "r") as package:
+                document_xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
+            self.assertIn("Third paragraph stays the same.", document_xml)
+            self.assertNotIn("Third paragraph stays the same.</w:delText>", document_xml)
+            self.assertNotIn("Third paragraph stays the same.</w:t></w:r></w:ins>", document_xml)
         finally:
             os.unlink(source_path)
             os.unlink(output_path)
@@ -145,10 +146,13 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             main.processor.generate_highlighted_docx("P1\nP2\nP3", corrected, output_path, source_docx_path=source_path)
             doc = Document(output_path)
             texts = [paragraph.text for paragraph in doc.paragraphs]
-            self.assertEqual(texts[:4], ["P1", "INSERTED MID", "P2", "P3"])
-            inserted = doc.paragraphs[1]
-            self.assertTrue(any(run.font.underline for run in inserted.runs))
-            self.assertFalse(any(run.font.strike for run in inserted.runs))
+            self.assertEqual(texts[0], "P1")
+            self.assertEqual(texts[2], "P2")
+            self.assertEqual(texts[3], "P3")
+            with zipfile.ZipFile(output_path, "r") as package:
+                document_xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
+            self.assertIn("INSERTED MID", document_xml)
+            self.assertIn("<w:ins", document_xml)
         finally:
             os.unlink(source_path)
             os.unlink(output_path)
