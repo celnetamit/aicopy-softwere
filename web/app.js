@@ -665,6 +665,7 @@ function renderRunStagesFromState() {
         .join('');
     mainDom.assistantRunStagesList.innerHTML = `<ul>${rows}</ul>`;
     renderAssistantQuickSummaryFromState();
+    renderUnresolvedReferencesPanelFromState();
 }
 
 function renderAssistantQuickSummaryFromState() {
@@ -701,6 +702,131 @@ function renderAssistantQuickSummaryFromState() {
     if (fallbackSections > 0) recommendation = 'Next: Use "Retry Recommended" to reduce fallback sections.';
     if (citationIssues === 0 && referenceIssues === 0 && fallbackSections === 0) recommendation = 'Status looks healthy. You can export clean/redline output.';
     mainDom.assistantQuickSummary.textContent = `${sectionInfo} ${qualityInfo} ${modeInfo} ${recommendation}`;
+}
+
+function collectUnresolvedReferenceItemsFromState() {
+    const report = mainState.fileContent.citationReferenceReport && typeof mainState.fileContent.citationReferenceReport === 'object'
+        ? mainState.fileContent.citationReferenceReport
+        : {};
+    const online = report.online_validation && typeof report.online_validation === 'object'
+        ? report.online_validation
+        : {};
+    const enrichment = online.enrichment && typeof online.enrichment === 'object'
+        ? online.enrichment
+        : {};
+    const trail = Array.isArray(enrichment.trail) ? enrichment.trail : [];
+    const entries = Array.isArray(online.entries) ? online.entries : [];
+    const byNumber = new Map();
+
+    trail.forEach((item) => {
+        const number = Number(item && item.number || 0);
+        if (!number) return;
+        const autofillStatus = String(item && item.autofill_status || 'none');
+        const doiRejected = Boolean(item && item.doi_rejected);
+        const doiNeedsReview = Boolean(item && item.doi_needs_review);
+        if (!(doiRejected || doiNeedsReview || autofillStatus !== 'full')) return;
+        byNumber.set(number, {
+            number,
+            severity: doiRejected ? 3 : (doiNeedsReview ? 2 : 1),
+            status: doiRejected ? 'doi_rejected' : (doiNeedsReview ? 'doi_needs_review' : `autofill_${autofillStatus}`),
+            reasons: []
+                .concat(Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [])
+                .concat(Array.isArray(item && item.auto_resolve_chips) ? item.auto_resolve_chips : [])
+                .concat(Array.isArray(item && item.doi_reason_chips) ? item.doi_reason_chips : [])
+                .map((chip) => String(chip || '').trim())
+                .filter(Boolean),
+        });
+    });
+
+    entries.forEach((item) => {
+        const status = String(item && item.status || '');
+        if (!['mismatch', 'not_found', 'ambiguous', 'error'].includes(status)) return;
+        const number = Number(item && item.number || 0);
+        if (!number) return;
+        const current = byNumber.get(number) || { number, severity: 1, status: status, reasons: [] };
+        const severity = status === 'error' ? 3 : (status === 'mismatch' ? 3 : 2);
+        current.severity = Math.max(Number(current.severity || 1), severity);
+        current.status = String(current.status || status);
+        if (item && item.reason) current.reasons.push(String(item.reason));
+        byNumber.set(number, current);
+    });
+
+    return Array.from(byNumber.values());
+}
+
+function sortUnresolvedItems(items) {
+    const mode = mainDom.assistantUnresolvedSort ? String(mainDom.assistantUnresolvedSort.value || 'number_asc') : 'number_asc';
+    const rows = Array.isArray(items) ? items.slice() : [];
+    if (mode === 'number_desc') {
+        rows.sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
+        return rows;
+    }
+    if (mode === 'severity_desc') {
+        rows.sort((a, b) => {
+            const delta = Number(b.severity || 0) - Number(a.severity || 0);
+            if (delta !== 0) return delta;
+            return Number(a.number || 0) - Number(b.number || 0);
+        });
+        return rows;
+    }
+    rows.sort((a, b) => Number(a.number || 0) - Number(b.number || 0));
+    return rows;
+}
+
+function renderUnresolvedReferencesPanelFromState() {
+    if (!mainDom.assistantUnresolvedList) return;
+    const items = sortUnresolvedItems(collectUnresolvedReferenceItemsFromState());
+    if (items.length === 0) {
+        mainDom.assistantUnresolvedList.textContent = 'No unresolved references yet.';
+        return;
+    }
+    const rows = items.map((item) => {
+        const number = Number(item.number || 0);
+        const status = String(item.status || 'unresolved').replaceAll('_', ' ');
+        const reasons = Array.isArray(item.reasons) ? item.reasons.filter(Boolean).slice(0, 3) : [];
+        const reasonText = reasons.map((reason) => `[${appMain.helpers.escapeHtml(String(reason))}]`).join(' ');
+        return `<li>[${number}] ${appMain.helpers.escapeHtml(status)} ${reasonText}</li>`;
+    }).join('');
+    mainDom.assistantUnresolvedList.innerHTML = `<ul>${rows}</ul>`;
+}
+
+function exportUnresolvedReferencesReport() {
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    if (!taskId) {
+        setStatus('Load a task before exporting unresolved references.', 'warning');
+        return;
+    }
+    const items = sortUnresolvedItems(collectUnresolvedReferenceItemsFromState());
+    if (items.length === 0) {
+        setStatus('No unresolved references to export.', 'success');
+        return;
+    }
+    const lines = [];
+    lines.push('Unresolved References Report');
+    lines.push(`Task: ${taskId}`);
+    lines.push(`Generated: ${new Date().toISOString()}`);
+    lines.push(`Count: ${items.length}`);
+    lines.push('');
+    items.forEach((item) => {
+        const reasons = Array.isArray(item.reasons) ? item.reasons.filter(Boolean).slice(0, 5) : [];
+        lines.push(`[${Number(item.number || 0)}] ${String(item.status || 'unresolved')}`);
+        if (reasons.length > 0) {
+            lines.push(`Reasons: ${reasons.join('; ')}`);
+        }
+        lines.push('');
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `unresolved_references_${taskId}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(() => {
+        try { document.body.removeChild(link); } catch (err) {}
+        URL.revokeObjectURL(url);
+    }, 60_000);
+    setStatus(`Exported unresolved report (${items.length} items)`, 'success');
 }
 
 function buildDiagnosticsExportText() {
@@ -1551,6 +1677,7 @@ function clear_all() {
     updateProcessingModeIndicatorFromPayload({});
     applyProcessingModeProviderContext('', '');
     renderRunStagesFromState();
+    renderUnresolvedReferencesPanelFromState();
     renderFallbackInsightsFromCurrentState();
     renderAssistantSuggestions([]);
     switch_tab('original');
@@ -1580,9 +1707,11 @@ appMain.actions = {
     retryWithRecommendedSettings,
     rerunUnresolvedReferencesOnly,
     copyAssistantDiagnostics,
+    exportUnresolvedReferencesReport,
     toggleAssistantChat,
     restoreAssistantChatHistoryForCurrentTask,
     renderRunStagesFromState,
+    renderUnresolvedReferencesPanelFromState,
     renderFallbackInsightsFromCurrentState,
     setGroupDecision,
     applyAllGroupDecisions,
@@ -1601,6 +1730,7 @@ updateAssistantDiagnostics('idle', 'none', 0);
 applyProcessingModeProviderContext('', '');
 renderFallbackInsightsFromCurrentState();
 renderRunStagesFromState();
+renderUnresolvedReferencesPanelFromState();
 restoreAssistantChatHistoryForCurrentTask();
 setAssistantUnreadCount(0);
 renderAssistantRequestLog();

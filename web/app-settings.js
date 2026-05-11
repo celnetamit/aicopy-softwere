@@ -535,6 +535,9 @@ function bindSettingsEvents() {
     if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
     if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.retryWithRecommendedSettings());
     if (settingsDom.assistantRerunUnresolvedBtn) settingsDom.assistantRerunUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.rerunUnresolvedReferencesOnly());
+    if (settingsDom.assistantUnresolvedRerunBtn) settingsDom.assistantUnresolvedRerunBtn.addEventListener('click', () => appSettingsRoot.actions.rerunUnresolvedReferencesOnly());
+    if (settingsDom.assistantExportUnresolvedBtn) settingsDom.assistantExportUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.exportUnresolvedReferencesReport());
+    if (settingsDom.assistantUnresolvedSort) settingsDom.assistantUnresolvedSort.addEventListener('change', () => appSettingsRoot.actions.renderUnresolvedReferencesPanelFromState());
     if (settingsDom.assistantCopyDiagnosticsBtn) settingsDom.assistantCopyDiagnosticsBtn.addEventListener('click', () => appSettingsRoot.actions.copyAssistantDiagnostics());
     if (settingsDom.assistantChatToggleBtn) settingsDom.assistantChatToggleBtn.addEventListener('click', () => {
         const open = !(settingsDom.assistantChatPanel && !settingsDom.assistantChatPanel.classList.contains('hidden'));

@@ -357,6 +357,22 @@
                 <summary>Run Stages</summary>
                 <div id="assistant-run-stages-list">No run data yet.</div>
             </details>
+            <details class="assistant-unresolved-panel" id="assistant-unresolved-panel">
+                <summary>Unresolved References</summary>
+                <div class="assistant-unresolved-controls">
+                    <label class="field-label" for="assistant-unresolved-sort">Sort</label>
+                    <select id="assistant-unresolved-sort" class="input-field">
+                        <option value="number_asc">Reference Number (Asc)</option>
+                        <option value="number_desc">Reference Number (Desc)</option>
+                        <option value="severity_desc">Severity (High to Low)</option>
+                    </select>
+                    <div class="assistant-actions">
+                        <button class="btn-secondary" id="assistant-unresolved-rerun-btn" type="button">Rerun Unresolved</button>
+                        <button class="btn-secondary" id="assistant-export-unresolved-btn" type="button">Export Unresolved Report</button>
+                    </div>
+                </div>
+                <div id="assistant-unresolved-list">No unresolved references yet.</div>
+            </details>
             <details class="assistant-fallback-panel hidden" id="assistant-fallback-panel">
                 <summary>Why fallback?</summary>
                 <p class="assistant-fallback-summary" id="assistant-fallback-summary">No fallback details yet.</p>

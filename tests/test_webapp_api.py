@@ -333,6 +333,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('id="rerun-unresolved-btn"', html)
         self.assertIn("Rerun Unresolved Refs (Safe)", html)
         self.assertIn("Rerun only unresolved references using safe settings", html)
+        self.assertIn('id="assistant-unresolved-panel"', html)
+        self.assertIn('id="assistant-unresolved-sort"', html)
+        self.assertIn('id="assistant-unresolved-rerun-btn"', html)
+        self.assertIn('id="assistant-export-unresolved-btn"', html)
 
     def test_admin_dashboard_contains_new_reference_automation_controls(self):
         status, html = self.client.request_text("GET", "/admin-dashboard")
@@ -410,6 +414,21 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("Unresolved Delta:", source)
         self.assertIn("Rerun Regression:", source)
         self.assertIn("Unresolved reason:", source)
+
+    def test_unresolved_references_panel_actions_are_wired(self):
+        app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
+        with open(app_js_path, "r", encoding="utf-8") as handle:
+            app_source = handle.read()
+        self.assertIn("collectUnresolvedReferenceItemsFromState", app_source)
+        self.assertIn("exportUnresolvedReferencesReport", app_source)
+        self.assertIn("unresolved_references_", app_source)
+
+        settings_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings.js")
+        with open(settings_js_path, "r", encoding="utf-8") as handle:
+            settings_source = handle.read()
+        self.assertIn("assistantUnresolvedRerunBtn", settings_source)
+        self.assertIn("assistantExportUnresolvedBtn", settings_source)
+        self.assertIn("assistantUnresolvedSort", settings_source)
 
     def test_json_response_sanitizes_non_finite_numbers(self):
         response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})
