@@ -654,6 +654,21 @@ function renderCorrectionsPanel(report, nounReport, domainReport, journalProfile
             if (rerunActionMeta && typeof rerunActionMeta === 'object' && String(rerunActionMeta.action || '') === 'rerun_unresolved_references') {
                 const pathLabel = String(rerunActionMeta.label || '').trim() || 'Used unknown path';
                 html += `<span class="validator-chip">Rerun Path: ${previewHelpers.escapeHtml(pathLabel)}</span>`;
+                const delta = rerunActionMeta.delta && typeof rerunActionMeta.delta === 'object' ? rerunActionMeta.delta : null;
+                if (delta) {
+                    const before = Number(delta.before_unresolved || 0);
+                    const after = Number(delta.after_unresolved || 0);
+                    const resolved = Number(delta.resolved_delta || 0);
+                    const regressed = Number(delta.regressed_delta || 0);
+                    html += `<span class="validator-chip">Unresolved Delta: ${before} -> ${after} (${resolved >= 0 ? `-${resolved}` : String(resolved)})</span>`;
+                    if (regressed > 0) {
+                        html += `<span class="validator-chip">Rerun Regression: +${regressed}</span>`;
+                    }
+                    const topReasons = Array.isArray(delta.top_reasons_after) ? delta.top_reasons_after : [];
+                    topReasons.slice(0, 3).forEach((reason) => {
+                        html += `<span class="validator-chip">Unresolved reason: ${previewHelpers.escapeHtml(String(reason || ''))}</span>`;
+                    });
+                }
             }
             html += '</div>';
 

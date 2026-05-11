@@ -400,6 +400,16 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("assistant_reprocess_task", source)
         self.assertIn("eel.process_document(retryOptions, taskId)", source)
         self.assertIn("Used direct fallback", source)
+        self.assertIn("buildUnresolvedRerunDelta", source)
+        self.assertIn("Unresolved references rerun complete. Before:", source)
+
+    def test_corrections_panel_renders_rerun_unresolved_delta_chips(self):
+        preview_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-preview.js")
+        with open(preview_js_path, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("Unresolved Delta:", source)
+        self.assertIn("Rerun Regression:", source)
+        self.assertIn("Unresolved reason:", source)
 
     def test_json_response_sanitizes_non_finite_numbers(self):
         response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})

@@ -465,6 +465,73 @@ function stageIcon(status) {
     return 'SKIP';
 }
 
+function buildUnresolvedSnapshotFromReport(reportInput) {
+    const report = reportInput && typeof reportInput === 'object' ? reportInput : {};
+    const online = report.online_validation && typeof report.online_validation === 'object'
+        ? report.online_validation
+        : {};
+    const enrichment = online.enrichment && typeof online.enrichment === 'object'
+        ? online.enrichment
+        : {};
+    const entries = Array.isArray(online.entries) ? online.entries : [];
+    const trail = Array.isArray(enrichment.trail) ? enrichment.trail : [];
+
+    const unresolvedTrail = trail.filter((item) => {
+        const autofillStatus = String(item && item.autofill_status || 'none');
+        const doiRejected = Boolean(item && item.doi_rejected);
+        const doiNeedsReview = Boolean(item && item.doi_needs_review);
+        return doiRejected || doiNeedsReview || autofillStatus !== 'full';
+    });
+    const unresolvedEntryStatuses = entries.filter((item) => {
+        const status = String(item && item.status || '');
+        return ['mismatch', 'not_found', 'ambiguous', 'error'].includes(status);
+    });
+    const unresolvedCount = Math.max(
+        unresolvedTrail.length,
+        Number(enrichment.still_unresolved || 0),
+        unresolvedEntryStatuses.length
+    );
+
+    const reasonCounts = {};
+    unresolvedTrail.forEach((item) => {
+        const chips = []
+            .concat(Array.isArray(item && item.autofill_chips) ? item.autofill_chips : [])
+            .concat(Array.isArray(item && item.auto_resolve_chips) ? item.auto_resolve_chips : [])
+            .concat(Array.isArray(item && item.doi_reason_chips) ? item.doi_reason_chips : []);
+        chips.forEach((chip) => {
+            const key = String(chip || '').trim();
+            if (!key) return;
+            reasonCounts[key] = Number(reasonCounts[key] || 0) + 1;
+        });
+    });
+
+    const topReasons = Object.entries(reasonCounts)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 4)
+        .map((entry) => String(entry[0]));
+
+    return {
+        unresolvedCount,
+        stillUnresolved: Number(enrichment.still_unresolved || 0),
+        topReasons,
+    };
+}
+
+function buildUnresolvedRerunDelta(beforeReport, afterReport) {
+    const before = buildUnresolvedSnapshotFromReport(beforeReport);
+    const after = buildUnresolvedSnapshotFromReport(afterReport);
+    const resolvedDelta = Math.max(0, before.unresolvedCount - after.unresolvedCount);
+    const regressedDelta = Math.max(0, after.unresolvedCount - before.unresolvedCount);
+    return {
+        before_unresolved: before.unresolvedCount,
+        after_unresolved: after.unresolvedCount,
+        resolved_delta: resolvedDelta,
+        regressed_delta: regressedDelta,
+        still_unresolved: after.stillUnresolved,
+        top_reasons_after: after.topReasons,
+    };
+}
+
 function deriveRunStagesFromState() {
     const report = mainState.fileContent.citationReferenceReport && typeof mainState.fileContent.citationReferenceReport === 'object'
         ? mainState.fileContent.citationReferenceReport
@@ -526,7 +593,7 @@ function deriveRunStagesFromState() {
     const confidenceStatus = enrichmentEnabled
         ? (needsReviewCount > 0 ? 'failed' : (trail.length > 0 ? 'done' : 'skipped'))
         : 'skipped';
-    return [
+    const stages = [
         { name: 'Spelling check', status: 'done' },
         { name: 'Grammar check', status: 'done' },
         { name: 'Reference parsing', status: refCount > 0 ? 'done' : 'skipped' },
@@ -562,6 +629,23 @@ function deriveRunStagesFromState() {
         { name: 'Content consistency', status: (mode === 'sectioned' || mode === 'full') ? 'done' : 'skipped' },
         { name: 'Final validation', status: fallback ? 'failed' : 'done', meta: fallback ? 'fallback used' : 'stable' },
     ];
+    const rerunMeta = mainState.fileContent.rerunActionMeta && typeof mainState.fileContent.rerunActionMeta === 'object'
+        ? mainState.fileContent.rerunActionMeta
+        : null;
+    const delta = rerunMeta && rerunMeta.delta && typeof rerunMeta.delta === 'object' ? rerunMeta.delta : null;
+    if (rerunMeta && String(rerunMeta.action || '') === 'rerun_unresolved_references' && delta) {
+        const before = Number(delta.before_unresolved || 0);
+        const afterCount = Number(delta.after_unresolved || 0);
+        const resolved = Number(delta.resolved_delta || 0);
+        const regressed = Number(delta.regressed_delta || 0);
+        const status = regressed > 0 ? 'failed' : 'done';
+        stages.push({
+            name: 'Unresolved rerun delta',
+            status,
+            meta: `before=${before}, after=${afterCount}, resolved=${resolved}${regressed > 0 ? `, regressed=${regressed}` : ''}`,
+        });
+    }
+    return stages;
 }
 
 function renderRunStagesFromState() {
@@ -1273,6 +1357,9 @@ function rerunUnresolvedReferencesOnly() {
     retryOptions.ai = aiOptions;
 
     const providerModel = getProviderModelFromOptions(retryOptions);
+    const beforeReportSnapshot = mainState.fileContent.citationReferenceReport && typeof mainState.fileContent.citationReferenceReport === 'object'
+        ? mainState.fileContent.citationReferenceReport
+        : {};
     toggleAssistantChat(true);
     appendAssistantChatMessage('assistant', 'Rerunning unresolved references only...');
     setAssistantActionsLoading(true, 'Rerunning unresolved references only...');
@@ -1296,14 +1383,19 @@ function rerunUnresolvedReferencesOnly() {
                 action: 'rerun_unresolved_references',
                 path: String(rerunPath || 'unknown'),
                 label: rerunPath === 'assistant_endpoint' ? 'Used assistant endpoint' : (rerunPath === 'direct_process_fallback' ? 'Used direct fallback' : 'Used unknown path'),
+                delta: buildUnresolvedRerunDelta(beforeReportSnapshot, response.result.citation_reference_report || {}),
                 at: Date.now()
             }
         });
         applyProcessingModeProviderContext(providerModel.provider, providerModel.model);
-        appendAssistantChatMessage('assistant', 'Unresolved references rerun complete.');
+        const delta = buildUnresolvedRerunDelta(beforeReportSnapshot, response.result.citation_reference_report || {});
+        appendAssistantChatMessage(
+            'assistant',
+            `Unresolved references rerun complete. Before: ${delta.before_unresolved}, After: ${delta.after_unresolved}, Resolved: ${delta.resolved_delta}${delta.regressed_delta > 0 ? `, Regressed: ${delta.regressed_delta}` : ''}.`
+        );
         switch_tab('corrected');
         mainAuth.refreshTaskHistory();
-        setStatus('Unresolved references rerun complete', 'success');
+        setStatus(`Unresolved references rerun complete (${delta.before_unresolved} -> ${delta.after_unresolved})`, 'success');
         showAssistantToast('Unresolved references rerun completed.');
     };
 
