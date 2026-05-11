@@ -352,6 +352,7 @@ def _default_global_runtime_settings() -> Dict:
             "cmos_strict_mode": True,
             "online_reference_validation": True,
             "online_reference_serper_fallback": True,
+            "online_reference_validation_admin_cap": 150,
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
             "cmos_profile": "core",
@@ -446,6 +447,13 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
                 "online_reference_serper_fallback",
                 defaults["editing"]["online_reference_serper_fallback"],
             ),
+            "online_reference_validation_admin_cap": _int(
+                editing_in,
+                "online_reference_validation_admin_cap",
+                defaults["editing"]["online_reference_validation_admin_cap"],
+                1,
+                500,
+            ),
             "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
             "cmos_profile": cmos_profile,
@@ -504,6 +512,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["cmos_strict_mode"] = bool(editing.get("cmos_strict_mode", True))
     opts["online_reference_validation"] = bool(editing.get("online_reference_validation", True))
     opts["online_reference_serper_fallback"] = bool(editing.get("online_reference_serper_fallback", True))
+    opts["online_reference_validation_admin_cap"] = int(editing.get("online_reference_validation_admin_cap", 150))
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
     opts["cmos_profile"] = str(editing.get("cmos_profile", "core"))
@@ -1366,6 +1375,7 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
         "global_runtime": {
             "online_reference_validation": online_validation_enabled,
             "online_reference_serper_fallback": serper_requested,
+            "online_reference_validation_admin_cap": int(editing.get("online_reference_validation_admin_cap", 150) or 150),
         },
         "serper": {
             "configured": serper_configured,

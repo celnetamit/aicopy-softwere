@@ -601,6 +601,29 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(int(shared_metrics.get("openalex_requests", 0)), 1)
         self.assertGreater(int(diagnostics.get("lookup_metrics_updated_at", 0) or 0), 0)
 
+    def test_online_reference_validation_uses_dynamic_limit_with_admin_cap(self):
+        ref_entries = [
+            {"number": 1, "entry": "Alpha AB. One title. J Test. 2020;1(1):1-2."},
+            {"number": 2, "entry": "Beta BC. Two title. J Test. 2021;1(1):3-4."},
+            {"number": 3, "entry": "Gamma CD. Three title. J Test. 2022;1(1):5-6."},
+            {"number": 4, "entry": "Delta DE. Four title. J Test. 2023;1(1):7-8."},
+        ]
+        with patch.object(self.editor, "_validate_reference_online", return_value={"status": "verified"}) as mock_validate:
+            report = self.editor._build_online_reference_validation_report(
+                ref_entries,
+                {
+                    "online_reference_validation": True,
+                    "online_reference_validation_admin_cap": 2,
+                },
+            )
+        self.assertEqual(int(report.get("admin_cap", 0)), 2)
+        self.assertEqual(int(report.get("total_detected_references", 0)), 4)
+        self.assertEqual(int(report.get("effective_limit", 0)), 2)
+        self.assertEqual(int(report.get("limit", 0)), 2)
+        self.assertEqual(int(report.get("summary", {}).get("checked", 0)), 2)
+        self.assertEqual(int(report.get("summary", {}).get("skipped", 0)), 2)
+        self.assertEqual(mock_validate.call_count, 2)
+
     @patch("chicago_editor.requests.post")
     def test_online_reference_validation_serper_fallback_can_be_disabled(self, mock_post):
         source = (

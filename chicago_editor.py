@@ -16,7 +16,8 @@ class ChicagoEditor:
     """Handles all Chicago Manual of Style corrections."""
 
     MISSING_PLACEHOLDER_RE = re.compile(r'\[[A-Za-z][A-Za-z ]* missing\]', flags=re.IGNORECASE)
-    ONLINE_VALIDATION_MAX_REFERENCES = 25
+    ONLINE_VALIDATION_ADMIN_CAP_DEFAULT = 150
+    ONLINE_VALIDATION_MAX_REFERENCES = ONLINE_VALIDATION_ADMIN_CAP_DEFAULT
     ONLINE_VALIDATION_TIMEOUT_SECONDS = 5
     ONLINE_VALIDATION_CACHE_TTL_SECONDS = 6 * 60 * 60
     ONLINE_VALIDATION_CACHE_MAX_ENTRIES = 512
@@ -318,7 +319,8 @@ class ChicagoEditor:
             "serper_configured": bool(self._get_serper_api_key()),
             "serper_endpoint": self.SERPER_SEARCH_ENDPOINT,
             "limits": {
-                "max_references": self.ONLINE_VALIDATION_MAX_REFERENCES,
+                "max_references": self.ONLINE_VALIDATION_ADMIN_CAP_DEFAULT,
+                "dynamic_limit_policy": "min(total_detected_references, admin_cap)",
                 "timeout_seconds": self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
                 "serper_results_limit": self.SERPER_RESULTS_LIMIT,
                 "serper_max_title_terms": self.SERPER_MAX_TITLE_TERMS,
@@ -2961,6 +2963,9 @@ class ChicagoEditor:
         serper_requested = bool((options or {}).get("online_reference_serper_fallback", True))
         serper_available = bool(self._get_serper_api_key())
         serper_enabled = bool(serper_requested and serper_available)
+        admin_cap = self._resolve_online_validation_admin_cap(options)
+        total_detected_references = len(ref_entries)
+        effective_limit = min(total_detected_references, admin_cap)
         self._reset_online_lookup_metrics()
         summary = {
             "checked": 0,
@@ -2978,7 +2983,10 @@ class ChicagoEditor:
             "serper_enabled": serper_enabled,
             "serper_requested": serper_requested,
             "serper_available": serper_available,
-            "limit": self.ONLINE_VALIDATION_MAX_REFERENCES,
+            "limit": effective_limit,
+            "admin_cap": admin_cap,
+            "total_detected_references": total_detected_references,
+            "effective_limit": effective_limit,
             "summary": summary,
             "entries": [],
             "messages": [],
@@ -2991,7 +2999,7 @@ class ChicagoEditor:
 
         checked = 0
         for item in ref_entries:
-            if checked >= self.ONLINE_VALIDATION_MAX_REFERENCES:
+            if checked >= effective_limit:
                 summary["skipped"] += 1
                 continue
 
@@ -3019,9 +3027,9 @@ class ChicagoEditor:
             summary[status] = int(summary.get(status, 0)) + 1
             report["entries"].append(result)
 
-        if checked >= self.ONLINE_VALIDATION_MAX_REFERENCES and len(ref_entries) > self.ONLINE_VALIDATION_MAX_REFERENCES:
+        if checked >= effective_limit and total_detected_references > effective_limit:
             report["messages"].append(
-                f"Online validation checked the first {self.ONLINE_VALIDATION_MAX_REFERENCES} references to keep processing responsive."
+                f"Online validation checked the first {effective_limit} references (cap={admin_cap}) to keep processing responsive."
             )
         if summary["error"] > 0:
             report["messages"].append("Some reference lookups failed due to remote API/network errors.")
@@ -3035,6 +3043,17 @@ class ChicagoEditor:
             report["messages"].append("Serper fallback is disabled by runtime settings.")
         self._publish_online_lookup_metrics()
         return report
+
+    def _resolve_online_validation_admin_cap(self, options: Optional[Dict[str, Any]]) -> int:
+        """Resolve runtime-configurable online validation cap with safe bounds."""
+        raw_value = self.ONLINE_VALIDATION_ADMIN_CAP_DEFAULT
+        if isinstance(options, dict):
+            raw_value = options.get("online_reference_validation_admin_cap", raw_value)
+        try:
+            parsed = int(raw_value)
+        except Exception:
+            parsed = self.ONLINE_VALIDATION_ADMIN_CAP_DEFAULT
+        return max(1, min(500, parsed))
 
     def _get_serper_api_key(self) -> str:
         """Return Serper API key from environment."""

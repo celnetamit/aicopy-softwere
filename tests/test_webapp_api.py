@@ -368,6 +368,24 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             windows_iss = handle.read()
         self.assertIn('#define MyAppVersion Trim(FileRead("..\\..\\VERSION"))', windows_iss)
 
+    def test_reference_validation_diagnostics_includes_admin_cap_setting(self):
+        self._login("admin@conwiz.in")
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request(
+            "POST",
+            "/api/auth/google-login",
+            {"id_token": "test:amit@conwiz.in"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        status, payload = admin_client.request("GET", "/api/admin/reference-validation-diagnostics")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        diagnostics = payload.get("diagnostics") or {}
+        runtime = diagnostics.get("global_runtime") or {}
+        self.assertIn("online_reference_validation_admin_cap", runtime)
+        self.assertEqual(int(runtime.get("online_reference_validation_admin_cap", 0)), 150)
+
     def test_rerun_unresolved_frontend_has_direct_process_fallback_path(self):
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
         with open(app_js_path, "r", encoding="utf-8") as handle:
