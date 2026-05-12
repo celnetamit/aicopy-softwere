@@ -138,9 +138,9 @@ def _build_download_filename(file_type: str) -> str:
 def _build_fallback_save_path(file_type: str) -> str:
     """Build non-dialog fallback path (prefer ~/Downloads)."""
     candidates = [
-        os.path.join(os.path.expanduser("~"), "Downloads"),
         os.getcwd(),
         tempfile.gettempdir(),
+        os.path.join(os.path.expanduser("~"), "Downloads"),
     ]
     target_dir = os.getcwd()
     for folder in candidates:

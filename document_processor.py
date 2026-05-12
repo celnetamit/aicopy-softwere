@@ -1855,7 +1855,7 @@ Corrected manuscript:"""
                         textbox_paragraph,
                         segment_text,
                         segment_type=segment_type,
-                        use_revisions=True,
+                        use_revisions=False,
                     )
             else:
                 self._append_text_segments_to_paragraph(textbox_paragraph, current_desired)
@@ -1892,7 +1892,14 @@ Corrected manuscript:"""
         self._append_text_segments_to_paragraph(paragraph, body_text)
         self._sync_textboxes(paragraph, text, highlighted=False)
 
-    def _write_paragraph_diff(self, paragraph: Paragraph, original: str, corrected: str):
+    def _write_paragraph_diff(
+        self,
+        paragraph: Paragraph,
+        original: str,
+        corrected: str,
+        *,
+        use_revisions: bool = False,
+    ):
         """Replace paragraph content with redline-style runs while preserving drawings."""
         keep_drawings = self._paragraph_has_drawing(paragraph)
         original_body, _ = self._split_paragraph_and_textboxes(paragraph, original)
@@ -1903,7 +1910,7 @@ Corrected manuscript:"""
                 paragraph,
                 segment_text,
                 segment_type=segment_type,
-                use_revisions=True,
+                use_revisions=use_revisions,
             )
         self._sync_textboxes(paragraph, corrected, original_text=original, highlighted=True)
 
@@ -1917,7 +1924,7 @@ Corrected manuscript:"""
         inserted = anchor.insert_paragraph_before("")
         inserted.paragraph_format.space_after = Pt(0)
         inserted.paragraph_format.line_spacing = 1.5
-        self._write_paragraph_diff(inserted, "", text)
+        self._write_paragraph_diff(inserted, "", text, use_revisions=True)
         return True
 
     def _split_table_line(self, line: str, cell_count: int) -> List[str]:
@@ -2085,7 +2092,7 @@ Corrected manuscript:"""
                         block,
                         segment_text,
                         segment_type=segment_type,
-                        use_revisions=True,
+                        use_revisions=False,
                     )
                 continue
 
@@ -2105,7 +2112,7 @@ Corrected manuscript:"""
                     target_paragraph,
                     segment_text,
                     segment_type=segment_type,
-                    use_revisions=True,
+                    use_revisions=False,
                 )
 
     def _apply_text_to_template_docx(self, source_docx_path: str, text: str, output_path: str, highlighted: bool = False):

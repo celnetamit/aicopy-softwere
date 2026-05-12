@@ -368,6 +368,7 @@
                     </select>
                     <div class="assistant-actions">
                         <button class="btn-secondary" id="assistant-unresolved-rerun-btn" type="button">Rerun Unresolved</button>
+                        <button class="btn-secondary" id="assistant-unresolved-rerun-autofixable-btn" type="button">Retry Auto-Fixable Only</button>
                         <button class="btn-secondary" id="assistant-export-unresolved-btn" type="button">Export Unresolved Report</button>
                     </div>
                 </div>
@@ -469,6 +470,19 @@
                                 <option value="balanced" selected>Balanced</option>
                                 <option value="strict">Strict</option>
                             </select>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-online-reference-validation-admin-cap">Reference Validation Cap</label>
+                            <input
+                                id="admin-setting-online-reference-validation-admin-cap"
+                                class="input-field"
+                                type="number"
+                                min="1"
+                                max="500"
+                                step="1"
+                                value="150"
+                                placeholder="Max refs per manuscript"
+                            />
                         </div>
 
                         <div class="admin-settings-row">
@@ -578,7 +592,9 @@
                         <button class="btn-secondary btn-small" id="admin-reset-reference-diagnostics-btn" type="button">Reset Cache</button>
                     </div>
                     <p class="hint-text" id="admin-reference-diagnostics-status">Shows safe Serper/cache status without exposing API keys.</p>
+                    <div class="hint-text" id="admin-reference-unresolved-trend-summary">Unresolved trends: no runs yet.</div>
                     <pre class="admin-diagnostics-json" id="admin-reference-diagnostics-output">No diagnostics loaded yet.</pre>
+                    <pre class="admin-diagnostics-json" id="admin-reference-diagnostics-trends-output">No unresolved trend snapshot yet.</pre>
                 </section>
 
                 <section class="admin-block">
