@@ -16,6 +16,7 @@ import traceback
 import uuid
 import requests
 from functools import wraps
+from types import SimpleNamespace
 from typing import Dict, Optional, Tuple
 
 from bottle import Bottle, HTTPResponse, request, response, run, static_file
@@ -375,6 +376,11 @@ def _default_global_runtime_settings() -> Dict:
             "section_chunk_chars": 5500,
             "section_chunk_lines": 28,
             "global_consistency_max_chars": 18000,
+            "ollama_generate_timeout_seconds": 60,
+            "ollama_health_timeout_seconds": 5,
+            "ollama_retry_count": 0,
+            "ollama_retry_backoff_seconds": 0,
+            "ollama_fallback_model_retry": True,
         },
     }
 
@@ -416,6 +422,13 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
             parsed = int(src.get(key, fallback))
         except Exception:
             parsed = int(fallback)
+        return max(min_value, min(max_value, parsed))
+
+    def _float(src: Dict, key: str, fallback: float, min_value: float, max_value: float) -> float:
+        try:
+            parsed = float(src.get(key, fallback))
+        except Exception:
+            parsed = float(fallback)
         return max(min_value, min(max_value, parsed))
 
     domain = str(editing_in.get("domain_profile", defaults["editing"]["domain_profile"]) or "auto").strip().lower()
@@ -487,6 +500,33 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
                 6000,
                 120000,
             ),
+            "ollama_generate_timeout_seconds": _float(
+                ai_in,
+                "ollama_generate_timeout_seconds",
+                defaults["ai"]["ollama_generate_timeout_seconds"],
+                1,
+                600,
+            ),
+            "ollama_health_timeout_seconds": _float(
+                ai_in,
+                "ollama_health_timeout_seconds",
+                defaults["ai"]["ollama_health_timeout_seconds"],
+                1,
+                60,
+            ),
+            "ollama_retry_count": _int(ai_in, "ollama_retry_count", defaults["ai"]["ollama_retry_count"], 0, 3),
+            "ollama_retry_backoff_seconds": _float(
+                ai_in,
+                "ollama_retry_backoff_seconds",
+                defaults["ai"]["ollama_retry_backoff_seconds"],
+                0,
+                30,
+            ),
+            "ollama_fallback_model_retry": _bool(
+                ai_in,
+                "ollama_fallback_model_retry",
+                defaults["ai"]["ollama_fallback_model_retry"],
+            ),
         },
     }
 
@@ -546,6 +586,11 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
         "section_chunk_chars": int(ai.get("section_chunk_chars", 5500)),
         "section_chunk_lines": int(ai.get("section_chunk_lines", 28)),
         "global_consistency_max_chars": int(ai.get("global_consistency_max_chars", 18000)),
+        "ollama_generate_timeout_seconds": float(ai.get("ollama_generate_timeout_seconds", 60)),
+        "ollama_health_timeout_seconds": float(ai.get("ollama_health_timeout_seconds", 5)),
+        "ollama_retry_count": int(ai.get("ollama_retry_count", 0)),
+        "ollama_retry_backoff_seconds": float(ai.get("ollama_retry_backoff_seconds", 0)),
+        "ollama_fallback_model_retry": bool(ai.get("ollama_fallback_model_retry", True)),
     }
     return opts
 
@@ -1580,1107 +1625,71 @@ def _render_html_shell(
     )
 
 
-@app.get("/")
-def index():
-    return HTTPResponse(status=302, headers={"Location": "/tasks"})
 
-
-@app.get("/tasks")
-@app.get("/tasks/")
-def tasks_dashboard_index():
-    return _render_html_shell("tasks.html", admin_dashboard=False, route_classes=["tasks-dashboard-route"])
-
-
-@app.get("/tasks/<task_id>")
-@app.get("/tasks/<task_id>/")
-def task_detail_index(task_id: str):
-    safe_task_id = re.sub(r"[^A-Za-z0-9_-]", "", str(task_id or ""))[:128]
-    return _render_html_shell(
-        "task_detail.html",
-        admin_dashboard=False,
-        route_classes=["task-detail-route"],
-        task_route_id=safe_task_id,
-    )
-
-
-@app.get("/admin-dashboard")
-@app.get("/admin-dashboard/")
-def admin_dashboard_index():
-    return _render_html_shell("index.html", admin_dashboard=True)
-
-
-@app.get("/eel.js")
-def eel_bridge():
-    _ensure_web_assets()
-    asset = static_file("eel_web_bridge.js", root=WEB_DIR, mimetype="application/javascript")
-    try:
-        asset.set_header("Cache-Control", "no-store, max-age=0, must-revalidate")
-        asset.set_header("Pragma", "no-cache")
-    except Exception:
-        pass
-    return asset
-
-
-@app.get("/api/health")
-def api_health():
-    return _json_response(
-        {
-            "success": True,
-            "status": "ok",
-            "storage_backend": _STORE.backend,
-            "auth_required": True,
-            "version": APP_VERSION,
-        }
-    )
-
-
-@app.get("/api/version")
-def api_version():
-    return _json_response(
-        {
-            "success": True,
-            "version": APP_VERSION,
-            "asset_version": WEB_ASSET_VERSION,
-        }
-    )
-
-
-@app.get("/api/auth/config")
-def api_auth_config():
-    return _json_response(
-        {
-            "success": True,
-            "google_client_id": GOOGLE_CLIENT_ID,
-            "allowed_domains": ALLOWED_EMAIL_DOMAINS,
-            "local_manual_login_enabled": _is_local_manual_login_allowed(),
-            "local_manual_login_username_hint": LOCAL_MANUAL_LOGIN_USERNAME if _is_local_manual_login_allowed() else "",
-        }
-    )
-
-
-@app.post("/api/auth/google-login")
-def api_auth_google_login():
-    payload = _read_json_payload()
-    id_token_raw = str(payload.get("id_token", "") or "")
-
-    try:
-        token_info = _verify_google_token(id_token_raw)
-    except Exception as exc:
-        _record_audit(
-            event_type="auth_login_failed",
-            metadata={"reason": str(exc)},
-        )
-        return _json_response(_error_payload("AUTH_INVALID_TOKEN", str(exc)), status=401)
-
-    email = str(token_info.get("email", "") or "").strip().lower()
-    if "@" not in email:
-        _record_audit(event_type="auth_login_failed", metadata={"reason": "missing_email"})
-        return _json_response(_error_payload("AUTH_EMAIL_MISSING", "Google account email is missing"), status=401)
-
-    if not bool(token_info.get("email_verified", False)):
-        _record_audit(event_type="auth_login_failed", metadata={"reason": "email_not_verified", "email": email})
-        return _json_response(_error_payload("AUTH_EMAIL_UNVERIFIED", "Google account email is not verified"), status=401)
-
-    domain = email.rsplit("@", 1)[-1].lower().strip()
-    if domain not in ALLOWED_EMAIL_DOMAINS:
-        _record_audit(
-            event_type="auth_login_blocked_domain",
-            metadata={"email": email, "domain": domain},
-        )
-        return _json_response(
-            _error_payload("AUTH_DOMAIN_BLOCKED", "This email domain is not allowed"),
-            status=403,
-        )
-
-    google_sub = str(token_info.get("sub", "") or "").strip()
-    if not google_sub:
-        return _json_response(_error_payload("AUTH_SUB_MISSING", "Token subject missing"), status=401)
-
-    display_name = str(token_info.get("name", "") or email.split("@", 1)[0]).strip()
-    _STORE.bootstrap_admin_roles(ADMIN_EMAILS)
-
-    user = _STORE.upsert_google_user(
-        email=email,
-        google_sub=google_sub,
-        display_name=display_name,
-        domain=domain,
+def _build_route_dependencies():
+    return SimpleNamespace(
         admin_emails=ADMIN_EMAILS,
-    )
-
-    if str(user.get("status") or STATUS_ACTIVE) != STATUS_ACTIVE:
-        _record_audit(
-            event_type="auth_login_blocked_inactive",
-            actor_user_id=str(user.get("id") or ""),
-            metadata={"email": email},
-        )
-        return _json_response(_error_payload("AUTH_USER_INACTIVE", "User access is inactive"), status=403)
-
-    session_id = _STORE.create_session(
-        user_id=str(user.get("id") or ""),
-        ttl_hours=SESSION_TTL_HOURS,
-        ip_address=_get_client_ip(),
-        user_agent=_get_user_agent(),
-    )
-
-    _record_audit(
-        event_type="auth_login_success",
-        actor_user_id=str(user.get("id") or ""),
-        metadata={"email": email, "role": str(user.get("role") or "USER")},
-    )
-
-    return _json_response(
-        {
-            "success": True,
-            "user": {
-                "id": str(user.get("id") or ""),
-                "email": email,
-                "display_name": str(user.get("display_name") or display_name),
-                "role": str(user.get("role") or "USER"),
-                "status": str(user.get("status") or STATUS_ACTIVE),
-            },
-            "allowed_domains": ALLOWED_EMAIL_DOMAINS,
-        },
-        session_id=session_id,
-    )
-
-
-@app.post("/api/auth/local-login")
-def api_auth_local_login():
-    if not _is_local_manual_login_allowed():
-        _record_audit(
-            event_type="auth_local_login_blocked",
-            metadata={"reason": "manual_login_disabled", "client_ip": _get_client_ip()},
-        )
-        return _json_response(
-            _error_payload("AUTH_LOCAL_LOGIN_DISABLED", "Local manual login is disabled"),
-            status=403,
-        )
-
-    payload = _read_json_payload()
-    username = str(payload.get("username", "") or "").strip()
-    password = str(payload.get("password", "") or "")
-    if username != LOCAL_MANUAL_LOGIN_USERNAME or password != LOCAL_MANUAL_LOGIN_PASSWORD:
-        _record_audit(
-            event_type="auth_local_login_failed",
-            metadata={"reason": "invalid_credentials", "username": username[:64]},
-        )
-        return _json_response(
-            _error_payload("AUTH_INVALID_CREDENTIALS", "Invalid local login credentials"),
-            status=401,
-        )
-
-    _STORE.bootstrap_admin_roles(ADMIN_EMAILS)
-    admin_email = ADMIN_EMAILS[0] if ADMIN_EMAILS else "admin@conwiz.in"
-    domain = admin_email.rsplit("@", 1)[-1].lower().strip() if "@" in admin_email else "conwiz.in"
-    user = _STORE.upsert_google_user(
-        email=admin_email,
-        google_sub="local_manual_admin",
-        display_name="Local Admin",
-        domain=domain,
-        admin_emails=ADMIN_EMAILS or [admin_email],
-    )
-
-    if str(user.get("status") or STATUS_ACTIVE) != STATUS_ACTIVE:
-        _record_audit(
-            event_type="auth_local_login_blocked",
-            actor_user_id=str(user.get("id") or ""),
-            metadata={"reason": "user_inactive", "email": admin_email},
-        )
-        return _json_response(_error_payload("AUTH_USER_INACTIVE", "User access is inactive"), status=403)
-
-    session_id = _STORE.create_session(
-        user_id=str(user.get("id") or ""),
-        ttl_hours=SESSION_TTL_HOURS,
-        ip_address=_get_client_ip(),
-        user_agent=_get_user_agent(),
-    )
-    _record_audit(
-        event_type="auth_local_login_success",
-        actor_user_id=str(user.get("id") or ""),
-        metadata={"email": admin_email, "role": str(user.get("role") or "USER")},
-    )
-    return _json_response(
-        {
-            "success": True,
-            "user": {
-                "id": str(user.get("id") or ""),
-                "email": admin_email,
-                "display_name": str(user.get("display_name") or "Local Admin"),
-                "role": str(user.get("role") or "USER"),
-                "status": str(user.get("status") or STATUS_ACTIVE),
-            },
-            "manual_login": True,
-        },
-        session_id=session_id,
+        allowed_email_domains=ALLOWED_EMAIL_DOMAINS,
+        app_setting_key_global_runtime=APP_SETTING_KEY_GLOBAL_RUNTIME,
+        app_version=APP_VERSION,
+        apply_global_runtime_settings=_apply_global_runtime_settings,
+        apply_group_decisions=_apply_group_decisions,
+        assistant_qna_response=_assistant_qna_response,
+        auth_context_from_request=_auth_context_from_request,
+        build_download_filename=_build_download_filename,
+        build_reference_validation_diagnostics_payload=_build_reference_validation_diagnostics_payload,
+        document_processor=DocumentProcessor,
+        ensure_web_assets=_ensure_web_assets,
+        error_payload=_error_payload,
+        get_client_ip=_get_client_ip,
+        get_owned_task_or_error=_get_owned_task_or_error,
+        get_session_id_from_request=_get_session_id_from_request,
+        get_user_agent=_get_user_agent,
+        global_runtime_settings_for_user_payload=_global_runtime_settings_for_user_payload,
+        google_client_id=GOOGLE_CLIENT_ID,
+        increment_runtime_counter=_increment_runtime_counter,
+        is_local_manual_login_allowed=_is_local_manual_login_allowed,
+        json_response=_json_response,
+        local_manual_login_password=LOCAL_MANUAL_LOGIN_PASSWORD,
+        local_manual_login_username=LOCAL_MANUAL_LOGIN_USERNAME,
+        mime_docx=MIME_DOCX,
+        normalize_global_runtime_settings=_normalize_global_runtime_settings,
+        process_task=_process_task,
+        public_user_payload=_public_user_payload,
+        read_global_runtime_settings=_read_global_runtime_settings,
+        read_json_payload=_read_json_payload,
+        read_runtime_telemetry=_read_runtime_telemetry,
+        read_task_download_payload=_read_task_download_payload,
+        record_audit=_record_audit,
+        render_html_shell=_render_html_shell,
+        require_admin=require_admin,
+        require_auth=require_auth,
+        require_auth_context=_require_auth_context,
+        reset_reference_validation_diagnostics_payload=_reset_reference_validation_diagnostics_payload,
+        reset_runtime_telemetry=_reset_runtime_telemetry,
+        resolve_task_download_file=_resolve_task_download_file,
+        role_admin=ROLE_ADMIN,
+        session_ttl_hours=SESSION_TTL_HOURS,
+        status_active=STATUS_ACTIVE,
+        status_inactive=STATUS_INACTIVE,
+        store=_STORE,
+        task_summary=_task_summary,
+        upload_docx_to_task=_upload_docx_to_task,
+        upload_text_to_task=_upload_text_to_task,
+        validate_ai_provider_runtime=_validate_ai_provider_runtime,
+        verify_google_token=_verify_google_token,
+        web_asset_version=WEB_ASSET_VERSION,
+        web_dir=WEB_DIR,
     )
 
 
-@app.get("/api/auth/me")
-def api_auth_me():
-    context, response = _require_auth_context()
-    if response is not None:
-        return response
-    return _json_response({"success": True, "user": _public_user_payload(context)}, session_id=context.session_id)
+def _register_routes():
+    from routes import register_routes
 
+    register_routes(app, _build_route_dependencies())
 
-@app.post("/api/auth/logout")
-def api_auth_logout():
-    session_id = _get_session_id_from_request()
-    context = _STORE.get_session_context(session_id) if session_id else None
 
-    if session_id:
-        _STORE.revoke_session(session_id)
-    if context:
-        _record_audit(event_type="auth_logout", actor_user_id=context.user_id)
-
-    return _json_response({"success": True}, clear_session=True)
-
-
-@app.get("/api/runtime-telemetry")
-@require_auth
-def get_runtime_telemetry():
-    context = _auth_context_from_request()
-    return _json_response({"success": True, "telemetry": _read_runtime_telemetry(context.session_id)})
-
-
-@app.post("/api/runtime-telemetry/reset")
-@require_auth
-def reset_runtime_telemetry():
-    context = _auth_context_from_request()
-    _reset_runtime_telemetry(context.session_id)
-    return _json_response({"success": True})
-
-
-@app.post("/api/reset-session")
-@require_auth
-def reset_session():
-    context = _auth_context_from_request()
-    _reset_runtime_telemetry(context.session_id)
-    return _json_response({"success": True})
-
-
-@app.get("/api/settings/runtime")
-@require_auth
-def api_runtime_settings():
-    context = _auth_context_from_request()
-    settings = _read_global_runtime_settings()
-    payload_settings = settings if context.role == ROLE_ADMIN else _global_runtime_settings_for_user_payload(settings)
-    return _json_response({"success": True, "settings": payload_settings}, session_id=context.session_id)
-
-
-@app.post("/api/tasks/upload-text")
-@require_auth
-def api_tasks_upload_text():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    file_name = str(payload.get("file_name", "manuscript.txt") or "manuscript.txt")
-    content = str(payload.get("content", "") or "")
-
-    try:
-        result = _upload_text_to_task(context, file_name=file_name, text=content, source_type="text")
-        return _json_response(result, session_id=context.session_id)
-    except Exception as exc:
-        return _json_response(_error_payload("TASK_UPLOAD_FAILED", str(exc)), status=400, session_id=context.session_id)
-
-
-@app.post("/api/tasks/upload-docx")
-@require_auth
-def api_tasks_upload_docx():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    file_name = str(payload.get("file_name", "manuscript.docx") or "manuscript.docx")
-    base64_data = str(payload.get("base64_data", "") or "")
-
-    try:
-        byte_data = base64.b64decode(base64_data)
-    except Exception:
-        return _json_response(_error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"), status=400)
-
-    try:
-        result = _upload_docx_to_task(context, file_name=file_name, byte_data=byte_data)
-        return _json_response(result, session_id=context.session_id)
-    except Exception as exc:
-        return _json_response(_error_payload("TASK_UPLOAD_FAILED", str(exc)), status=400, session_id=context.session_id)
-
-
-@app.get("/api/tasks")
-@require_auth
-def api_tasks_list():
-    context = _auth_context_from_request()
-    try:
-        limit = int(str(request.query.get("limit", "100") or "100"))
-    except Exception:
-        limit = 100
-    tasks = _STORE.list_tasks_for_user(user_id=context.user_id, limit=limit)
-    return _json_response(
-        {
-            "success": True,
-            "tasks": [_task_summary(task) for task in tasks],
-        },
-        session_id=context.session_id,
-    )
-
-
-@app.get("/api/tasks/<task_id>")
-@require_auth
-def api_tasks_get(task_id: str):
-    context = _auth_context_from_request()
-    task, error = _get_owned_task_or_error(context, task_id)
-    if error is not None:
-        return error
-
-    reports = task.get("reports") or {}
-
-    clean_file = _STORE.get_task_file_for_user(
-        task_id=task_id,
-        file_type="clean",
-        user_id=context.user_id,
-        is_admin=context.role == ROLE_ADMIN,
-    )
-    highlighted_file = _STORE.get_task_file_for_user(
-        task_id=task_id,
-        file_type="highlighted",
-        user_id=context.user_id,
-        is_admin=context.role == ROLE_ADMIN,
-    )
-
-    payload = {
-        "success": True,
-        "task": {
-            **_task_summary(task),
-            "original_text": str(task.get("original_text") or ""),
-            "corrected_text": str(task.get("corrected_text") or ""),
-            "full_corrected_text": str(task.get("full_corrected_text") or ""),
-            "options": task.get("options") or {},
-            "reports": reports,
-            "downloads": {
-                "clean": clean_file is not None,
-                "highlighted": highlighted_file is not None,
-            },
-        },
-    }
-    return _json_response(payload, session_id=context.session_id)
-
-
-@app.post("/api/tasks/<task_id>/process")
-@require_auth
-def api_tasks_process(task_id: str):
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    options = payload.get("options", {})
-    if not isinstance(options, dict):
-        options = {}
-    options = _apply_global_runtime_settings(options, _read_global_runtime_settings())
-
-    task, error = _get_owned_task_or_error(context, task_id)
-    if error is not None:
-        return error
-
-    try:
-        process_payload = _process_task(context, task, options)
-        return _json_response(process_payload, session_id=context.session_id)
-    except Exception as exc:
-        _record_audit(
-            event_type="task_process_failed",
-            actor_user_id=context.user_id,
-            entity_type="task",
-            entity_id=task_id,
-            metadata={"error": str(exc)},
-        )
-        return _json_response(_error_payload("TASK_PROCESS_FAILED", str(exc)), status=500, session_id=context.session_id)
-
-
-@app.post("/api/tasks/<task_id>/apply-correction-group-decisions")
-@require_auth
-def api_tasks_apply_group_decisions(task_id: str):
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    group_decisions = payload.get("group_decisions", {})
-    if not isinstance(group_decisions, dict):
-        group_decisions = {}
-
-    task, error = _get_owned_task_or_error(context, task_id)
-    if error is not None:
-        return error
-
-    try:
-        process_payload = _apply_group_decisions(
-            context,
-            task,
-            group_decisions,
-            fallback_full_corrected=str(payload.get("full_corrected_text", "") or ""),
-        )
-        return _json_response(process_payload, session_id=context.session_id)
-    except Exception as exc:
-        return _json_response(_error_payload("TASK_DECISION_APPLY_FAILED", str(exc)), status=500, session_id=context.session_id)
-
-
-@app.post("/api/assistant")
-@require_auth
-def api_assistant():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    mode = str(payload.get("mode", "qna") or "qna").strip().lower()
-    message = str(payload.get("message", "") or "").strip()
-    task_id = str(payload.get("task_id", "") or "").strip()
-    include_admin_activity = bool(payload.get("include_admin_activity", False))
-
-    task = None
-    if task_id:
-        task, error = _get_owned_task_or_error(context, task_id)
-        if error is not None:
-            return error
-
-    if mode == "qna":
-        answer = _assistant_qna_response(context, message, task, include_admin_activity=include_admin_activity)
-        _record_audit(
-            event_type="assistant_qna",
-            actor_user_id=context.user_id,
-            entity_type="task" if task_id else "",
-            entity_id=task_id,
-            metadata={
-                "has_message": bool(message),
-                "has_task": bool(task_id),
-                "include_admin_activity": bool(include_admin_activity and context.role == ROLE_ADMIN),
-            },
-        )
-        return _json_response(
-            {
-                "success": True,
-                "mode": "qna",
-                "assistant": answer,
-            },
-            session_id=context.session_id,
-        )
-
-    if mode == "action":
-        confirmed = bool(payload.get("confirm", False))
-        if not confirmed:
-            return _json_response(
-                _error_payload(
-                    "ASSISTANT_CONFIRMATION_REQUIRED",
-                    "Assistant action requires explicit confirmation. Send confirm=true to continue.",
-                ),
-                status=400,
-                session_id=context.session_id,
-            )
-        action = str(payload.get("action", "") or "").strip().lower()
-        if action not in {"reprocess_task", "apply_correction_group_decisions"}:
-            return _json_response(
-                _error_payload("ASSISTANT_ACTION_UNSUPPORTED", "Unsupported assistant action"),
-                status=400,
-                session_id=context.session_id,
-            )
-        if not task_id:
-            return _json_response(
-                _error_payload("TASK_REQUIRED", "No task selected"),
-                status=400,
-                session_id=context.session_id,
-            )
-        if task is None:
-            task, error = _get_owned_task_or_error(context, task_id)
-            if error is not None:
-                return error
-
-        try:
-            if action == "reprocess_task":
-                raw_options = payload.get("options", {})
-                options = raw_options
-                if not isinstance(options, dict):
-                    options = {}
-                options = _apply_global_runtime_settings(options, _read_global_runtime_settings())
-                # Assistant action must honor caller-provided AI overrides for safe execution.
-                if isinstance(raw_options, dict):
-                    ai_in = raw_options.get("ai", {})
-                    if isinstance(ai_in, dict):
-                        ai_out = options.get("ai", {}) if isinstance(options.get("ai"), dict) else {}
-                        if "enabled" in ai_in:
-                            ai_out["enabled"] = bool(ai_in.get("enabled"))
-                        if "provider" in ai_in and str(ai_in.get("provider") or "").strip():
-                            ai_out["provider"] = str(ai_in.get("provider") or "").strip()
-                        if "model" in ai_in and str(ai_in.get("model") or "").strip():
-                            ai_out["model"] = str(ai_in.get("model") or "").strip()
-                        options["ai"] = ai_out
-                process_payload = _process_task(context, task, options)
-            else:
-                group_decisions = payload.get("group_decisions", {})
-                if not isinstance(group_decisions, dict):
-                    group_decisions = {}
-                process_payload = _apply_group_decisions(
-                    context,
-                    task,
-                    group_decisions,
-                    fallback_full_corrected=str(payload.get("full_corrected_text", "") or ""),
-                )
-        except Exception as exc:
-            _record_audit(
-                event_type="assistant_action_failed",
-                actor_user_id=context.user_id,
-                entity_type="task",
-                entity_id=task_id,
-                metadata={"action": action, "error": str(exc)},
-            )
-            error_code = "TASK_PROCESS_FAILED" if action == "reprocess_task" else "TASK_DECISION_APPLY_FAILED"
-            return _json_response(_error_payload(error_code, str(exc)), status=500, session_id=context.session_id)
-        _record_audit(
-            event_type="assistant_action_executed",
-            actor_user_id=context.user_id,
-            entity_type="task",
-            entity_id=task_id,
-            metadata={"action": action},
-        )
-        return _json_response(
-            {
-                "success": True,
-                "mode": "action",
-                "action": action,
-                "task_id": task_id,
-                "result": process_payload,
-            },
-            session_id=context.session_id,
-        )
-
-    return _json_response(
-        _error_payload("ASSISTANT_MODE_UNSUPPORTED", "Unsupported assistant mode"),
-        status=400,
-        session_id=context.session_id,
-    )
-
-
-@app.get("/api/tasks/<task_id>/download")
-@require_auth
-def api_tasks_download(task_id: str):
-    context = _auth_context_from_request()
-    file_type = str(request.query.get("type", "") or request.query.get("file_type", "") or "clean")
-
-    try:
-        _increment_runtime_counter(context.session_id, "export_attempts")
-        payload = _read_task_download_payload(context, task_id=task_id, file_type=file_type)
-        _increment_runtime_counter(context.session_id, "export_successes")
-        return _json_response(payload, session_id=context.session_id)
-    except Exception as exc:
-        _increment_runtime_counter(context.session_id, "export_failures", "EXPORT_FILE_MISSING")
-        return _json_response(
-            _error_payload("EXPORT_FILE_MISSING", str(exc)),
-            status=404,
-            session_id=context.session_id,
-        )
-
-
-@app.get("/api/tasks/<task_id>/download-file")
-@require_auth
-def api_tasks_download_file(task_id: str):
-    """Download generated DOCX as binary stream (avoids JSON/base64 transport)."""
-    context = _auth_context_from_request()
-    file_type = str(request.query.get("type", "") or request.query.get("file_type", "") or "clean")
-
-    try:
-        _increment_runtime_counter(context.session_id, "export_attempts")
-        file_row, file_abs, normalized_type = _resolve_task_download_file(
-            context=context,
-            task_id=task_id,
-            file_type=file_type,
-        )
-
-        download_name = str(file_row.get("download_name") or _build_download_filename("manuscript", normalized_type))
-        mime_type = str(file_row.get("mime_type") or MIME_DOCX)
-
-        with open(file_abs, "rb") as infile:
-            body = infile.read()
-
-        _record_audit(
-            event_type="task_downloaded",
-            actor_user_id=context.user_id,
-            entity_type="task",
-            entity_id=task_id,
-            metadata={"file_type": normalized_type, "transport": "binary"},
-        )
-        _increment_runtime_counter(context.session_id, "export_successes")
-
-        http_response = HTTPResponse(status=200, body=body)
-        http_response.set_header("Content-Type", mime_type)
-        http_response.set_header("Content-Disposition", f'attachment; filename="{download_name}"')
-        http_response.set_header("Cache-Control", "no-store")
-        return http_response
-    except Exception as exc:
-        _increment_runtime_counter(context.session_id, "export_failures", "EXPORT_FILE_MISSING")
-        return _json_response(
-            _error_payload("EXPORT_FILE_MISSING", str(exc)),
-            status=404,
-            session_id=context.session_id,
-        )
-
-
-@app.post("/api/load-text")
-@require_auth
-def load_text_content_legacy():
-    return api_tasks_upload_text()
-
-
-@app.post("/api/load-docx")
-@require_auth
-def load_docx_content_legacy():
-    return api_tasks_upload_docx()
-
-
-@app.post("/api/process-document")
-@require_auth
-def process_document_legacy():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    options = payload.get("options", {})
-    if not isinstance(options, dict):
-        options = {}
-    options = _apply_global_runtime_settings(options, _read_global_runtime_settings())
-
-    task_id = str(payload.get("task_id", "") or "").strip()
-    source_text = str(payload.get("source_text", "") or "")
-    source_file_name = str(payload.get("source_file_name", "manuscript.txt") or "manuscript.txt")
-    source_type = str(payload.get("source_type", "text") or "text").strip().lower()
-    source_docx_base64 = str(payload.get("source_docx_base64", "") or "")
-
-    try:
-        if not task_id:
-            if source_type == "docx" and source_docx_base64.strip():
-                try:
-                    source_docx_bytes = base64.b64decode(source_docx_base64)
-                except Exception:
-                    return _json_response(
-                        _error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"),
-                        status=400,
-                    )
-                uploaded = _upload_docx_to_task(
-                    context,
-                    file_name=source_file_name if source_file_name.lower().endswith(".docx") else "manuscript.docx",
-                    byte_data=source_docx_bytes,
-                )
-                task_id = str(uploaded.get("task_id") or "")
-            elif source_text.strip():
-                uploaded = _upload_text_to_task(
-                    context,
-                    file_name=source_file_name,
-                    text=source_text,
-                    source_type="text",
-                )
-                task_id = str(uploaded.get("task_id") or "")
-
-        if not task_id:
-            return _json_response(_error_payload("TASK_REQUIRED", "No task selected"), status=400)
-
-        task, error = _get_owned_task_or_error(context, task_id)
-        if error is not None:
-            return error
-
-        process_payload = _process_task(context, task, options)
-        return _json_response(process_payload, session_id=context.session_id)
-    except Exception as exc:
-        return _json_response(_error_payload("TASK_PROCESS_FAILED", str(exc)), status=500, session_id=context.session_id)
-
-
-@app.post("/api/apply-correction-group-decisions")
-@require_auth
-def apply_correction_group_decisions_legacy():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    task_id = str(payload.get("task_id", "") or "").strip()
-    group_decisions = payload.get("group_decisions", {})
-    if not isinstance(group_decisions, dict):
-        group_decisions = {}
-
-    if not task_id:
-        return _json_response(_error_payload("TASK_REQUIRED", "No task selected"), status=400)
-
-    task, error = _get_owned_task_or_error(context, task_id)
-    if error is not None:
-        return error
-
-    try:
-        process_payload = _apply_group_decisions(
-            context,
-            task,
-            group_decisions,
-            fallback_full_corrected=str(payload.get("full_corrected_text", "") or ""),
-        )
-        return _json_response(process_payload, session_id=context.session_id)
-    except Exception as exc:
-        return _json_response(_error_payload("TASK_DECISION_APPLY_FAILED", str(exc)), status=500, session_id=context.session_id)
-
-
-@app.get("/api/redline-preview")
-@require_auth
-def get_redline_preview_legacy():
-    context = _auth_context_from_request()
-    task_id = str(request.query.get("task_id", "") or "").strip()
-    if not task_id:
-        return _json_response(_error_payload("TASK_REQUIRED", "No task selected"), status=400)
-
-    task, error = _get_owned_task_or_error(context, task_id)
-    if error is not None:
-        return error
-
-    original = str(task.get("original_text") or "")
-    corrected = str(task.get("corrected_text") or "")
-    if not original.strip():
-        return _json_response(_error_payload("TASK_EMPTY", "No document loaded"), status=400)
-    if not corrected.strip():
-        return _json_response(_error_payload("TASK_NOT_PROCESSED", "No corrected document available"), status=400)
-
-    processor = DocumentProcessor()
-    redline_html = processor.build_redline_html(original, corrected)
-    return _json_response({"success": True, "task_id": task_id, "redline_html": redline_html}, session_id=context.session_id)
-
-
-@app.get("/api/ollama-models")
-@require_auth
-def get_ollama_models_legacy():
-    context = _auth_context_from_request()
-    try:
-        processor = DocumentProcessor()
-        host = str(request.query.get("ollama_host", "") or processor.ollama_host).strip() or processor.ollama_host
-        models = processor._get_ollama_models(host)
-        default_model = processor._resolve_ollama_model(host, processor.model)
-        return _json_response(
-            {
-                "success": True,
-                "models": models,
-                "default_model": default_model,
-            },
-            session_id=context.session_id,
-        )
-    except Exception as exc:
-        return _json_response({"success": False, "error": str(exc), "models": []}, status=500, session_id=context.session_id)
-
-
-@app.post("/api/export-file")
-@require_auth
-def export_file_legacy():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    task_id = str(payload.get("task_id", "") or "").strip()
-    file_type = str(payload.get("file_type", "") or "clean")
-
-    _increment_runtime_counter(context.session_id, "export_attempts")
-
-    try:
-        if task_id:
-            response_payload = _read_task_download_payload(context, task_id=task_id, file_type=file_type)
-            _increment_runtime_counter(context.session_id, "export_successes")
-            return _json_response(response_payload, session_id=context.session_id)
-
-        # Fallback compatibility path when frontend has text but no persisted task id.
-        original_text = str(payload.get("original_text", "") or "")
-        corrected_text = str(payload.get("corrected_text", "") or "")
-        file_name = str(payload.get("file_name", "manuscript.docx") or "manuscript.docx")
-        source_type = str(payload.get("source_type", "text") or "text").strip().lower()
-        source_docx_base64 = str(payload.get("source_docx_base64", "") or "").strip()
-        normalized_type = "clean" if file_type == "clean" else "highlighted"
-
-        if not corrected_text.strip():
-            _increment_runtime_counter(context.session_id, "export_failures", "EXPORT_NO_CORRECTED_DOC")
-            return _json_response(
-                _error_payload("EXPORT_NO_CORRECTED_DOC", "No corrected document available"),
-                status=400,
-                session_id=context.session_id,
-            )
-
-        processor = DocumentProcessor()
-        temp_path = None
-        source_docx_temp_path = None
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
-            temp_path = handle.name
-
-        try:
-            if source_type == "docx" and source_docx_base64:
-                try:
-                    source_docx_bytes = base64.b64decode(source_docx_base64.encode("ascii"), validate=True)
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as source_handle:
-                        source_handle.write(source_docx_bytes)
-                        source_docx_temp_path = source_handle.name
-                except Exception:
-                    source_docx_temp_path = None
-
-            if normalized_type == "clean":
-                processor.generate_clean_docx(corrected_text, temp_path, source_docx_path=source_docx_temp_path or "")
-            else:
-                processor.generate_highlighted_docx(
-                    original_text,
-                    corrected_text,
-                    temp_path,
-                    source_docx_path=source_docx_temp_path or "",
-                )
-
-            with open(temp_path, "rb") as infile:
-                encoded = base64.b64encode(infile.read()).decode("ascii")
-
-            _increment_runtime_counter(context.session_id, "export_successes")
-            return _json_response(
-                {
-                    "success": True,
-                    "file_name": _build_download_filename(file_name, normalized_type),
-                    "mime_type": MIME_DOCX,
-                    "base64_data": encoded,
-                },
-                session_id=context.session_id,
-            )
-        finally:
-            if source_docx_temp_path and os.path.exists(source_docx_temp_path):
-                os.unlink(source_docx_temp_path)
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-    except Exception as exc:
-        _increment_runtime_counter(context.session_id, "export_failures", "EXPORT_EXCEPTION")
-        return _json_response(_error_payload("EXPORT_EXCEPTION", str(exc)), status=500, session_id=context.session_id)
-
-
-@app.post("/api/save-file")
-@require_auth
-def save_file_legacy():
-    context = _auth_context_from_request()
-    _increment_runtime_counter(context.session_id, "save_attempts")
-    _increment_runtime_counter(context.session_id, "save_failures", "SAVE_BROWSER_MODE_UNSUPPORTED")
-    return _json_response(
-        _error_payload(
-            "SAVE_BROWSER_MODE_UNSUPPORTED",
-            "Browser mode uses downloads instead of server-side save dialogs.",
-        ),
-        status=400,
-        session_id=context.session_id,
-    )
-
-
-@app.get("/api/admin/users")
-@require_admin
-def api_admin_users():
-    context = _auth_context_from_request()
-    try:
-        limit = int(str(request.query.get("limit", "200") or "200"))
-    except Exception:
-        limit = 200
-
-    users = _STORE.list_users(limit=limit)
-    payload = []
-    for user in users:
-        payload.append(
-            {
-                "id": str(user.get("id") or ""),
-                "email": str(user.get("email") or ""),
-                "display_name": str(user.get("display_name") or ""),
-                "domain": str(user.get("domain") or ""),
-                "role": str(user.get("role") or "USER"),
-                "status": str(user.get("status") or STATUS_ACTIVE),
-                "last_login_at": int(user.get("last_login_at") or 0),
-                "created_at": int(user.get("created_at") or 0),
-                "updated_at": int(user.get("updated_at") or 0),
-            }
-        )
-
-    _record_audit(event_type="admin_users_viewed", actor_user_id=context.user_id)
-    return _json_response({"success": True, "users": payload}, session_id=context.session_id)
-
-
-@app.post("/api/admin/users/<user_id>/status")
-@require_admin
-def api_admin_set_user_status(user_id: str):
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    status = str(payload.get("status", STATUS_ACTIVE) or STATUS_ACTIVE).upper().strip()
-    if status not in (STATUS_ACTIVE, STATUS_INACTIVE):
-        status = STATUS_INACTIVE
-
-    if user_id == context.user_id and status == STATUS_INACTIVE:
-        return _json_response(_error_payload("ADMIN_SELF_DEACTIVATE_BLOCKED", "Admin cannot deactivate self"), status=400)
-
-    user = _STORE.set_user_status(user_id=user_id, status=status)
-    if user is None:
-        return _json_response(_error_payload("USER_NOT_FOUND", "User not found"), status=404)
-
-    _record_audit(
-        event_type="admin_user_status_changed",
-        actor_user_id=context.user_id,
-        target_user_id=user_id,
-        entity_type="user",
-        entity_id=user_id,
-        metadata={"status": status},
-    )
-
-    return _json_response(
-        {
-            "success": True,
-            "user": {
-                "id": str(user.get("id") or ""),
-                "email": str(user.get("email") or ""),
-                "display_name": str(user.get("display_name") or ""),
-                "role": str(user.get("role") or "USER"),
-                "status": str(user.get("status") or STATUS_ACTIVE),
-            },
-        },
-        session_id=context.session_id,
-    )
-
-
-@app.get("/api/admin/audit-events")
-@require_admin
-def api_admin_audit_events():
-    context = _auth_context_from_request()
-
-    try:
-        limit = int(str(request.query.get("limit", "200") or "200"))
-    except Exception:
-        limit = 200
-
-    actor_user_id = str(request.query.get("actor_user_id", "") or "").strip()
-    event_type = str(request.query.get("event_type", "") or "").strip()
-
-    try:
-        date_from = int(str(request.query.get("date_from", "0") or "0"))
-    except Exception:
-        date_from = 0
-
-    try:
-        date_to = int(str(request.query.get("date_to", "0") or "0"))
-    except Exception:
-        date_to = 0
-
-    events = _STORE.list_audit_events(
-        limit=limit,
-        actor_user_id=actor_user_id,
-        event_type=event_type,
-        date_from=date_from,
-        date_to=date_to,
-    )
-
-    _record_audit(event_type="admin_audit_viewed", actor_user_id=context.user_id)
-    return _json_response({"success": True, "events": events}, session_id=context.session_id)
-
-
-@app.get("/api/admin/global-settings")
-@require_admin
-def api_admin_get_global_settings():
-    context = _auth_context_from_request()
-    settings = _read_global_runtime_settings()
-    _record_audit(event_type="admin_global_settings_viewed", actor_user_id=context.user_id)
-    return _json_response({"success": True, "settings": settings}, session_id=context.session_id)
-
-
-@app.post("/api/admin/global-settings")
-@require_admin
-def api_admin_update_global_settings():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    incoming = payload.get("settings", payload)
-    if not isinstance(incoming, dict):
-        incoming = {}
-    normalized = _normalize_global_runtime_settings(incoming)
-    _STORE.upsert_app_setting(
-        key=APP_SETTING_KEY_GLOBAL_RUNTIME,
-        value=normalized,
-        updated_by_user_id=context.user_id,
-    )
-    _record_audit(
-        event_type="admin_global_settings_updated",
-        actor_user_id=context.user_id,
-        metadata={
-            "ai_provider": normalized.get("ai", {}).get("provider"),
-            "ai_enabled": normalized.get("ai", {}).get("enabled"),
-            "domain_profile": normalized.get("editing", {}).get("domain_profile"),
-        },
-    )
-    return _json_response({"success": True, "settings": normalized}, session_id=context.session_id)
-
-
-@app.get("/api/admin/reference-validation-diagnostics")
-@require_admin
-def api_admin_reference_validation_diagnostics():
-    context = _auth_context_from_request()
-    diagnostics = _build_reference_validation_diagnostics_payload()
-    _record_audit(
-        event_type="admin_reference_validation_diagnostics_viewed",
-        actor_user_id=context.user_id,
-        metadata={
-            "serper_configured": bool((diagnostics.get("serper", {}) or {}).get("configured")),
-            "serper_effective_enabled": bool((diagnostics.get("serper", {}) or {}).get("effective_enabled")),
-        },
-    )
-    return _json_response({"success": True, "diagnostics": diagnostics}, session_id=context.session_id)
-
-
-@app.post("/api/admin/reference-validation-diagnostics/reset")
-@require_admin
-def api_admin_reference_validation_diagnostics_reset():
-    context = _auth_context_from_request()
-    result = _reset_reference_validation_diagnostics_payload()
-    diagnostics = result.get("diagnostics", {}) if isinstance(result, dict) else {}
-    removed_cache_entries = int((result or {}).get("removed_cache_entries", 0))
-    _record_audit(
-        event_type="admin_reference_validation_diagnostics_reset",
-        actor_user_id=context.user_id,
-        metadata={
-            "removed_cache_entries": removed_cache_entries,
-            "serper_configured": bool((diagnostics.get("serper", {}) or {}).get("configured")),
-            "serper_effective_enabled": bool((diagnostics.get("serper", {}) or {}).get("effective_enabled")),
-        },
-    )
-    return _json_response(
-        {
-            "success": True,
-            "removed_cache_entries": removed_cache_entries,
-            "diagnostics": diagnostics,
-        },
-        session_id=context.session_id,
-    )
-
-
-@app.post("/api/admin/validate-ai-provider")
-@require_admin
-def api_admin_validate_ai_provider():
-    context = _auth_context_from_request()
-    payload = _read_json_payload()
-    provider = str(payload.get("provider", "") or "").strip().lower()
-    model = str(payload.get("model", "") or "").strip()
-    api_key = str(payload.get("api_key", "") or "").strip()
-    ollama_host = str(payload.get("ollama_host", "") or "").strip()
-
-    saved_settings = _read_global_runtime_settings()
-    saved_ai = saved_settings.get("ai", {}) if isinstance(saved_settings.get("ai", {}), dict) else {}
-    saved_provider = str(saved_ai.get("provider", "") or "").strip().lower()
-    if not model and saved_provider == provider:
-        model = str(saved_ai.get("model", "") or "").strip()
-    if provider == "ollama" and not ollama_host:
-        ollama_host = str(saved_ai.get("ollama_host", "") or "").strip()
-    if provider == "gemini" and not api_key:
-        api_key = str(saved_ai.get("gemini_api_key", "") or "").strip()
-    if provider == "openrouter" and not api_key:
-        api_key = str(saved_ai.get("openrouter_api_key", "") or "").strip()
-    if provider == "agent_router" and not api_key:
-        api_key = str(saved_ai.get("agent_router_api_key", "") or "").strip()
-
-    ok, message = _validate_ai_provider_runtime(provider, model, api_key, ollama_host)
-    _record_audit(
-        event_type="admin_ai_provider_validated",
-        actor_user_id=context.user_id,
-        metadata={
-            "provider": provider,
-            "model": model,
-            "ok": bool(ok),
-        },
-    )
-    return _json_response(
-        {
-            "success": True,
-            "provider": provider,
-            "model": model,
-            "valid": bool(ok),
-            "message": str(message or ""),
-        },
-        session_id=context.session_id,
-    )
-
-
-@app.get("/<asset_path:path>")
-def serve_static_assets(asset_path: str):
-    if asset_path.startswith("api/"):
-        return HTTPResponse(status=404, body="Not found")
-    return static_file(asset_path, root=WEB_DIR)
+_register_routes()
 
 
 def main():

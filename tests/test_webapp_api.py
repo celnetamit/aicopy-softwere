@@ -344,6 +344,11 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('id="admin-setting-online-reference-validation-admin-cap"', html)
         self.assertIn('id="admin-setting-auto-resolve-unresolved-references"', html)
+        self.assertIn('id="admin-setting-ollama-generate-timeout-seconds"', html)
+        self.assertIn('id="admin-setting-ollama-health-timeout-seconds"', html)
+        self.assertIn('id="admin-setting-ollama-retry-count"', html)
+        self.assertIn('id="admin-setting-ollama-retry-backoff-seconds"', html)
+        self.assertIn('id="admin-setting-ollama-fallback-model-retry"', html)
         self.assertIn('id="admin-reference-unresolved-trend-summary"', html)
         self.assertIn('id="admin-reference-diagnostics-trends-output"', html)
 
@@ -990,6 +995,11 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
                 "section_chunk_chars": 6000,
                 "section_chunk_lines": 32,
                 "global_consistency_max_chars": 19000,
+                "ollama_generate_timeout_seconds": 35,
+                "ollama_health_timeout_seconds": 4,
+                "ollama_retry_count": 2,
+                "ollama_retry_backoff_seconds": 0.25,
+                "ollama_fallback_model_retry": False,
             },
         }
         status, payload = admin_client.request("POST", "/api/admin/global-settings", {"settings": updated})
@@ -999,6 +1009,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(payload.get("settings", {}).get("editing", {}).get("cmos_profile"), "strict")
         self.assertEqual(int(payload.get("settings", {}).get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
         self.assertFalse(payload.get("settings", {}).get("editing", {}).get("auto_resolve_unresolved_references"))
+        admin_ai = payload.get("settings", {}).get("ai", {})
+        self.assertEqual(float(admin_ai.get("ollama_generate_timeout_seconds", 0)), 35)
+        self.assertEqual(float(admin_ai.get("ollama_health_timeout_seconds", 0)), 4)
+        self.assertEqual(int(admin_ai.get("ollama_retry_count", 0)), 2)
+        self.assertEqual(float(admin_ai.get("ollama_retry_backoff_seconds", 0)), 0.25)
+        self.assertFalse(admin_ai.get("ollama_fallback_model_retry"))
 
         user_client = WsgiTestClient(webapp.app)
         status, payload = user_client.request("POST", "/api/auth/google-login", {"id_token": "test:user@conwiz.in"})
@@ -1012,6 +1028,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(user_settings.get("editing", {}).get("cmos_profile"), "strict")
         self.assertEqual(int(user_settings.get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
         self.assertFalse(user_settings.get("editing", {}).get("auto_resolve_unresolved_references"))
+        user_ai = user_settings.get("ai", {})
+        self.assertEqual(float(user_ai.get("ollama_generate_timeout_seconds", 0)), 35)
+        self.assertEqual(float(user_ai.get("ollama_health_timeout_seconds", 0)), 4)
+        self.assertEqual(int(user_ai.get("ollama_retry_count", 0)), 2)
+        self.assertEqual(float(user_ai.get("ollama_retry_backoff_seconds", 0)), 0.25)
+        self.assertFalse(user_ai.get("ollama_fallback_model_retry"))
         self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
         self.assertEqual(user_settings.get("ai", {}).get("agent_router_api_key", ""), "")
 

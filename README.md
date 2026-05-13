@@ -445,6 +445,13 @@ A Word document with track changes enabled showing:
 **Processing seems slow**:
 - AI processing depends on your hardware
 - Without Ollama, rule-based editing is faster but less comprehensive
+- Admins can tune Ollama transport in Global Settings: generate timeout,
+  health timeout, retry count, retry backoff, and fallback-model retry. The same
+  defaults can be set with `MANUSCRIPT_EDITOR_OLLAMA_GENERATE_TIMEOUT_SECONDS`,
+  `MANUSCRIPT_EDITOR_OLLAMA_HEALTH_TIMEOUT_SECONDS`,
+  `MANUSCRIPT_EDITOR_OLLAMA_RETRY_COUNT`,
+  `MANUSCRIPT_EDITOR_OLLAMA_RETRY_BACKOFF_SECONDS`, and
+  `MANUSCRIPT_EDITOR_OLLAMA_FALLBACK_MODEL_RETRY`.
 
 ## License
 

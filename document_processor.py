@@ -7,6 +7,7 @@ import difflib
 import html
 import subprocess
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timezone
 import requests
@@ -21,6 +22,39 @@ from docx.shared import RGBColor, Pt, Inches
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from chicago_editor import ChicagoEditor
+
+
+def _coerce_float(value, fallback: float, min_value: float, max_value: float) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        parsed = float(fallback)
+    return max(min_value, min(max_value, parsed))
+
+
+def _coerce_int(value, fallback: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = int(fallback)
+    return max(min_value, min(max_value, parsed))
+
+
+def _coerce_bool(value, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return bool(fallback)
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on", "enabled"):
+        return True
+    if text in ("0", "false", "no", "off", "disabled"):
+        return False
+    return bool(fallback)
+
+
+def _format_seconds(value: float) -> str:
+    return f"{float(value):g}s"
 
 
 class DocumentProcessor:
@@ -47,7 +81,36 @@ class DocumentProcessor:
         self.gemini_model = "gemini-1.5-flash"
         self.openrouter_model = "openrouter/auto"
         self.agent_router_model = "deepseek-v3.1"
+        self.ollama_generate_timeout_seconds = _coerce_float(
+            os.getenv("MANUSCRIPT_EDITOR_OLLAMA_GENERATE_TIMEOUT_SECONDS"),
+            60.0,
+            1.0,
+            600.0,
+        )
+        self.ollama_health_timeout_seconds = _coerce_float(
+            os.getenv("MANUSCRIPT_EDITOR_OLLAMA_HEALTH_TIMEOUT_SECONDS"),
+            5.0,
+            1.0,
+            60.0,
+        )
+        self.ollama_retry_count = _coerce_int(
+            os.getenv("MANUSCRIPT_EDITOR_OLLAMA_RETRY_COUNT"),
+            0,
+            0,
+            3,
+        )
+        self.ollama_retry_backoff_seconds = _coerce_float(
+            os.getenv("MANUSCRIPT_EDITOR_OLLAMA_RETRY_BACKOFF_SECONDS"),
+            0.0,
+            0.0,
+            30.0,
+        )
+        self.ollama_fallback_model_retry = _coerce_bool(
+            os.getenv("MANUSCRIPT_EDITOR_OLLAMA_FALLBACK_MODEL_RETRY"),
+            True,
+        )
         self._last_ai_warning = ""
+        self._warned_ai_warning_keys: Set[str] = set()
         self._last_selection_note = ""
         self._last_ai_pipeline_note = ""
         self._last_chunk_decisions: List[Dict] = []
@@ -60,6 +123,7 @@ class DocumentProcessor:
 
     def _reset_processing_audit(self):
         """Reset per-run audit data."""
+        self._warned_ai_warning_keys.clear()
         self._last_chunk_decisions = []
         self._last_processing_audit = {
             "mode": "rule_only",
@@ -831,73 +895,176 @@ Final consistent manuscript:"""
             "openrouter_api_key": openrouter_api_key,
             "agent_router_api_key": agent_router_api_key,
             "ai_first_cmos": bool(ai_options.get("ai_first_cmos", False)),
+            "ollama_generate_timeout_seconds": _coerce_float(
+                ai_options.get("ollama_generate_timeout_seconds", self.ollama_generate_timeout_seconds),
+                self.ollama_generate_timeout_seconds,
+                1.0,
+                600.0,
+            ),
+            "ollama_health_timeout_seconds": _coerce_float(
+                ai_options.get("ollama_health_timeout_seconds", self.ollama_health_timeout_seconds),
+                self.ollama_health_timeout_seconds,
+                1.0,
+                60.0,
+            ),
+            "ollama_retry_count": _coerce_int(
+                ai_options.get("ollama_retry_count", self.ollama_retry_count),
+                self.ollama_retry_count,
+                0,
+                3,
+            ),
+            "ollama_retry_backoff_seconds": _coerce_float(
+                ai_options.get("ollama_retry_backoff_seconds", self.ollama_retry_backoff_seconds),
+                self.ollama_retry_backoff_seconds,
+                0.0,
+                30.0,
+            ),
+            "ollama_fallback_model_retry": _coerce_bool(
+                ai_options.get("ollama_fallback_model_retry", self.ollama_fallback_model_retry),
+                self.ollama_fallback_model_retry,
+            ),
         }
 
     def _call_ollama_editor(self, prompt: str, settings: Dict) -> Optional[str]:
         """Call Ollama AI for enhanced editing."""
         ollama_host = settings["ollama_host"]
-        if not self._check_ollama(ollama_host):
-            self._warn_once("Ollama is not reachable; falling back to rule-based editing.")
+        health_timeout = float(settings.get("ollama_health_timeout_seconds", self.ollama_health_timeout_seconds))
+        generate_timeout = float(settings.get("ollama_generate_timeout_seconds", self.ollama_generate_timeout_seconds))
+
+        if not self._check_ollama(ollama_host, timeout=health_timeout):
+            self._warn_once(
+                "Ollama is not reachable; falling back to rule-based editing.",
+                category="ollama_unreachable",
+            )
             return None
 
-        resolved_model = self._resolve_ollama_model(ollama_host, settings["model"])
+        resolved_model = self._resolve_ollama_model(ollama_host, settings["model"], timeout=health_timeout)
         if not resolved_model:
-            self._warn_once("No Ollama model found; falling back to rule-based editing.")
+            self._warn_once(
+                "No Ollama model found; falling back to rule-based editing.",
+                category="ollama_no_model",
+            )
             return None
 
         if resolved_model != settings["model"]:
             self._warn_once(
-                f"Ollama model '{settings['model']}' not available. Using '{resolved_model}' instead."
+                f"Ollama model '{settings['model']}' not available. Using '{resolved_model}' instead.",
+                category="ollama_model_resolved",
             )
 
         try:
-            response = requests.post(
-                f"{ollama_host}/api/generate",
-                json={
-                    "model": resolved_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.3}
-                },
-                timeout=60
+            response = self._post_ollama_generate_with_retries(
+                ollama_host,
+                resolved_model,
+                prompt,
+                settings,
             )
 
             if response.status_code == 200:
-                self._last_ai_warning = ""
+                self._clear_ai_warning_state()
                 result = response.json().get("response", "")
                 return self._extract_corrected_text(result)
             if response.status_code == 404 and "not found" in response.text.lower():
-                fallback_model = self._resolve_ollama_model(ollama_host, "")
+                fallback_model = None
+                if _coerce_bool(settings.get("ollama_fallback_model_retry", True), True):
+                    fallback_model = self._resolve_ollama_model(ollama_host, "", timeout=health_timeout)
                 if fallback_model and fallback_model != resolved_model:
-                    retry = requests.post(
-                        f"{ollama_host}/api/generate",
-                        json={
-                            "model": fallback_model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "options": {"temperature": 0.3}
-                        },
-                        timeout=60
+                    retry = self._post_ollama_generate_with_retries(
+                        ollama_host,
+                        fallback_model,
+                        prompt,
+                        settings,
                     )
                     if retry.status_code == 200:
                         self._warn_once(
-                            f"Ollama model '{resolved_model}' not found. Retried with '{fallback_model}'."
+                            f"Ollama model '{resolved_model}' not found. Retried with '{fallback_model}'.",
+                            category="ollama_fallback_model_retry",
                         )
-                        self._last_ai_warning = ""
+                        self._clear_ai_warning_state()
                         result = retry.json().get("response", "")
                         return self._extract_corrected_text(result)
                 self._warn_once(
-                    f"Ollama model '{resolved_model}' not found; falling back to rule-based editing."
+                    f"Ollama model '{resolved_model}' not found; falling back to rule-based editing.",
+                    category="ollama_model_not_found",
                 )
                 return None
 
             self._warn_once(
-                f"Ollama editing failed ({response.status_code}); falling back to rule-based editing."
+                self._format_ollama_status_warning(response.status_code, settings),
+                category=f"ollama_status_{response.status_code}",
+            )
+        except requests.exceptions.Timeout:
+            self._warn_once(
+                f"Ollama request timed out after {_format_seconds(generate_timeout)}; falling back to rule-based editing.",
+                category="ollama_timeout",
+            )
+        except requests.exceptions.ConnectionError:
+            self._warn_once(
+                "Ollama request could not connect; falling back to rule-based editing.",
+                category="ollama_connection_error",
+            )
+        except requests.exceptions.RequestException:
+            self._warn_once(
+                "Ollama request failed; falling back to rule-based editing.",
+                category="ollama_request_error",
             )
         except Exception as e:
-            self._warn_once(f"Ollama editing failed: {e}")
+            self._warn_once(
+                f"Ollama editing failed: {type(e).__name__}; falling back to rule-based editing.",
+                category="ollama_unexpected_error",
+            )
 
         return None
+
+    def _post_ollama_generate_with_retries(
+        self,
+        ollama_host: str,
+        model: str,
+        prompt: str,
+        settings: Dict,
+    ):
+        timeout = float(settings.get("ollama_generate_timeout_seconds", self.ollama_generate_timeout_seconds))
+        retry_count = _coerce_int(settings.get("ollama_retry_count", self.ollama_retry_count), self.ollama_retry_count, 0, 3)
+        backoff_seconds = _coerce_float(
+            settings.get("ollama_retry_backoff_seconds", self.ollama_retry_backoff_seconds),
+            self.ollama_retry_backoff_seconds,
+            0.0,
+            30.0,
+        )
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3},
+        }
+
+        attempts = retry_count + 1
+        for attempt_index in range(attempts):
+            try:
+                response = requests.post(
+                    f"{ollama_host}/api/generate",
+                    json=payload,
+                    timeout=timeout,
+                )
+                if not self._is_ollama_retryable_status(response.status_code) or attempt_index >= retry_count:
+                    return response
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt_index >= retry_count:
+                    raise
+            if backoff_seconds > 0 and attempt_index < retry_count:
+                time.sleep(backoff_seconds)
+
+        # The loop always returns or raises, but this keeps type checkers calm.
+        return response
+
+    def _is_ollama_retryable_status(self, status_code: int) -> bool:
+        return int(status_code) in {408, 429, 500, 502, 503, 504}
+
+    def _format_ollama_status_warning(self, status_code: int, settings: Dict) -> str:
+        attempts = _coerce_int(settings.get("ollama_retry_count", 0), 0, 0, 3) + 1
+        if attempts > 1 and self._is_ollama_retryable_status(status_code):
+            return f"Ollama editing failed ({status_code}) after {attempts} attempts; falling back to rule-based editing."
+        return f"Ollama editing failed ({status_code}); falling back to rule-based editing."
 
     def _call_gemini_editor(self, prompt: str, settings: Dict) -> Optional[str]:
         """Call Gemini AI for enhanced editing."""
@@ -1172,11 +1339,16 @@ Final consistent manuscript:"""
         }
         return rules_corrected
 
-    def _warn_once(self, message: str):
+    def _clear_ai_warning_state(self):
+        self._last_ai_warning = ""
+
+    def _warn_once(self, message: str, category: str = ""):
         """Print non-fatal AI warning once until state changes."""
-        if message != self._last_ai_warning:
+        warning_key = category or message
+        if warning_key not in self._warned_ai_warning_keys:
             print(message)
-            self._last_ai_warning = message
+            self._warned_ai_warning_keys.add(warning_key)
+        self._last_ai_warning = message
 
     def _extract_gemini_text(self, response_json: Dict) -> str:
         """Extract response text from Gemini payload."""
@@ -1212,19 +1384,25 @@ Final consistent manuscript:"""
                     return joined
         return ""
 
-    def _check_ollama(self, ollama_host: str) -> bool:
+    def _check_ollama(self, ollama_host: str, timeout: Optional[float] = None) -> bool:
         """Check if Ollama is running."""
         try:
-            response = requests.get(f"{ollama_host}/api/tags", timeout=5)
+            response = requests.get(
+                f"{ollama_host}/api/tags",
+                timeout=float(timeout or self.ollama_health_timeout_seconds),
+            )
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
-    def _get_ollama_models(self, ollama_host: str) -> List[str]:
+    def _get_ollama_models(self, ollama_host: str, timeout: Optional[float] = None) -> List[str]:
         """Return available Ollama model names."""
         names: List[str] = []
         try:
-            response = requests.get(f"{ollama_host}/api/tags", timeout=5)
+            response = requests.get(
+                f"{ollama_host}/api/tags",
+                timeout=float(timeout or self.ollama_health_timeout_seconds),
+            )
             if response.status_code == 200:
                 data = response.json()
                 models = data.get("models", []) if isinstance(data, dict) else []
@@ -1246,7 +1424,7 @@ Final consistent manuscript:"""
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=float(timeout or self.ollama_health_timeout_seconds),
             )
             if proc.returncode == 0 and proc.stdout:
                 for line in proc.stdout.splitlines()[1:]:
@@ -1261,9 +1439,14 @@ Final consistent manuscript:"""
 
         return names
 
-    def _resolve_ollama_model(self, ollama_host: str, requested_model: str) -> Optional[str]:
+    def _resolve_ollama_model(
+        self,
+        ollama_host: str,
+        requested_model: str,
+        timeout: Optional[float] = None,
+    ) -> Optional[str]:
         """Resolve a usable Ollama model, preferring requested model when available."""
-        available = self._get_ollama_models(ollama_host)
+        available = self._get_ollama_models(ollama_host, timeout=timeout)
         if not available:
             return None
 

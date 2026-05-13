@@ -4,6 +4,8 @@ import re
 import unittest
 from unittest.mock import Mock, patch
 
+import requests
+
 from chicago_editor import ChicagoEditor
 from document_processor import DocumentProcessor
 
@@ -1213,6 +1215,85 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
 
 
 class ProcessorRegressionTests(unittest.TestCase):
+    def test_ollama_transport_settings_are_bounded(self):
+        processor = DocumentProcessor()
+        settings = processor._get_ai_settings(
+            {
+                "ai": {
+                    "provider": "ollama",
+                    "ollama_generate_timeout_seconds": 700,
+                    "ollama_health_timeout_seconds": 0,
+                    "ollama_retry_count": 9,
+                    "ollama_retry_backoff_seconds": -2,
+                    "ollama_fallback_model_retry": "false",
+                }
+            }
+        )
+
+        self.assertEqual(settings.get("ollama_generate_timeout_seconds"), 600)
+        self.assertEqual(settings.get("ollama_health_timeout_seconds"), 1)
+        self.assertEqual(settings.get("ollama_retry_count"), 3)
+        self.assertEqual(settings.get("ollama_retry_backoff_seconds"), 0)
+        self.assertFalse(settings.get("ollama_fallback_model_retry"))
+
+    def test_ollama_timeout_warning_is_sanitized_and_deduped(self):
+        processor = DocumentProcessor()
+        settings = processor._get_ai_settings(
+            {
+                "ai": {
+                    "provider": "ollama",
+                    "model": "llama3.1",
+                    "ollama_generate_timeout_seconds": 3,
+                    "ollama_retry_count": 0,
+                }
+            }
+        )
+
+        with patch.object(processor, "_check_ollama", return_value=True):
+            with patch.object(processor, "_resolve_ollama_model", return_value="llama3.1"):
+                with patch(
+                    "document_processor.requests.post",
+                    side_effect=requests.exceptions.Timeout("HTTPConnectionPool read timed out"),
+                ):
+                    with patch("builtins.print") as mock_print:
+                        self.assertIsNone(processor._call_ollama_editor("Prompt one", settings))
+                        self.assertIsNone(processor._call_ollama_editor("Prompt two", settings))
+
+        messages = [call.args[0] for call in mock_print.call_args_list]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Ollama request timed out after 3s", messages[0])
+        self.assertNotIn("HTTPConnectionPool", messages[0])
+
+    def test_ollama_retry_reuses_same_payload_for_transient_timeout(self):
+        processor = DocumentProcessor()
+        settings = processor._get_ai_settings(
+            {
+                "ai": {
+                    "provider": "ollama",
+                    "model": "llama3.1",
+                    "ollama_retry_count": 1,
+                    "ollama_retry_backoff_seconds": 0,
+                }
+            }
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"response": "Corrected text"}
+
+        with patch.object(processor, "_check_ollama", return_value=True):
+            with patch.object(processor, "_resolve_ollama_model", return_value="llama3.1"):
+                with patch(
+                    "document_processor.requests.post",
+                    side_effect=[requests.exceptions.Timeout("temporary timeout"), response],
+                ) as mock_post:
+                    result = processor._call_ollama_editor("Prompt body", settings)
+
+        self.assertEqual(result, "Corrected text")
+        self.assertEqual(mock_post.call_count, 2)
+        first_payload = mock_post.call_args_list[0].kwargs.get("json")
+        second_payload = mock_post.call_args_list[1].kwargs.get("json")
+        self.assertEqual(first_payload, second_payload)
+
     def test_redline_highlights_only_changed_tokens(self):
         processor = DocumentProcessor()
         html = processor.build_redline_html("Hello world.", "Hello brave world.")

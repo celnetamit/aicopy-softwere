@@ -297,7 +297,12 @@ function buildProcessingOptionsFromRuntimeSettings() {
             section_threshold_paragraphs: 90,
             section_chunk_chars: 5500,
             section_chunk_lines: 28,
-            global_consistency_max_chars: 18000
+            global_consistency_max_chars: 18000,
+            ollama_generate_timeout_seconds: 60,
+            ollama_health_timeout_seconds: 5,
+            ollama_retry_count: 0,
+            ollama_retry_backoff_seconds: 0,
+            ollama_fallback_model_retry: true
         }
     };
     if (!settings) {
@@ -335,7 +340,12 @@ function buildProcessingOptionsFromRuntimeSettings() {
             section_threshold_paragraphs: Number(ai.section_threshold_paragraphs || 90),
             section_chunk_chars: Number(ai.section_chunk_chars || 5500),
             section_chunk_lines: Number(ai.section_chunk_lines || 28),
-            global_consistency_max_chars: Number(ai.global_consistency_max_chars || 18000)
+            global_consistency_max_chars: Number(ai.global_consistency_max_chars || 18000),
+            ollama_generate_timeout_seconds: Number(ai.ollama_generate_timeout_seconds || 60),
+            ollama_health_timeout_seconds: Number(ai.ollama_health_timeout_seconds || 5),
+            ollama_retry_count: Number(ai.ollama_retry_count || 0),
+            ollama_retry_backoff_seconds: Number(ai.ollama_retry_backoff_seconds || 0),
+            ollama_fallback_model_retry: ai.ollama_fallback_model_retry !== false
         }
     };
 }
@@ -961,6 +971,11 @@ function applyAdminGlobalSettingsForm(settings) {
     if (authDom.adminSettingSectionChunkChars) authDom.adminSettingSectionChunkChars.value = Number(ai.section_chunk_chars || 5500);
     if (authDom.adminSettingSectionChunkLines) authDom.adminSettingSectionChunkLines.value = Number(ai.section_chunk_lines || 28);
     if (authDom.adminSettingGlobalConsistencyMaxChars) authDom.adminSettingGlobalConsistencyMaxChars.value = Number(ai.global_consistency_max_chars || 18000);
+    if (authDom.adminSettingOllamaGenerateTimeoutSeconds) authDom.adminSettingOllamaGenerateTimeoutSeconds.value = authHelpers.clampNumber(ai.ollama_generate_timeout_seconds, 1, 600, 60);
+    if (authDom.adminSettingOllamaHealthTimeoutSeconds) authDom.adminSettingOllamaHealthTimeoutSeconds.value = authHelpers.clampNumber(ai.ollama_health_timeout_seconds, 1, 60, 5);
+    if (authDom.adminSettingOllamaRetryCount) authDom.adminSettingOllamaRetryCount.value = authHelpers.clampInt(ai.ollama_retry_count, 0, 3, 0);
+    if (authDom.adminSettingOllamaRetryBackoffSeconds) authDom.adminSettingOllamaRetryBackoffSeconds.value = authHelpers.clampNumber(ai.ollama_retry_backoff_seconds, 0, 30, 0);
+    if (authDom.adminSettingOllamaFallbackModelRetry) authDom.adminSettingOllamaFallbackModelRetry.checked = ai.ollama_fallback_model_retry !== false;
     updateAdminGlobalAiProviderUI(false);
 }
 
@@ -1002,7 +1017,12 @@ function collectAdminGlobalSettingsForm() {
             section_threshold_paragraphs: authHelpers.clampInt(authDom.adminSettingSectionThresholdParagraphs ? authDom.adminSettingSectionThresholdParagraphs.value : 90, 20, 1000, 90),
             section_chunk_chars: authHelpers.clampInt(authDom.adminSettingSectionChunkChars ? authDom.adminSettingSectionChunkChars.value : 5500, 1800, 30000, 5500),
             section_chunk_lines: authHelpers.clampInt(authDom.adminSettingSectionChunkLines ? authDom.adminSettingSectionChunkLines.value : 28, 8, 200, 28),
-            global_consistency_max_chars: authHelpers.clampInt(authDom.adminSettingGlobalConsistencyMaxChars ? authDom.adminSettingGlobalConsistencyMaxChars.value : 18000, 6000, 120000, 18000)
+            global_consistency_max_chars: authHelpers.clampInt(authDom.adminSettingGlobalConsistencyMaxChars ? authDom.adminSettingGlobalConsistencyMaxChars.value : 18000, 6000, 120000, 18000),
+            ollama_generate_timeout_seconds: authHelpers.clampNumber(authDom.adminSettingOllamaGenerateTimeoutSeconds ? authDom.adminSettingOllamaGenerateTimeoutSeconds.value : 60, 1, 600, 60),
+            ollama_health_timeout_seconds: authHelpers.clampNumber(authDom.adminSettingOllamaHealthTimeoutSeconds ? authDom.adminSettingOllamaHealthTimeoutSeconds.value : 5, 1, 60, 5),
+            ollama_retry_count: authHelpers.clampInt(authDom.adminSettingOllamaRetryCount ? authDom.adminSettingOllamaRetryCount.value : 0, 0, 3, 0),
+            ollama_retry_backoff_seconds: authHelpers.clampNumber(authDom.adminSettingOllamaRetryBackoffSeconds ? authDom.adminSettingOllamaRetryBackoffSeconds.value : 0, 0, 30, 0),
+            ollama_fallback_model_retry: authDom.adminSettingOllamaFallbackModelRetry ? authDom.adminSettingOllamaFallbackModelRetry.checked : true
         }
     };
 }

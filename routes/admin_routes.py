@@ -1,0 +1,225 @@
+"""Admin user, audit, settings, diagnostics, and provider validation routes."""
+
+from bottle import request
+
+
+def register_admin_routes(app, deps):
+    @app.get("/api/admin/users")
+    @deps.require_admin
+    def api_admin_users():
+        context = deps.auth_context_from_request()
+        try:
+            limit = int(str(request.query.get("limit", "200") or "200"))
+        except Exception:
+            limit = 200
+
+        users = deps.store.list_users(limit=limit)
+        payload = []
+        for user in users:
+            payload.append(
+                {
+                    "id": str(user.get("id") or ""),
+                    "email": str(user.get("email") or ""),
+                    "display_name": str(user.get("display_name") or ""),
+                    "domain": str(user.get("domain") or ""),
+                    "role": str(user.get("role") or "USER"),
+                    "status": str(user.get("status") or deps.status_active),
+                    "last_login_at": int(user.get("last_login_at") or 0),
+                    "created_at": int(user.get("created_at") or 0),
+                    "updated_at": int(user.get("updated_at") or 0),
+                }
+            )
+
+        deps.record_audit(event_type="admin_users_viewed", actor_user_id=context.user_id)
+        return deps.json_response({"success": True, "users": payload}, session_id=context.session_id)
+
+    @app.post("/api/admin/users/<user_id>/status")
+    @deps.require_admin
+    def api_admin_set_user_status(user_id: str):
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        status = str(payload.get("status", deps.status_active) or deps.status_active).upper().strip()
+        if status not in (deps.status_active, deps.status_inactive):
+            status = deps.status_inactive
+
+        if user_id == context.user_id and status == deps.status_inactive:
+            return deps.json_response(deps.error_payload("ADMIN_SELF_DEACTIVATE_BLOCKED", "Admin cannot deactivate self"), status=400)
+
+        user = deps.store.set_user_status(user_id=user_id, status=status)
+        if user is None:
+            return deps.json_response(deps.error_payload("USER_NOT_FOUND", "User not found"), status=404)
+
+        deps.record_audit(
+            event_type="admin_user_status_changed",
+            actor_user_id=context.user_id,
+            target_user_id=user_id,
+            entity_type="user",
+            entity_id=user_id,
+            metadata={"status": status},
+        )
+
+        return deps.json_response(
+            {
+                "success": True,
+                "user": {
+                    "id": str(user.get("id") or ""),
+                    "email": str(user.get("email") or ""),
+                    "display_name": str(user.get("display_name") or ""),
+                    "role": str(user.get("role") or "USER"),
+                    "status": str(user.get("status") or deps.status_active),
+                },
+            },
+            session_id=context.session_id,
+        )
+
+    @app.get("/api/admin/audit-events")
+    @deps.require_admin
+    def api_admin_audit_events():
+        context = deps.auth_context_from_request()
+
+        try:
+            limit = int(str(request.query.get("limit", "200") or "200"))
+        except Exception:
+            limit = 200
+
+        actor_user_id = str(request.query.get("actor_user_id", "") or "").strip()
+        event_type = str(request.query.get("event_type", "") or "").strip()
+
+        try:
+            date_from = int(str(request.query.get("date_from", "0") or "0"))
+        except Exception:
+            date_from = 0
+
+        try:
+            date_to = int(str(request.query.get("date_to", "0") or "0"))
+        except Exception:
+            date_to = 0
+
+        events = deps.store.list_audit_events(
+            limit=limit,
+            actor_user_id=actor_user_id,
+            event_type=event_type,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        deps.record_audit(event_type="admin_audit_viewed", actor_user_id=context.user_id)
+        return deps.json_response({"success": True, "events": events}, session_id=context.session_id)
+
+    @app.get("/api/admin/global-settings")
+    @deps.require_admin
+    def api_admin_get_global_settings():
+        context = deps.auth_context_from_request()
+        settings = deps.read_global_runtime_settings()
+        deps.record_audit(event_type="admin_global_settings_viewed", actor_user_id=context.user_id)
+        return deps.json_response({"success": True, "settings": settings}, session_id=context.session_id)
+
+    @app.post("/api/admin/global-settings")
+    @deps.require_admin
+    def api_admin_update_global_settings():
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        incoming = payload.get("settings", payload)
+        if not isinstance(incoming, dict):
+            incoming = {}
+        normalized = deps.normalize_global_runtime_settings(incoming)
+        deps.store.upsert_app_setting(
+            key=deps.app_setting_key_global_runtime,
+            value=normalized,
+            updated_by_user_id=context.user_id,
+        )
+        deps.record_audit(
+            event_type="admin_global_settings_updated",
+            actor_user_id=context.user_id,
+            metadata={
+                "ai_provider": normalized.get("ai", {}).get("provider"),
+                "ai_enabled": normalized.get("ai", {}).get("enabled"),
+                "domain_profile": normalized.get("editing", {}).get("domain_profile"),
+            },
+        )
+        return deps.json_response({"success": True, "settings": normalized}, session_id=context.session_id)
+
+    @app.get("/api/admin/reference-validation-diagnostics")
+    @deps.require_admin
+    def api_admin_reference_validation_diagnostics():
+        context = deps.auth_context_from_request()
+        diagnostics = deps.build_reference_validation_diagnostics_payload()
+        deps.record_audit(
+            event_type="admin_reference_validation_diagnostics_viewed",
+            actor_user_id=context.user_id,
+            metadata={
+                "serper_configured": bool((diagnostics.get("serper", {}) or {}).get("configured")),
+                "serper_effective_enabled": bool((diagnostics.get("serper", {}) or {}).get("effective_enabled")),
+            },
+        )
+        return deps.json_response({"success": True, "diagnostics": diagnostics}, session_id=context.session_id)
+
+    @app.post("/api/admin/reference-validation-diagnostics/reset")
+    @deps.require_admin
+    def api_admin_reference_validation_diagnostics_reset():
+        context = deps.auth_context_from_request()
+        result = deps.reset_reference_validation_diagnostics_payload()
+        diagnostics = result.get("diagnostics", {}) if isinstance(result, dict) else {}
+        removed_cache_entries = int((result or {}).get("removed_cache_entries", 0))
+        deps.record_audit(
+            event_type="admin_reference_validation_diagnostics_reset",
+            actor_user_id=context.user_id,
+            metadata={
+                "removed_cache_entries": removed_cache_entries,
+                "serper_configured": bool((diagnostics.get("serper", {}) or {}).get("configured")),
+                "serper_effective_enabled": bool((diagnostics.get("serper", {}) or {}).get("effective_enabled")),
+            },
+        )
+        return deps.json_response(
+            {
+                "success": True,
+                "removed_cache_entries": removed_cache_entries,
+                "diagnostics": diagnostics,
+            },
+            session_id=context.session_id,
+        )
+
+    @app.post("/api/admin/validate-ai-provider")
+    @deps.require_admin
+    def api_admin_validate_ai_provider():
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        provider = str(payload.get("provider", "") or "").strip().lower()
+        model = str(payload.get("model", "") or "").strip()
+        api_key = str(payload.get("api_key", "") or "").strip()
+        ollama_host = str(payload.get("ollama_host", "") or "").strip()
+
+        saved_settings = deps.read_global_runtime_settings()
+        saved_ai = saved_settings.get("ai", {}) if isinstance(saved_settings.get("ai", {}), dict) else {}
+        saved_provider = str(saved_ai.get("provider", "") or "").strip().lower()
+        if not model and saved_provider == provider:
+            model = str(saved_ai.get("model", "") or "").strip()
+        if provider == "ollama" and not ollama_host:
+            ollama_host = str(saved_ai.get("ollama_host", "") or "").strip()
+        if provider == "gemini" and not api_key:
+            api_key = str(saved_ai.get("gemini_api_key", "") or "").strip()
+        if provider == "openrouter" and not api_key:
+            api_key = str(saved_ai.get("openrouter_api_key", "") or "").strip()
+        if provider == "agent_router" and not api_key:
+            api_key = str(saved_ai.get("agent_router_api_key", "") or "").strip()
+
+        ok, message = deps.validate_ai_provider_runtime(provider, model, api_key, ollama_host)
+        deps.record_audit(
+            event_type="admin_ai_provider_validated",
+            actor_user_id=context.user_id,
+            metadata={
+                "provider": provider,
+                "model": model,
+                "ok": bool(ok),
+            },
+        )
+        return deps.json_response(
+            {
+                "success": True,
+                "provider": provider,
+                "model": model,
+                "valid": bool(ok),
+                "message": str(message or ""),
+            },
+            session_id=context.session_id,
+        )
