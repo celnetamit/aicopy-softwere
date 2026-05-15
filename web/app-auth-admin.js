@@ -4,6 +4,49 @@ const authDom = appAuth.dom;
 const authHelpers = appAuth.helpers;
 const authConstants = appAuth.constants;
 
+function getApiClient() {
+    return window.ManuscriptApi && typeof window.ManuscriptApi === 'object'
+        ? window.ManuscriptApi
+        : null;
+}
+
+function handleApiPromise(promise, callback) {
+    return Promise.resolve(promise)
+        .then((response) => {
+            if (typeof callback === 'function') {
+                callback(response);
+            }
+            return response;
+        })
+        .catch((err) => {
+            const response = {
+                success: false,
+                error: String(err && err.message ? err.message : err)
+            };
+            if (typeof callback === 'function') {
+                callback(response);
+            }
+            return response;
+        });
+}
+
+function callApiOrEel(apiInvoker, eelMethod, eelArgs, callback) {
+    const api = getApiClient();
+    if (api && typeof apiInvoker === 'function') {
+        const promise = apiInvoker(api);
+        if (promise) {
+            handleApiPromise(promise, callback);
+            return true;
+        }
+    }
+    const eelBridge = typeof eel !== 'undefined' && eel ? eel : null;
+    if (eelBridge && typeof eelBridge[eelMethod] === 'function') {
+        eelBridge[eelMethod].apply(eelBridge, eelArgs || [])(callback);
+        return true;
+    }
+    return false;
+}
+
 function setLoginStatus(message, type = 'info') {
     if (!authDom.loginStatus) {
         return;
@@ -172,87 +215,55 @@ function applyCurrentUser(user) {
 }
 
 function renderTaskHistory() {
-    if (!authDom.taskHistoryEl) {
-        return;
+    const tasksPage = appAuth.pages && appAuth.pages.tasks;
+    if (tasksPage && typeof tasksPage.renderTaskHistory === 'function') {
+        tasksPage.renderTaskHistory();
     }
-    if (!Array.isArray(authState.taskHistory) || authState.taskHistory.length === 0) {
-        authDom.taskHistoryEl.innerHTML = '<p class="task-empty">No tasks yet. Upload a manuscript to start.</p>';
-        return;
-    }
-
-    let html = '';
-    authState.taskHistory.forEach((task) => {
-        const taskId = String(task.id || '');
-        const activeClass = taskId && taskId === authState.fileContent.taskId ? ' active' : '';
-        const status = authHelpers.escapeHtml(String(task.status || 'UPLOADED'));
-        const rawStatus = String(task.status || '').trim().toUpperCase();
-        const words = Number(task.word_count || 0);
-        const sourceType = String(task.source_type || 'text').toUpperCase();
-        const createdAt = Number(task.created_at || 0);
-        const processedAt = Number(task.processed_at || 0);
-        const updatedAt = Number(task.updated_at || 0);
-        let durationLabel = '';
-        if (rawStatus === 'PROCESSED' && createdAt > 0 && processedAt >= createdAt) {
-            durationLabel = `Processed in ${authHelpers.formatDurationSeconds(processedAt - createdAt)}`;
-        } else if (rawStatus === 'PROCESSING' && createdAt > 0 && updatedAt >= createdAt) {
-            durationLabel = `Processing for ${authHelpers.formatDurationSeconds(updatedAt - createdAt)}`;
-        }
-        html += `<div class="task-history-item${activeClass}" data-task-id="${authHelpers.escapeHtml(taskId)}">`;
-        html += `<div class="task-history-title">${authHelpers.escapeHtml(String(task.file_name || 'Untitled manuscript'))}</div>`;
-        html += `<div class="task-history-badges"><span class="task-history-badge">${authHelpers.escapeHtml(sourceType)}</span><span class="task-history-badge task-history-badge-status">${status}</span></div>`;
-        html += `<div class="task-history-meta">${status} • ${words} words • ${authHelpers.escapeHtml(authHelpers.formatUnixTimestamp(task.updated_at))}${durationLabel ? ` • ${authHelpers.escapeHtml(durationLabel)}` : ''}</div>`;
-        html += '</div>';
-    });
-    authDom.taskHistoryEl.innerHTML = html;
-
-    authDom.taskHistoryEl.querySelectorAll('.task-history-item[data-task-id]').forEach((node) => {
-        node.addEventListener('click', () => {
-            const taskId = String(node.getAttribute('data-task-id') || '').trim();
-            if (taskId) {
-                if (isTaskDetailRoute() && getCurrentTaskRouteId() === taskId) {
-                    loadTaskIntoEditor(taskId);
-                    return;
-                }
-                navigateToTask(taskId);
-            }
-        });
-    });
 }
 
 function refreshTaskHistory() {
-    if (typeof eel === 'undefined' || typeof eel.list_tasks !== 'function') {
+    const called = callApiOrEel(
+        (api) => api.tasks && typeof api.tasks.list === 'function' ? api.tasks.list(120) : null,
+        'list_tasks',
+        [120],
+        function (response) {
+            if (!response || !response.success) {
+                return;
+            }
+            authState.taskHistory = Array.isArray(response.tasks) ? response.tasks : [];
+            renderTaskHistory();
+        }
+    );
+    if (!called) {
         return;
     }
-    eel.list_tasks(120)(function (response) {
-        if (!response || !response.success) {
-            return;
-        }
-        authState.taskHistory = Array.isArray(response.tasks) ? response.tasks : [];
-        renderTaskHistory();
-    });
 }
 
 function refreshRuntimeSettings(callback) {
-    if (typeof eel === 'undefined' || typeof eel.get_runtime_settings !== 'function') {
-        authState.runtimeManagedSettings = null;
-        if (typeof callback === 'function') {
-            callback(null);
-        }
-        return;
-    }
-    eel.get_runtime_settings()(function (response) {
-        if (response && response.success && response.settings && typeof response.settings === 'object') {
-            authState.runtimeManagedSettings = response.settings;
-            if (typeof callback === 'function') {
-                callback(authState.runtimeManagedSettings);
+    const called = callApiOrEel(
+        (api) => api.runtime && typeof api.runtime.settings === 'function' ? api.runtime.settings() : null,
+        'get_runtime_settings',
+        [],
+        function (response) {
+            if (response && response.success && response.settings && typeof response.settings === 'object') {
+                authState.runtimeManagedSettings = response.settings;
+                if (typeof callback === 'function') {
+                    callback(authState.runtimeManagedSettings);
+                }
+                return;
             }
-            return;
+            authState.runtimeManagedSettings = null;
+            if (typeof callback === 'function') {
+                callback(null);
+            }
         }
+    );
+    if (!called) {
         authState.runtimeManagedSettings = null;
         if (typeof callback === 'function') {
             callback(null);
         }
-    });
+    }
 }
 
 function buildProcessingOptionsFromRuntimeSettings() {
@@ -427,18 +438,26 @@ function applyTaskDetailsToState(task) {
 }
 
 function loadTaskIntoEditor(taskId) {
-    if (!taskId || typeof eel === 'undefined' || typeof eel.get_task !== 'function') {
+    if (!taskId) {
         return;
     }
     appAuth.actions.setStatus('Loading task...', 'warning');
-    eel.get_task(taskId)(function (response) {
-        if (!response || !response.success || !response.task) {
-            appAuth.actions.setStatus('Could not load selected task', 'error');
-            return;
+    const called = callApiOrEel(
+        (api) => api.tasks && typeof api.tasks.get === 'function' ? api.tasks.get(taskId) : null,
+        'get_task',
+        [taskId],
+        function (response) {
+            if (!response || !response.success || !response.task) {
+                appAuth.actions.setStatus('Could not load selected task', 'error');
+                return;
+            }
+            applyTaskDetailsToState(response.task);
+            appAuth.actions.setStatus('Task loaded', 'success');
         }
-        applyTaskDetailsToState(response.task);
-        appAuth.actions.setStatus('Task loaded', 'success');
-    });
+    );
+    if (!called) {
+        appAuth.actions.setStatus('Could not load selected task', 'error');
+    }
 }
 
 function hydrateCurrentRouteTaskIfNeeded() {
@@ -480,41 +499,41 @@ function ensureGoogleSigninButton() {
 }
 
 function loadAuthConfigThenRenderLogin() {
-    if (typeof eel === 'undefined' || typeof eel.auth_config !== 'function') {
+    const called = callApiOrEel(
+        (api) => api.auth && typeof api.auth.config === 'function' ? api.auth.config() : null,
+        'auth_config',
+        [],
+        function (response) {
+            if (!response || !response.success) {
+                const message = response && response.error ? String(response.error) : 'Auth config unavailable';
+                setLoginStatus(message, 'error');
+                return;
+            }
+            window.__GOOGLE_CLIENT_ID__ = String(response.google_client_id || '');
+            const domains = Array.isArray(response.allowed_domains) ? response.allowed_domains : [];
+            if (authDom.loginDomainsEl && domains.length > 0) {
+                authDom.loginDomainsEl.innerHTML = 'Allowed domains: ' + domains.map((domain) => `<code>${authHelpers.escapeHtml(String(domain))}</code>`).join(', ');
+            }
+            const localLoginEnabled = response.local_manual_login_enabled === true;
+            if (authDom.localLoginBox) {
+                authDom.localLoginBox.classList.toggle('hidden', !localLoginEnabled);
+            }
+            if (localLoginEnabled && authDom.localLoginUsernameInput) {
+                const usernameHint = String(response.local_manual_login_username_hint || 'admin').trim() || 'admin';
+                authDom.localLoginUsernameInput.value = usernameHint;
+            }
+            if (localLoginEnabled && authDom.localLoginHelp) {
+                authDom.localLoginHelp.textContent = 'Local manual login is enabled for this machine only. Test credentials: admin / password.';
+            }
+            ensureGoogleSigninButton();
+        }
+    );
+    if (!called) {
         setLoginStatus('Cannot read auth configuration from server.', 'error');
-        return;
     }
-    eel.auth_config()(function (response) {
-        if (!response || !response.success) {
-            const message = response && response.error ? String(response.error) : 'Auth config unavailable';
-            setLoginStatus(message, 'error');
-            return;
-        }
-        window.__GOOGLE_CLIENT_ID__ = String(response.google_client_id || '');
-        const domains = Array.isArray(response.allowed_domains) ? response.allowed_domains : [];
-        if (authDom.loginDomainsEl && domains.length > 0) {
-            authDom.loginDomainsEl.innerHTML = 'Allowed domains: ' + domains.map((domain) => `<code>${authHelpers.escapeHtml(String(domain))}</code>`).join(', ');
-        }
-        const localLoginEnabled = response.local_manual_login_enabled === true;
-        if (authDom.localLoginBox) {
-            authDom.localLoginBox.classList.toggle('hidden', !localLoginEnabled);
-        }
-        if (localLoginEnabled && authDom.localLoginUsernameInput) {
-            const usernameHint = String(response.local_manual_login_username_hint || 'admin').trim() || 'admin';
-            authDom.localLoginUsernameInput.value = usernameHint;
-        }
-        if (localLoginEnabled && authDom.localLoginHelp) {
-            authDom.localLoginHelp.textContent = 'Local manual login is enabled for this machine only. Test credentials: admin / password.';
-        }
-        ensureGoogleSigninButton();
-    });
 }
 
 function submitLocalLogin() {
-    if (typeof eel === 'undefined' || typeof eel.auth_local_login !== 'function') {
-        setLoginStatus('Local auth bridge unavailable.', 'error');
-        return;
-    }
     const username = authDom.localLoginUsernameInput ? String(authDom.localLoginUsernameInput.value || '').trim() : '';
     const password = authDom.localLoginPasswordInput ? String(authDom.localLoginPasswordInput.value || '') : '';
     if (!username || !password) {
@@ -525,36 +544,28 @@ function submitLocalLogin() {
         authDom.localLoginBtn.disabled = true;
     }
     setLoginStatus('Signing in locally...', 'warning');
-    eel.auth_local_login(username, password)(function (authResponse) {
+    const called = callApiOrEel(
+        (api) => api.auth && typeof api.auth.localLogin === 'function' ? api.auth.localLogin(username, password) : null,
+        'auth_local_login',
+        [username, password],
+        function (authResponse) {
+            if (authDom.localLoginBtn) {
+                authDom.localLoginBtn.disabled = false;
+            }
+            if (!authResponse || !authResponse.success) {
+                const message = authResponse && authResponse.error ? String(authResponse.error) : 'Local login failed';
+                setLoginStatus(message, 'error');
+                return;
+            }
+            handleAuthenticatedUser(authResponse.user || null);
+        }
+    );
+    if (!called) {
         if (authDom.localLoginBtn) {
             authDom.localLoginBtn.disabled = false;
         }
-        if (!authResponse || !authResponse.success) {
-            const message = authResponse && authResponse.error ? String(authResponse.error) : 'Local login failed';
-            setLoginStatus(message, 'error');
-            return;
-        }
-        applyCurrentUser(authResponse.user || null);
-        showAppView();
-        appAuth.actions.setStatus('Authenticated', 'success');
-        if (isAdminDashboardRoute() && !authHelpers.isAdminUser(authState.currentUser)) {
-            navigateToEditor();
-            return;
-        }
-        applyRouteViewMode();
-        refreshRuntimeSettings();
-        appAuth.settings.maybeShowSetupWizardOnFirstRun();
-        refreshTaskHistory();
-        hydrateCurrentRouteTaskIfNeeded();
-        if (authHelpers.isAdminUser(authState.currentUser)) {
-            if (isAdminDashboardRoute()) {
-                openAdminPanel();
-            } else {
-                refreshAdminUsers();
-                refreshAdminAudit();
-            }
-        }
-    });
+        setLoginStatus('Local auth bridge unavailable.', 'error');
+    }
 }
 
 function onGoogleCredentialResponse(response) {
@@ -563,85 +574,88 @@ function onGoogleCredentialResponse(response) {
         setLoginStatus('Google sign-in failed: missing credential.', 'error');
         return;
     }
-    if (typeof eel === 'undefined' || typeof eel.auth_google_login !== 'function') {
+    setLoginStatus('Signing in...', 'warning');
+    const called = callApiOrEel(
+        (api) => api.auth && typeof api.auth.googleLogin === 'function' ? api.auth.googleLogin(credential) : null,
+        'auth_google_login',
+        [credential],
+        function (authResponse) {
+            if (!authResponse || !authResponse.success) {
+                const message = authResponse && authResponse.error ? String(authResponse.error) : 'Login failed';
+                setLoginStatus(message, 'error');
+                return;
+            }
+            handleAuthenticatedUser(authResponse.user || null);
+        }
+    );
+    if (!called) {
         setLoginStatus('Auth bridge unavailable.', 'error');
+    }
+}
+
+function handleAuthenticatedUser(user) {
+    applyCurrentUser(user || null);
+    showAppView();
+    appAuth.actions.setStatus('Authenticated', 'success');
+    if (isAdminDashboardRoute() && !authHelpers.isAdminUser(authState.currentUser)) {
+        navigateToEditor();
         return;
     }
-    setLoginStatus('Signing in...', 'warning');
-    eel.auth_google_login(credential)(function (authResponse) {
-        if (!authResponse || !authResponse.success) {
-            const message = authResponse && authResponse.error ? String(authResponse.error) : 'Login failed';
-            setLoginStatus(message, 'error');
-            return;
+    applyRouteViewMode();
+    refreshRuntimeSettings();
+    appAuth.settings.maybeShowSetupWizardOnFirstRun();
+    refreshTaskHistory();
+    const taskDetailPage = appAuth.pages && appAuth.pages.taskDetail;
+    if (taskDetailPage && typeof taskDetailPage.hydrateCurrentRouteTaskIfNeeded === 'function') {
+        taskDetailPage.hydrateCurrentRouteTaskIfNeeded();
+    }
+    if (authHelpers.isAdminUser(authState.currentUser)) {
+        if (isAdminDashboardRoute()) {
+            openAdminPanel();
+        } else {
+            refreshAdminUsers();
+            refreshAdminAudit();
         }
-        applyCurrentUser(authResponse.user || null);
-        showAppView();
-        appAuth.actions.setStatus('Authenticated', 'success');
-        if (isAdminDashboardRoute() && !authHelpers.isAdminUser(authState.currentUser)) {
-            navigateToEditor();
-            return;
-        }
-        applyRouteViewMode();
-        refreshRuntimeSettings();
-        appAuth.settings.maybeShowSetupWizardOnFirstRun();
-        refreshTaskHistory();
-        hydrateCurrentRouteTaskIfNeeded();
-        if (authHelpers.isAdminUser(authState.currentUser)) {
-            if (isAdminDashboardRoute()) {
-                openAdminPanel();
-            } else {
-                refreshAdminUsers();
-                refreshAdminAudit();
-            }
-        }
-    });
+    }
 }
 
 function checkAuthenticatedUser() {
-    if (typeof eel === 'undefined' || typeof eel.auth_me !== 'function') {
+    const called = callApiOrEel(
+        (api) => api.auth && typeof api.auth.me === 'function' ? api.auth.me() : null,
+        'auth_me',
+        [],
+        function (response) {
+            if (!response || !response.success || !response.user) {
+                applyCurrentUser(null);
+                showLoginView();
+                loadAuthConfigThenRenderLogin();
+                return;
+            }
+            handleAuthenticatedUser(response.user);
+        }
+    );
+    if (!called) {
         showLoginView();
         setLoginStatus('Auth bridge unavailable.', 'error');
         return;
     }
-    eel.auth_me()(function (response) {
-        if (!response || !response.success || !response.user) {
-            applyCurrentUser(null);
-            showLoginView();
-            loadAuthConfigThenRenderLogin();
-            return;
-        }
-        applyCurrentUser(response.user);
-        showAppView();
-        if (isAdminDashboardRoute() && !authHelpers.isAdminUser(authState.currentUser)) {
-            navigateToEditor();
-            return;
-        }
-        applyRouteViewMode();
-        refreshRuntimeSettings();
-        appAuth.settings.maybeShowSetupWizardOnFirstRun();
-        refreshTaskHistory();
-        hydrateCurrentRouteTaskIfNeeded();
-        if (authHelpers.isAdminUser(authState.currentUser)) {
-            if (isAdminDashboardRoute()) {
-                openAdminPanel();
-            } else {
-                refreshAdminUsers();
-                refreshAdminAudit();
-            }
-        }
-    });
 }
 
 function logoutCurrentUser() {
-    if (typeof eel === 'undefined' || typeof eel.auth_logout !== 'function') {
+    const called = callApiOrEel(
+        (api) => api.auth && typeof api.auth.logout === 'function' ? api.auth.logout() : null,
+        'auth_logout',
+        [],
+        function () {
+            applyCurrentUser(null);
+            appAuth.actions.clear_all();
+            showLoginView();
+            loadAuthConfigThenRenderLogin();
+        }
+    );
+    if (!called) {
         return;
     }
-    eel.auth_logout()(function () {
-        applyCurrentUser(null);
-        appAuth.actions.clear_all();
-        showLoginView();
-        loadAuthConfigThenRenderLogin();
-    });
 }
 
 function renderAdminUsers() {
@@ -815,22 +829,27 @@ function applyDatalistOptions(datalistEl, values) {
 }
 
 function loadAdminGlobalOllamaModels(forceRefresh) {
-    if (!authDom.adminSettingOllamaHost || typeof eel === 'undefined' || typeof eel.get_ollama_models !== 'function') {
+    if (!authDom.adminSettingOllamaHost) {
         return;
     }
     const host = String(authDom.adminSettingOllamaHost.value || '').trim();
     if (!forceRefresh && host && host === authState.adminGlobalOllamaModelHostCache && authState.adminGlobalOllamaModelCache.length > 0) {
         return;
     }
-    eel.get_ollama_models(host)(function (response) {
-        if (!response || !response.success) {
-            return;
+    callApiOrEel(
+        (api) => api.runtime && typeof api.runtime.ollamaModels === 'function' ? api.runtime.ollamaModels(host) : null,
+        'get_ollama_models',
+        [host],
+        function (response) {
+            if (!response || !response.success) {
+                return;
+            }
+            authState.adminGlobalOllamaModelHostCache = host;
+            authState.adminGlobalOllamaModelCache = authHelpers.uniqueNonEmpty(Array.isArray(response.models) ? response.models : []);
+            updateAdminGlobalAiProviderUI(false);
+            updateAdminAiValidationHint();
         }
-        authState.adminGlobalOllamaModelHostCache = host;
-        authState.adminGlobalOllamaModelCache = authHelpers.uniqueNonEmpty(Array.isArray(response.models) ? response.models : []);
-        updateAdminGlobalAiProviderUI(false);
-        updateAdminAiValidationHint();
-    });
+    );
 }
 
 function updateAdminGlobalAiProviderUI(forceDefaultModel) {
@@ -1028,37 +1047,36 @@ function collectAdminGlobalSettingsForm() {
 }
 
 function loadAdminGlobalSettings() {
-    if (typeof eel === 'undefined' || typeof eel.admin_get_global_settings !== 'function') {
-        return;
-    }
     if (authDom.adminGlobalSettingsStatus) {
         authDom.adminGlobalSettingsStatus.textContent = 'Loading global settings...';
         authDom.adminGlobalSettingsStatus.style.color = '#ffd58d';
     }
-    eel.admin_get_global_settings()(function (response) {
-        if (!response || !response.success) {
-            const message = response && response.error ? String(response.error) : 'Could not load global settings';
-            if (authDom.adminGlobalSettingsStatus) {
-                authDom.adminGlobalSettingsStatus.textContent = message;
-                authDom.adminGlobalSettingsStatus.style.color = '#ffb8c2';
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.globalSettings === 'function' ? api.admin.globalSettings() : null,
+        'admin_get_global_settings',
+        [],
+        function (response) {
+            if (!response || !response.success) {
+                const message = response && response.error ? String(response.error) : 'Could not load global settings';
+                if (authDom.adminGlobalSettingsStatus) {
+                    authDom.adminGlobalSettingsStatus.textContent = message;
+                    authDom.adminGlobalSettingsStatus.style.color = '#ffb8c2';
+                }
+                return;
             }
-            return;
+            applyAdminGlobalSettingsForm(response.settings || {});
+            authState.runtimeManagedSettings = response.settings || authState.runtimeManagedSettings;
+            syncAdminValidationInputs(true);
+            updateAdminAiValidationHint();
+            if (authDom.adminGlobalSettingsStatus) {
+                authDom.adminGlobalSettingsStatus.textContent = 'Global settings loaded.';
+                authDom.adminGlobalSettingsStatus.style.color = '#a9f2d3';
+            }
         }
-        applyAdminGlobalSettingsForm(response.settings || {});
-        authState.runtimeManagedSettings = response.settings || authState.runtimeManagedSettings;
-        syncAdminValidationInputs(true);
-        updateAdminAiValidationHint();
-        if (authDom.adminGlobalSettingsStatus) {
-            authDom.adminGlobalSettingsStatus.textContent = 'Global settings loaded.';
-            authDom.adminGlobalSettingsStatus.style.color = '#a9f2d3';
-        }
-    });
+    );
 }
 
 function saveAdminGlobalSettings() {
-    if (typeof eel === 'undefined' || typeof eel.admin_update_global_settings !== 'function') {
-        return;
-    }
     const settings = collectAdminGlobalSettingsForm();
     if (authDom.adminGlobalSettingsStatus) {
         authDom.adminGlobalSettingsStatus.textContent = 'Saving global settings...';
@@ -1067,58 +1085,67 @@ function saveAdminGlobalSettings() {
     if (authDom.adminSaveGlobalSettingsBtn) {
         authDom.adminSaveGlobalSettingsBtn.disabled = true;
     }
-    eel.admin_update_global_settings(settings)(function (response) {
-        if (authDom.adminSaveGlobalSettingsBtn) {
-            authDom.adminSaveGlobalSettingsBtn.disabled = false;
-        }
-        if (!response || !response.success) {
-            const message = response && response.error ? String(response.error) : 'Could not save global settings';
-            if (authDom.adminGlobalSettingsStatus) {
-                authDom.adminGlobalSettingsStatus.textContent = message;
-                authDom.adminGlobalSettingsStatus.style.color = '#ffb8c2';
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.updateGlobalSettings === 'function' ? api.admin.updateGlobalSettings(settings) : null,
+        'admin_update_global_settings',
+        [settings],
+        function (response) {
+            if (authDom.adminSaveGlobalSettingsBtn) {
+                authDom.adminSaveGlobalSettingsBtn.disabled = false;
             }
-            return;
+            if (!response || !response.success) {
+                const message = response && response.error ? String(response.error) : 'Could not save global settings';
+                if (authDom.adminGlobalSettingsStatus) {
+                    authDom.adminGlobalSettingsStatus.textContent = message;
+                    authDom.adminGlobalSettingsStatus.style.color = '#ffb8c2';
+                }
+                return;
+            }
+            authState.runtimeManagedSettings = response.settings || authState.runtimeManagedSettings;
+            syncAdminValidationInputs(true);
+            updateAdminAiValidationHint();
+            if (authDom.adminGlobalSettingsStatus) {
+                authDom.adminGlobalSettingsStatus.textContent = 'Global settings saved. New processing jobs now use this config.';
+                authDom.adminGlobalSettingsStatus.style.color = '#a9f2d3';
+            }
         }
-        authState.runtimeManagedSettings = response.settings || authState.runtimeManagedSettings;
-        syncAdminValidationInputs(true);
-        updateAdminAiValidationHint();
-        if (authDom.adminGlobalSettingsStatus) {
-            authDom.adminGlobalSettingsStatus.textContent = 'Global settings saved. New processing jobs now use this config.';
-            authDom.adminGlobalSettingsStatus.style.color = '#a9f2d3';
-        }
-    });
+    );
 }
 
 function refreshAdminUsers() {
     if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
         return;
     }
-    if (typeof eel === 'undefined' || typeof eel.admin_list_users !== 'function') {
-        return;
-    }
-    eel.admin_list_users(300)(function (response) {
-        if (!response || !response.success) {
-            return;
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.users === 'function' ? api.admin.users(300) : null,
+        'admin_list_users',
+        [300],
+        function (response) {
+            if (!response || !response.success) {
+                return;
+            }
+            authState.adminUsers = Array.isArray(response.users) ? response.users : [];
+            renderAdminUsers();
         }
-        authState.adminUsers = Array.isArray(response.users) ? response.users : [];
-        renderAdminUsers();
-    });
+    );
 }
 
 function refreshAdminAudit() {
     if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
         return;
     }
-    if (typeof eel === 'undefined' || typeof eel.admin_list_audit_events !== 'function') {
-        return;
-    }
-    eel.admin_list_audit_events({ limit: 300 })(function (response) {
-        if (!response || !response.success) {
-            return;
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.auditEvents === 'function' ? api.admin.auditEvents({ limit: 300 }) : null,
+        'admin_list_audit_events',
+        [{ limit: 300 }],
+        function (response) {
+            if (!response || !response.success) {
+                return;
+            }
+            authState.adminEvents = Array.isArray(response.events) ? response.events : [];
+            renderAdminAudit();
         }
-        authState.adminEvents = Array.isArray(response.events) ? response.events : [];
-        renderAdminAudit();
-    });
+    );
 }
 
 function renderAdminReferenceValidationDiagnostics(payload) {
@@ -1161,9 +1188,6 @@ function refreshAdminReferenceValidationDiagnostics() {
     if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
         return;
     }
-    if (typeof eel === 'undefined' || typeof eel.admin_get_reference_validation_diagnostics !== 'function') {
-        return;
-    }
     if (authDom.adminReferenceDiagnosticsStatus) {
         authDom.adminReferenceDiagnosticsStatus.textContent = 'Loading reference diagnostics...';
         authDom.adminReferenceDiagnosticsStatus.style.color = '#ffd58d';
@@ -1171,43 +1195,45 @@ function refreshAdminReferenceValidationDiagnostics() {
     if (authDom.adminRefreshReferenceDiagnosticsBtn) {
         authDom.adminRefreshReferenceDiagnosticsBtn.disabled = true;
     }
-    eel.admin_get_reference_validation_diagnostics()(function (response) {
-        if (authDom.adminRefreshReferenceDiagnosticsBtn) {
-            authDom.adminRefreshReferenceDiagnosticsBtn.disabled = false;
-        }
-        if (!response || !response.success) {
-            const message = response && response.error ? String(response.error) : 'Could not load reference diagnostics';
-            if (authDom.adminReferenceDiagnosticsStatus) {
-                authDom.adminReferenceDiagnosticsStatus.textContent = message;
-                authDom.adminReferenceDiagnosticsStatus.style.color = '#ffb8c2';
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.referenceValidationDiagnostics === 'function' ? api.admin.referenceValidationDiagnostics() : null,
+        'admin_get_reference_validation_diagnostics',
+        [],
+        function (response) {
+            if (authDom.adminRefreshReferenceDiagnosticsBtn) {
+                authDom.adminRefreshReferenceDiagnosticsBtn.disabled = false;
             }
-            return;
+            if (!response || !response.success) {
+                const message = response && response.error ? String(response.error) : 'Could not load reference diagnostics';
+                if (authDom.adminReferenceDiagnosticsStatus) {
+                    authDom.adminReferenceDiagnosticsStatus.textContent = message;
+                    authDom.adminReferenceDiagnosticsStatus.style.color = '#ffb8c2';
+                }
+                return;
+            }
+            const diagnostics = response.diagnostics && typeof response.diagnostics === 'object'
+                ? response.diagnostics
+                : {};
+            renderAdminReferenceValidationDiagnostics(diagnostics);
+            const serper = diagnostics.serper && typeof diagnostics.serper === 'object'
+                ? diagnostics.serper
+                : {};
+            const effective = serper.effective_enabled === true;
+            const configured = serper.configured === true;
+            if (authDom.adminReferenceDiagnosticsStatus) {
+                authDom.adminReferenceDiagnosticsStatus.textContent = configured
+                    ? (effective ? 'Serper fallback is effectively enabled by current settings.' : 'Serper key is configured, but runtime settings currently disable fallback.')
+                    : 'SERPER_API_KEY is not configured in server runtime.';
+                authDom.adminReferenceDiagnosticsStatus.style.color = configured
+                    ? (effective ? '#a9f2d3' : '#ffd58d')
+                    : '#ffb8c2';
+            }
         }
-        const diagnostics = response.diagnostics && typeof response.diagnostics === 'object'
-            ? response.diagnostics
-            : {};
-        renderAdminReferenceValidationDiagnostics(diagnostics);
-        const serper = diagnostics.serper && typeof diagnostics.serper === 'object'
-            ? diagnostics.serper
-            : {};
-        const effective = serper.effective_enabled === true;
-        const configured = serper.configured === true;
-        if (authDom.adminReferenceDiagnosticsStatus) {
-            authDom.adminReferenceDiagnosticsStatus.textContent = configured
-                ? (effective ? 'Serper fallback is effectively enabled by current settings.' : 'Serper key is configured, but runtime settings currently disable fallback.')
-                : 'SERPER_API_KEY is not configured in server runtime.';
-            authDom.adminReferenceDiagnosticsStatus.style.color = configured
-                ? (effective ? '#a9f2d3' : '#ffd58d')
-                : '#ffb8c2';
-        }
-    });
+    );
 }
 
 function resetAdminReferenceValidationDiagnostics() {
     if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
-        return;
-    }
-    if (typeof eel === 'undefined' || typeof eel.admin_reset_reference_validation_diagnostics !== 'function') {
         return;
     }
     if (authDom.adminReferenceDiagnosticsStatus) {
@@ -1220,45 +1246,52 @@ function resetAdminReferenceValidationDiagnostics() {
     if (authDom.adminRefreshReferenceDiagnosticsBtn) {
         authDom.adminRefreshReferenceDiagnosticsBtn.disabled = true;
     }
-    eel.admin_reset_reference_validation_diagnostics()(function (response) {
-        if (authDom.adminResetReferenceDiagnosticsBtn) {
-            authDom.adminResetReferenceDiagnosticsBtn.disabled = false;
-        }
-        if (authDom.adminRefreshReferenceDiagnosticsBtn) {
-            authDom.adminRefreshReferenceDiagnosticsBtn.disabled = false;
-        }
-        if (!response || !response.success) {
-            const message = response && response.error ? String(response.error) : 'Could not reset reference diagnostics cache';
-            if (authDom.adminReferenceDiagnosticsStatus) {
-                authDom.adminReferenceDiagnosticsStatus.textContent = message;
-                authDom.adminReferenceDiagnosticsStatus.style.color = '#ffb8c2';
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.resetReferenceValidationDiagnostics === 'function' ? api.admin.resetReferenceValidationDiagnostics() : null,
+        'admin_reset_reference_validation_diagnostics',
+        [],
+        function (response) {
+            if (authDom.adminResetReferenceDiagnosticsBtn) {
+                authDom.adminResetReferenceDiagnosticsBtn.disabled = false;
             }
-            return;
+            if (authDom.adminRefreshReferenceDiagnosticsBtn) {
+                authDom.adminRefreshReferenceDiagnosticsBtn.disabled = false;
+            }
+            if (!response || !response.success) {
+                const message = response && response.error ? String(response.error) : 'Could not reset reference diagnostics cache';
+                if (authDom.adminReferenceDiagnosticsStatus) {
+                    authDom.adminReferenceDiagnosticsStatus.textContent = message;
+                    authDom.adminReferenceDiagnosticsStatus.style.color = '#ffb8c2';
+                }
+                return;
+            }
+            const diagnostics = response.diagnostics && typeof response.diagnostics === 'object'
+                ? response.diagnostics
+                : {};
+            renderAdminReferenceValidationDiagnostics(diagnostics);
+            const removed = Number(response.removed_cache_entries || 0);
+            if (authDom.adminReferenceDiagnosticsStatus) {
+                authDom.adminReferenceDiagnosticsStatus.textContent = `Diagnostics cache reset completed. Removed ${removed} entr${removed === 1 ? 'y' : 'ies'}.`;
+                authDom.adminReferenceDiagnosticsStatus.style.color = '#a9f2d3';
+            }
         }
-        const diagnostics = response.diagnostics && typeof response.diagnostics === 'object'
-            ? response.diagnostics
-            : {};
-        renderAdminReferenceValidationDiagnostics(diagnostics);
-        const removed = Number(response.removed_cache_entries || 0);
-        if (authDom.adminReferenceDiagnosticsStatus) {
-            authDom.adminReferenceDiagnosticsStatus.textContent = `Diagnostics cache reset completed. Removed ${removed} entr${removed === 1 ? 'y' : 'ies'}.`;
-            authDom.adminReferenceDiagnosticsStatus.style.color = '#a9f2d3';
-        }
-    });
+    );
 }
 
 function updateAdminUserStatus(userId, nextStatus) {
-    if (typeof eel === 'undefined' || typeof eel.admin_set_user_status !== 'function') {
-        return;
-    }
-    eel.admin_set_user_status(userId, nextStatus)(function (response) {
-        if (!response || !response.success) {
-            alert(response && response.error ? String(response.error) : 'Could not update user status');
-            return;
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.setUserStatus === 'function' ? api.admin.setUserStatus(userId, nextStatus) : null,
+        'admin_set_user_status',
+        [userId, nextStatus],
+        function (response) {
+            if (!response || !response.success) {
+                alert(response && response.error ? String(response.error) : 'Could not update user status');
+                return;
+            }
+            refreshAdminUsers();
+            refreshAdminAudit();
         }
-        refreshAdminUsers();
-        refreshAdminAudit();
-    });
+    );
 }
 
 function updateAdminAiValidationHint() {
@@ -1311,9 +1344,6 @@ function validateAdminAiProvider() {
     if (!authDom.adminAiProviderSelect || !authDom.adminAiModelInput || !authDom.adminAiKeyInput || !authDom.adminAiOllamaHostInput) {
         return;
     }
-    if (typeof eel === 'undefined' || typeof eel.admin_validate_ai_provider !== 'function') {
-        return;
-    }
     const payload = {
         provider: String(authDom.adminAiProviderSelect.value || '').trim(),
         model: String(authDom.adminAiModelInput.value || '').trim(),
@@ -1327,22 +1357,27 @@ function validateAdminAiProvider() {
     if (authDom.adminValidateAiBtn) {
         authDom.adminValidateAiBtn.disabled = true;
     }
-    eel.admin_validate_ai_provider(payload)(function (response) {
-        if (authDom.adminValidateAiBtn) {
-            authDom.adminValidateAiBtn.disabled = false;
+    callApiOrEel(
+        (api) => api.admin && typeof api.admin.validateAiProvider === 'function' ? api.admin.validateAiProvider(payload) : null,
+        'admin_validate_ai_provider',
+        [payload],
+        function (response) {
+            if (authDom.adminValidateAiBtn) {
+                authDom.adminValidateAiBtn.disabled = false;
+            }
+            if (!authDom.adminAiValidationResult) {
+                return;
+            }
+            if (!response || !response.success) {
+                authDom.adminAiValidationResult.textContent = response && response.error ? String(response.error) : 'Validation failed';
+                authDom.adminAiValidationResult.style.color = '#ffb8c2';
+                return;
+            }
+            const ok = response.valid === true;
+            authDom.adminAiValidationResult.textContent = String(response.message || (ok ? 'Provider is reachable.' : 'Provider check failed.'));
+            authDom.adminAiValidationResult.style.color = ok ? '#a9f2d3' : '#ffb8c2';
         }
-        if (!authDom.adminAiValidationResult) {
-            return;
-        }
-        if (!response || !response.success) {
-            authDom.adminAiValidationResult.textContent = response && response.error ? String(response.error) : 'Validation failed';
-            authDom.adminAiValidationResult.style.color = '#ffb8c2';
-            return;
-        }
-        const ok = response.valid === true;
-        authDom.adminAiValidationResult.textContent = String(response.message || (ok ? 'Provider is reachable.' : 'Provider check failed.'));
-        authDom.adminAiValidationResult.style.color = ok ? '#a9f2d3' : '#ffb8c2';
-    });
+    );
 }
 
 function openAdminPanel() {

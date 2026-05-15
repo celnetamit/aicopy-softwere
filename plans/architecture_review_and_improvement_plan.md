@@ -76,7 +76,7 @@ graph TD
 | **Layered Architecture** | Clean separation: Presentation → API → Processing → Rules → Persistence |
 | **Multi-Provider AI** | Ollama, Gemini, OpenRouter, AgentRouter with fallback logic |
 | **Editing Pipeline** | Rules → AI → Selection/Fallback → Reports → Export is well-orchestrated |
-| **Test Coverage** | 102 tests across regression, DOCX fidelity, telemetry, and API flows |
+| **Test Coverage** | 156 tests across regression, DOCX fidelity, telemetry, and API flows |
 | **Deployment Ready** | Docker, Coolify, Windows installer, Ubuntu .deb, GitHub Actions CI |
 | **Security Posture** | Auth guards, admin-only routes, Serper query redaction, no secret leakage in diagnostics |
 | **Reference Validation** | Multi-source (Crossref → Serper → OpenAlex) with thread-safe caching through Phase 7 |
@@ -92,7 +92,7 @@ graph TD
 | 4 | **Synchronous web processing** — AI processing blocks request thread; risks timeout on large manuscripts | Medium | [`webapp.py`](webapp.py) |
 | 5 | **No frontend API abstraction** — JS modules call fetch/eel bridge directly without centralized client | Medium | [`web/eel_web_bridge.js`](web/eel_web_bridge.js) |
 | 6 | **Admin settings surface incomplete** — Backend flags lack UI controls | Medium | [`webapp.py`](webapp.py), [`web/app-auth-admin.js`](web/app-auth-admin.js) |
-| 7 | **One failing regression test** — Assistant admin-activity response contract mismatch | Low | [`tests/test_webapp_api.py`](tests/test_webapp_api.py) |
+| 7 | **Regression status** — Prior assistant admin-activity contract mismatch is now fixed and covered | Closed | [`tests/test_webapp_api.py`](tests/test_webapp_api.py) |
 | 8 | **Version metadata duplication** — Version scattered across docs, UI, packaging, code | Low | Multiple files |
 | 9 | **No dependency lock file** — No `requirements.lock` or `constraints.txt` for deterministic builds | Low | Root |
 | 10 | **Secret management** — AI provider keys stored in app settings rather than proper secrets | Low | [`webapp.py`](webapp.py) |
@@ -166,21 +166,23 @@ graph TD
 These items address the highest-risk issues and unblock further work.
 
 #### P0.1 — Fix Failing Regression Test
+- **Status**: Verified locally on 2026-05-15.
 - **File**: [`tests/test_webapp_api.py`](tests/test_webapp_api.py)
 - **Issue**: `test_assistant_qna_admin_activity_summary_requires_admin_role` — assistant admin-activity response shape mismatch
 - **Action**: Normalize assistant payload contract for admin/non-admin paths; align `admin_activity.user_counts` shape
 - **Depends on**: Nothing
-- **Validation**: `./scripts/run_quality_checks.sh` passes with 0 failures
+- **Validation**: Focused P0 test selection passed; full quality gate passed on 2026-05-15 (`Ran 155 tests ... OK`)
 
 #### P0.2 — Complete Admin Settings UI Controls
-- **Files**: [`webapp.py`](webapp.py), [`web/app-auth-admin.js`](web/app-auth-admin.js), [`web/app-state.js`](web/app-state.js), [`web/index.html`](web/index.html)
+- **Status**: Completed locally on 2026-05-15.
+- **Files**: [`webapp.py`](webapp.py), [`web/app-auth-admin.js`](web/app-auth-admin.js), [`web/app-state.js`](web/app-state.js), [`web/index.html`](web/index.html), [`web/task_detail.html`](web/task_detail.html), [`tests/test_webapp_api.py`](tests/test_webapp_api.py)
 - **Issue**: Backend flags `online_reference_validation_admin_cap` and `auto_resolve_unresolved_references` exist but have no admin UI form controls
 - **Action**:
-  1. Add admin UI controls (cap integer input + auto-resolve toggle)
-  2. Bind load/save in `app-auth-admin.js` and `app-state.js`
-  3. Add API/UI tests for round-trip persistence
+  1. [x] Add admin UI controls (cap integer input + auto-resolve toggle)
+  2. [x] Bind load/save in `app-auth-admin.js` and `app-state.js`
+  3. [x] Add API/UI tests for round-trip persistence and route-shell parity
 - **Depends on**: Nothing
-- **Validation**: Admin can view and modify both settings; values persist across reload
+- **Validation**: Admin can view and modify both settings; values persist across reload; focused P0 selection passed; full quality gate passed on 2026-05-15 (`Ran 155 tests ... OK`)
 
 #### P0.3 — Split `webapp.py` into Route Modules
 - **Status**: Completed initial route extraction on 2026-05-13.
@@ -202,27 +204,33 @@ These items address the highest-risk issues and unblock further work.
 ### Phase P1 — Frontend Modernization & Consolidation
 
 #### P1.1 — Implement Multi-Page Frontend (Split 1: Tasks Dashboard vs Task Detail)
+- **Status**: First route-specific JS split started locally on 2026-05-15.
 - **Files**: [`web/tasks.html`](web/tasks.html), [`web/task_detail.html`](web/task_detail.html) (already exist), new page modules
 - **Issue**: Single-shell SPA couples all UI concerns; already designed in [`MULTIPAGE_ARCHITECTURE.md`](MULTIPAGE_ARCHITECTURE.md)
 - **Action**:
   1. Add route-specific HTML renderers in backend for `/tasks` and `/tasks/<task_id>`
-  2. Create `web/pages/tasks.js` — upload + task list logic
-  3. Create `web/pages/task-detail.js` — editor, preview, corrections, download logic
-  4. Task card click navigates to `/tasks/<task_id>` instead of inline loading
-  5. Upload success redirects to new task detail page
+  2. [x] Create `web/pages/tasks.js` — dashboard upload and task-history rendering/navigation ownership
+  3. [x] Create `web/pages/task-detail.js` — editor upload/process/save/tab/view control ownership plus route hydration/editor bootstrapping
+  4. [x] Task card click navigates to `/tasks/<task_id>` while same-task clicks reload the current detail view
+  5. [x] Upload success redirects to new task detail page
   6. Keep `/` as compatibility redirect to `/tasks`
 - **Depends on**: P0.3 (route modules make adding new routes cleaner)
-- **Validation**: Task list works without loading editor shell; task detail loads one manuscript cleanly; processing/download unchanged
+- **Validation**: Route module loading/control ownership coverage added; full quality gate passed on 2026-05-15 (`Ran 156 tests in 308.515s ... OK`)
 
 #### P1.2 — Create Centralized Frontend API Client
+- **Status**: Foundation started locally on 2026-05-15.
 - **Files**: New `web/app-api.js`
 - **Issue**: JS modules call fetch/eel bridge directly; no centralized error handling, retry, or auth
 - **Action**:
-  1. Create `web/app-api.js` with all fetch wrappers for task/auth/admin/runtime APIs
-  2. Centralize auth token attachment, error normalization, and retry logic
-  3. Migrate existing modules to use the new client incrementally
+  1. [x] Create `web/app-api.js` with shared JSON request helpers and initial auth/task/admin wrappers
+  2. [x] Centralize response parsing, same-origin credentials, and non-JSON error normalization
+  3. [x] Load `app-api.js` before `/eel.js`
+  4. [x] Make `eel_web_bridge.js` delegate low-level JSON requests through `window.ManuscriptApi`
+  5. [x] Migrate `web/app-auth-admin.js` auth/admin/task-history calls to prefer `window.ManuscriptApi` with a single `eel` fallback adapter
+  6. [x] Migrate `web/app.js` processing/export/editor/assistant flows to prefer `window.ManuscriptApi` with a single `eel` fallback adapter
+  7. [x] Split first route-specific page modules after shared API calls are stable
 - **Depends on**: P1.1 (page modules should use the new API client from the start)
-- **Validation**: All existing API calls work through the new client; error handling is consistent
+- **Validation**: Focused frontend API-client/app-flow tests and JS syntax checks passed; full quality gate passed on 2026-05-15 (`Ran 156 tests in 308.515s ... OK`)
 
 #### P1.3 — Create Frontend Router
 - **Files**: New `web/app-router.js`
@@ -337,8 +345,8 @@ graph TD
 |--------|---------|--------|
 | `webapp.py` line count | 2703 | <500 (orchestration only) |
 | Frontend HTML shells | 1 (index.html) | 5 (login, tasks, task_detail, settings, admin) |
-| Failing tests | 1 | 0 |
-| API client locations | Scattered across 5+ JS files | 1 (`app-api.js`) |
+| Failing tests | 0 | 0 |
+| API client locations | Centralized `app-api.js`; first route modules added under `web/pages/` | 1 (`app-api.js`) plus route modules |
 | Version sources | 5+ files | 1 (`VERSION`) |
 | Admin settings with UI controls | ~80% | 100% |
 | Synchronous processing endpoints | 1 (blocks) | 0 (all async with polling) |

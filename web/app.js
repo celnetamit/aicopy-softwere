@@ -14,6 +14,49 @@ let assistantActionInFlight = false;
 const ASSISTANT_REQUEST_TIMEOUT_MS = 15000;
 const assistantRequestLogEntries = [];
 
+function getApiClient() {
+    return window.ManuscriptApi && typeof window.ManuscriptApi === 'object'
+        ? window.ManuscriptApi
+        : null;
+}
+
+function handleApiPromise(promise, callback) {
+    return Promise.resolve(promise)
+        .then((response) => {
+            if (typeof callback === 'function') {
+                callback(response);
+            }
+            return response;
+        })
+        .catch((err) => {
+            const response = {
+                success: false,
+                error: String(err && err.message ? err.message : err)
+            };
+            if (typeof callback === 'function') {
+                callback(response);
+            }
+            return response;
+        });
+}
+
+function callApiOrEel(apiInvoker, eelMethod, eelArgs, callback) {
+    const api = getApiClient();
+    if (api && typeof apiInvoker === 'function') {
+        const promise = apiInvoker(api);
+        if (promise) {
+            handleApiPromise(promise, callback);
+            return true;
+        }
+    }
+    const eelBridge = typeof eel !== 'undefined' && eel ? eel : null;
+    if (eelBridge && typeof eelBridge[eelMethod] === 'function') {
+        eelBridge[eelMethod].apply(eelBridge, eelArgs || [])(callback);
+        return true;
+    }
+    return false;
+}
+
 function setStatus(message, type) {
     const statusEl = document.getElementById('status');
     const footerStatusEl = document.getElementById('footer-status');
@@ -243,7 +286,12 @@ function handleFile(file) {
     if (ext === 'txt') {
         const reader = new FileReader();
         reader.onload = function () {
-            eel.load_text_content(file.name, reader.result)(handleLoadResponse(file.name));
+            callApiOrEel(
+                (api) => api.tasks && typeof api.tasks.uploadText === 'function' ? api.tasks.uploadText(file.name, reader.result) : null,
+                'load_text_content',
+                [file.name, reader.result],
+                handleLoadResponse(file.name)
+            );
         };
         reader.onerror = function () {
             mainState.isFileLoading = false;
@@ -265,7 +313,12 @@ function handleFile(file) {
         mainState.fileContent.sourceType = 'docx';
         mainState.fileContent.sourceDocxBase64 = btoa(binary);
         appMain.syncWindowFileContent();
-        eel.load_docx_content(file.name, mainState.fileContent.sourceDocxBase64)(handleLoadResponse(file.name));
+        callApiOrEel(
+            (api) => api.tasks && typeof api.tasks.uploadDocx === 'function' ? api.tasks.uploadDocx(file.name, mainState.fileContent.sourceDocxBase64) : null,
+            'load_docx_content',
+            [file.name, mainState.fileContent.sourceDocxBase64],
+            handleLoadResponse(file.name)
+        );
     };
     reader.onerror = function () {
         mainState.isFileLoading = false;
@@ -281,15 +334,23 @@ function switch_tab(tab) {
     document.querySelectorAll('.tab').forEach((t) => {
         t.classList.toggle('active', t.dataset.tab === tab);
     });
-    if (tab === 'redline' && !mainState.fileContent.redline && mainState.fileContent.corrected && typeof eel !== 'undefined' && typeof eel.get_redline_preview === 'function') {
+    if (tab === 'redline' && !mainState.fileContent.redline && mainState.fileContent.corrected) {
         try {
-            eel.get_redline_preview(mainState.fileContent.taskId || '')(function (response) {
+            const called = callApiOrEel(
+                (api) => api.legacy && typeof api.legacy.redlinePreview === 'function' ? api.legacy.redlinePreview(mainState.fileContent.taskId || '') : null,
+                'get_redline_preview',
+                [mainState.fileContent.taskId || ''],
+                function (response) {
                 if (response && response.success) {
                     mainState.fileContent.redline = response.redline_html || '';
                     appMain.syncWindowFileContent();
                 }
                 if (mainState.currentTab === 'redline') mainPreview.renderCurrentPreview();
-            });
+                }
+            );
+            if (!called) {
+                mainPreview.renderCurrentPreview();
+            }
         } catch (err) {
             mainPreview.renderCurrentPreview();
         }
@@ -1200,14 +1261,18 @@ function updateProcessingModeIndicatorFromPayload(payload) {
 
 function pollTaskUntilProcessed(taskId) {
     const safeTaskId = String(taskId || '').trim();
-    if (!safeTaskId || typeof eel === 'undefined' || typeof eel.get_task !== 'function') return;
+    if (!safeTaskId) return;
     if (mainState.trackedProcessingTaskId && mainState.trackedProcessingTaskId !== safeTaskId) return;
     mainState.trackedProcessingTaskId = safeTaskId;
     if (!mainState.taskRecoveryStartedAt) {
         mainState.taskRecoveryStartedAt = Date.now();
     }
     mainState.taskRecoveryPollCount = Number(mainState.taskRecoveryPollCount || 0) + 1;
-    eel.get_task(safeTaskId)(function (response) {
+    const called = callApiOrEel(
+        (api) => api.tasks && typeof api.tasks.get === 'function' ? api.tasks.get(safeTaskId) : null,
+        'get_task',
+        [safeTaskId],
+        function (response) {
         if (mainState.trackedProcessingTaskId !== safeTaskId) {
             return;
         }
@@ -1268,7 +1333,15 @@ function pollTaskUntilProcessed(taskId) {
         }
         setStatus(buildTaskRecoveryStatus(status, elapsedMs), 'warning');
         scheduleTaskRecoveryPoll(safeTaskId);
-    });
+        }
+    );
+    if (!called) {
+        clearServerTaskTracking();
+        mainState.isProcessingDocument = false;
+        stopProcessingPresence();
+        setStatus('Task tracking is unavailable in this mode.', 'warning');
+        refreshProcessButtonState();
+    }
 }
 
 function process_document() {
@@ -1292,7 +1365,19 @@ function process_document() {
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
     const processProviderModel = getProviderModelFromOptions(options);
     mainSettings.saveAiSettings();
-    eel.process_document(options, mainState.fileContent.taskId || '')(function (response) {
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    const called = callApiOrEel(
+        (api) => {
+            if (taskId && api.tasks && typeof api.tasks.process === 'function') {
+                return api.tasks.process(taskId, options);
+            }
+            return api.legacy && typeof api.legacy.processDocument === 'function'
+                ? api.legacy.processDocument(options, taskId)
+                : null;
+        },
+        'process_document',
+        [options, taskId],
+        function (response) {
         let keepProcessingState = false;
         if (response.success) {
             clearServerTaskTracking();
@@ -1333,7 +1418,14 @@ function process_document() {
         }
         mainState.isProcessingDocument = keepProcessingState;
         refreshProcessButtonState();
-    });
+        }
+    );
+    if (!called) {
+        mainState.isProcessingDocument = false;
+        stopProcessingPresence();
+        setStatus('Processing bridge unavailable', 'error');
+        refreshProcessButtonState();
+    }
 }
 
 function applyCurrentGroupDecisions() {
@@ -1342,7 +1434,6 @@ function applyCurrentGroupDecisions() {
         return;
     }
     if (!mainState.fileContent.original || !mainState.fileContent.corrected) return;
-    if (typeof eel === 'undefined' || typeof eel.apply_correction_group_decisions !== 'function') return;
 
     mainState.isApplyingGroupDecisions = true;
     setStatus('Applying change decisions...', 'warning');
@@ -1352,7 +1443,19 @@ function applyCurrentGroupDecisions() {
         original_text: mainState.fileContent.original || '',
         full_corrected_text: mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || ''
     };
-    eel.apply_correction_group_decisions(payload)(function (response) {
+    const taskId = String(payload.task_id || '').trim();
+    const called = callApiOrEel(
+        (api) => {
+            if (taskId && api.tasks && typeof api.tasks.applyCorrectionGroupDecisions === 'function') {
+                return api.tasks.applyCorrectionGroupDecisions(taskId, payload);
+            }
+            return api.legacy && typeof api.legacy.applyCorrectionGroupDecisions === 'function'
+                ? api.legacy.applyCorrectionGroupDecisions(payload)
+                : null;
+        },
+        'apply_correction_group_decisions',
+        [payload],
+        function (response) {
         mainState.isApplyingGroupDecisions = false;
         const hadPending = mainState.pendingGroupDecisionApply;
         mainState.pendingGroupDecisionApply = false;
@@ -1367,7 +1470,12 @@ function applyCurrentGroupDecisions() {
         setStatus('Decision update failed', 'error');
         alert('Decision update error: ' + (response && response.error ? String(response.error) : 'Could not apply decisions'));
         if (hadPending) applyCurrentGroupDecisions();
-    });
+        }
+    );
+    if (!called) {
+        mainState.isApplyingGroupDecisions = false;
+        setStatus('Decision update unavailable', 'error');
+    }
 }
 
 function renderAssistantSuggestions(suggestions) {
@@ -1385,7 +1493,6 @@ function renderAssistantSuggestions(suggestions) {
 }
 
 function askAssistantQuestion() {
-    if (typeof eel === 'undefined' || typeof eel.assistant_query !== 'function') return;
     if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     const message = mainDom.assistantQuestionInput ? String(mainDom.assistantQuestionInput.value || '').trim() : '';
@@ -1399,11 +1506,17 @@ function askAssistantQuestion() {
     appendAssistantChatMessage('assistant', 'Preparing diagnostics...');
     setAssistantActionsLoading(true, 'Assistant request in progress...');
     callAssistantWithRetry('ask', (done) => {
-        eel.assistant_query({
-            task_id: taskId,
-            message,
-            include_admin_activity: includeAdminActivity
-        })(done);
+        const called = callApiOrEel(
+            (api) => api.assistant && typeof api.assistant.query === 'function' ? api.assistant.query({
+                task_id: taskId,
+                message,
+                include_admin_activity: includeAdminActivity
+            }) : null,
+            'assistant_query',
+            [{ task_id: taskId, message, include_admin_activity: includeAdminActivity }],
+            done
+        );
+        if (!called) done({ success: false, error: 'Assistant endpoint unavailable' });
     }, (response) => {
         setAssistantActionsLoading(false);
         if (!(response && response.success)) {
@@ -1426,7 +1539,6 @@ function askAssistantQuestion() {
 }
 
 function assistantReprocessCurrentTask() {
-    if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
     if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
@@ -1439,7 +1551,13 @@ function assistantReprocessCurrentTask() {
     appendAssistantChatMessage('assistant', 'Reprocessing current task...');
     setAssistantActionsLoading(true, 'Assistant is reprocessing current task...');
     callAssistantWithRetry('reprocess', (done) => {
-        eel.assistant_reprocess_task(taskId, options)(done);
+        const called = callApiOrEel(
+            (api) => api.assistant && typeof api.assistant.reprocessTask === 'function' ? api.assistant.reprocessTask(taskId, options) : null,
+            'assistant_reprocess_task',
+            [taskId, options],
+            done
+        );
+        if (!called) done({ success: false, error: 'Assistant endpoint unavailable' });
     }, (response) => {
         setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
@@ -1464,7 +1582,6 @@ function assistantReprocessCurrentTask() {
 }
 
 function assistantApplyCurrentDecisions() {
-    if (typeof eel === 'undefined' || typeof eel.assistant_apply_group_decisions !== 'function') return;
     if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
@@ -1478,11 +1595,15 @@ function assistantApplyCurrentDecisions() {
     appendAssistantChatMessage('assistant', 'Applying current correction decisions...');
     setAssistantActionsLoading(true, 'Assistant is applying correction decisions...');
     callAssistantWithRetry('apply_decisions', (done) => {
-        eel.assistant_apply_group_decisions(
-            taskId,
-            groupDecisions,
-            mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || ''
-        )(done);
+        const called = callApiOrEel(
+            (api) => api.assistant && typeof api.assistant.applyGroupDecisions === 'function'
+                ? api.assistant.applyGroupDecisions(taskId, groupDecisions, mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || '')
+                : null,
+            'assistant_apply_group_decisions',
+            [taskId, groupDecisions, mainState.fileContent.fullCorrectedText || mainState.fileContent.corrected || ''],
+            done
+        );
+        if (!called) done({ success: false, error: 'Assistant endpoint unavailable' });
     }, (response) => {
         setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
@@ -1507,7 +1628,6 @@ function assistantApplyCurrentDecisions() {
 }
 
 function retryWithRecommendedSettings() {
-    if (typeof eel === 'undefined' || typeof eel.assistant_reprocess_task !== 'function') return;
     if (assistantActionInFlight) return;
     const taskId = String(mainState.fileContent.taskId || '').trim();
     if (!taskId) {
@@ -1521,7 +1641,13 @@ function retryWithRecommendedSettings() {
     appendAssistantChatMessage('assistant', 'Retrying with recommended settings...');
     setAssistantActionsLoading(true, 'Retrying with recommended settings...');
     callAssistantWithRetry('retry_recommended', (done) => {
-        eel.assistant_reprocess_task(taskId, retryOptions)(done);
+        const called = callApiOrEel(
+            (api) => api.assistant && typeof api.assistant.reprocessTask === 'function' ? api.assistant.reprocessTask(taskId, retryOptions) : null,
+            'assistant_reprocess_task',
+            [taskId, retryOptions],
+            done
+        );
+        if (!called) done({ success: false, error: 'Assistant endpoint unavailable' });
     }, (response) => {
         setAssistantActionsLoading(false);
         if (!(response && response.success && response.result && response.result.success)) {
@@ -1624,33 +1750,37 @@ function runUnresolvedReferencesWithMode(filterMode) {
         showAssistantToast('Unresolved references rerun completed.');
     };
 
-    if (typeof eel !== 'undefined' && typeof eel.assistant_reprocess_task === 'function') {
-        callAssistantWithRetry('rerun_unresolved_references', (done) => {
-            eel.assistant_reprocess_task(taskId, retryOptions)(done);
-        }, (response) => finish(response, 'assistant_endpoint'));
-        return;
-    }
-
-    if (typeof eel !== 'undefined' && typeof eel.process_document === 'function') {
+    callAssistantWithRetry('rerun_unresolved_references', (done) => {
+        const called = callApiOrEel(
+            (client) => client.assistant && typeof client.assistant.reprocessTask === 'function' ? client.assistant.reprocessTask(taskId, retryOptions) : null,
+            'assistant_reprocess_task',
+            [taskId, retryOptions],
+            done
+        );
+        if (!called) done({ success: false, error: 'Assistant endpoint unavailable' });
+    }, (response) => {
+        if (response && response.success) {
+            finish(response, 'assistant_endpoint');
+            return;
+        }
         appendAssistantChatMessage('assistant', 'Assistant action endpoint is unavailable, using direct process fallback.');
         callAssistantWithRetry('rerun_unresolved_references_fallback', (done) => {
-            eel.process_document(retryOptions, taskId)(function (response) {
-                if (response && response.success) {
-                    done({ success: true, result: response });
-                    return;
+            const called = callApiOrEel(
+                (client) => client.tasks && typeof client.tasks.process === 'function' ? client.tasks.process(taskId, retryOptions) : null,
+                'process_document',
+                [retryOptions, taskId],
+                function (fallbackResponse) {
+                    if (fallbackResponse && fallbackResponse.success) {
+                        done({ success: true, result: fallbackResponse });
+                        return;
+                    }
+                    done({ success: false, error: fallbackResponse && fallbackResponse.error ? String(fallbackResponse.error) : 'Fallback processing failed' });
                 }
-                done({ success: false, error: response && response.error ? String(response.error) : 'Fallback processing failed' });
-            });
-        }, (response) => finish(response, 'direct_process_fallback'));
+            );
+            if (!called) done({ success: false, error: 'Fallback processing endpoint unavailable' });
+        }, (fallbackResponse) => finish(fallbackResponse, 'direct_process_fallback'));
         return;
-    }
-
-    setAssistantActionsLoading(false);
-    const bridgeError = 'Bridge unavailable: cannot call assistant or process endpoints.';
-    setAssistantUnavailable(true, bridgeError);
-    updateAssistantDiagnostics('failed', bridgeError, 0);
-    appendAssistantChatMessage('assistant', `Unresolved references rerun failed: ${bridgeError}`);
-    setStatus('Rerun unresolved references is unavailable in this mode.', 'warning');
+    });
 }
 
 function setGroupDecision(groupKey, accepted) {
@@ -1682,7 +1812,11 @@ function save_file(file_type) {
         return `Download failed\nCode: ${code}\nMessage: ${message}`;
     }
     function fallbackLegacySave() {
-        eel.save_file(file_type)(function (response) {
+        const called = callApiOrEel(
+            (api) => api.legacy && typeof api.legacy.saveFile === 'function' ? api.legacy.saveFile(file_type) : null,
+            'save_file',
+            [file_type],
+            function (response) {
             if (response.success) {
                 setStatus(file_type + ' version saved', 'success');
                 let msg = 'File saved to:\n' + response.path;
@@ -1692,7 +1826,12 @@ function save_file(file_type) {
                 setStatus('Save failed', 'error');
                 alert(buildSaveErrorMessage(response));
             }
-        });
+            }
+        );
+        if (!called) {
+            setStatus('Save failed', 'error');
+            alert('Download failed\nCode: SAVE_UNAVAILABLE\nMessage: Save bridge unavailable');
+        }
     }
     function downloadBase64Docx(base64Data, fileName, mimeType) {
         const binary = atob(String(base64Data || ''));
@@ -1716,12 +1855,8 @@ function save_file(file_type) {
         setStatus(file_type + ' version downloaded', 'success');
         return;
     }
-    if (typeof eel === 'undefined' || typeof eel.export_file !== 'function') {
-        fallbackLegacySave();
-        return;
-    }
     setStatus('Preparing download...', 'warning');
-    eel.export_file({
+    const exportPayload = {
         task_id: mainState.fileContent.taskId || '',
         source_type: mainState.fileContent.sourceType || 'text',
         source_docx_base64: mainState.fileContent.sourceDocxBase64 || '',
@@ -1729,7 +1864,12 @@ function save_file(file_type) {
         original_text: mainState.fileContent.original || '',
         corrected_text: mainState.fileContent.corrected || '',
         file_name: mainState.fileContent.fileName || 'manuscript.docx'
-    })(function (response) {
+    };
+    const called = callApiOrEel(
+        (api) => api.legacy && typeof api.legacy.exportFile === 'function' ? api.legacy.exportFile(exportPayload) : null,
+        'export_file',
+        [exportPayload],
+        function (response) {
         if (response && response.success && response.base64_data) {
             downloadBase64Docx(response.base64_data, response.file_name, response.mime_type);
             setStatus(file_type + ' version downloaded', 'success');
@@ -1741,17 +1881,20 @@ function save_file(file_type) {
             return;
         }
         fallbackLegacySave();
-    });
+        }
+    );
+    if (!called) {
+        fallbackLegacySave();
+    }
 }
 
 function clear_all() {
-    if (typeof eel !== 'undefined' && typeof eel.reset_session === 'function') {
-        try {
-            eel.reset_session()(function () {});
-        } catch (err) {
-            console.warn('Could not reset backend session state', err);
-        }
-    }
+    callApiOrEel(
+        (api) => api.runtime && typeof api.runtime.resetSession === 'function' ? api.runtime.resetSession() : null,
+        'reset_session',
+        [],
+        function () {}
+    );
     mainState.fileContent = mainFactories.createEmptyFileContent();
     mainState.isFileLoading = false;
     mainState.isProcessingDocument = false;
@@ -1811,10 +1954,15 @@ appMain.actions = {
     downloadProseOnlyDiff,
     exportUnresolvedReferencesReport,
     toggleAssistantChat,
+    updateAssistantRouteHint,
+    updateAssistantDiagnostics,
+    setAssistantUnreadCount,
+    renderAssistantRequestLog,
     restoreAssistantChatHistoryForCurrentTask,
     renderRunStagesFromState,
     renderUnresolvedReferencesPanelFromState,
     renderFallbackInsightsFromCurrentState,
+    applyProcessingModeProviderContext,
     setGroupDecision,
     applyAllGroupDecisions,
     save_file,
@@ -1829,22 +1977,26 @@ window.downloadProseOnlyDiff = downloadProseOnlyDiff;
 mainAuth.updateAdminGlobalAiProviderUI(false);
 mainAuth.updateAdminAiValidationHint();
 mainAuth.applyRouteViewMode();
-updateAssistantRouteHint();
-updateAssistantDiagnostics('idle', 'none', 0);
-applyProcessingModeProviderContext('', '');
-renderFallbackInsightsFromCurrentState();
-renderRunStagesFromState();
-renderUnresolvedReferencesPanelFromState();
-restoreAssistantChatHistoryForCurrentTask();
-setAssistantUnreadCount(0);
-renderAssistantRequestLog();
+const editorBootstrapped = appMain.pages && appMain.pages.taskDetail && typeof appMain.pages.taskDetail.bootstrapEditorSurface === 'function'
+    ? appMain.pages.taskDetail.bootstrapEditorSurface()
+    : false;
+if (!editorBootstrapped) {
+    updateAssistantRouteHint();
+    updateAssistantDiagnostics('idle', 'none', 0);
+    setAssistantUnreadCount(0);
+}
 mainAuth.checkAuthenticatedUser();
 refreshProcessButtonState();
 
 window.addEventListener('pageshow', () => {
     mainAuth.applyRouteViewMode();
-    updateAssistantRouteHint();
-    restoreAssistantChatHistoryForCurrentTask();
+    const editorPageShown = appMain.pages && appMain.pages.taskDetail && typeof appMain.pages.taskDetail.handlePageShow === 'function'
+        ? appMain.pages.taskDetail.handlePageShow()
+        : false;
+    if (!editorPageShown) {
+        updateAssistantRouteHint();
+        restoreAssistantChatHistoryForCurrentTask();
+    }
     mainAuth.syncAdminDashboardRouteState();
     mainAuth.resetAdminDashboardScroll();
 });

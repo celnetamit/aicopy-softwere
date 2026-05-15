@@ -323,8 +323,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('class="task-detail-route"', html)
         self.assertIn('data-task-route-id="example-task-id"', html)
         self.assertIn("<title>Manuscript Editor - Task Detail</title>", html)
+        self.assertLess(html.index("/app-api.js"), html.index("/eel.js"))
+        self.assertIn("/pages/task-detail.js", html)
         self.assertIn('id="preview-text"', html)
         self.assertIn('id="process-btn"', html)
+        self.assertIn('id="admin-setting-online-reference-validation-admin-cap"', html)
+        self.assertIn('id="admin-setting-auto-resolve-unresolved-references"', html)
         self.assertNotIn("{{", html)
 
     def test_task_detail_rerun_unresolved_button_has_safe_label_and_tooltip(self):
@@ -411,7 +415,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             source = handle.read()
         self.assertIn("rerun_unresolved_references_fallback", source)
         self.assertIn("assistant_reprocess_task", source)
-        self.assertIn("eel.process_document(retryOptions, taskId)", source)
+        self.assertIn("api.tasks.process", source)
+        self.assertIn("'process_document'", source)
         self.assertIn("Used direct fallback", source)
         self.assertIn("buildUnresolvedRerunDelta", source)
         self.assertIn("Unresolved references rerun complete. Before:", source)
@@ -439,6 +444,104 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("assistantUnresolvedRerunAutofixableBtn", settings_source)
         self.assertIn("assistantExportUnresolvedBtn", settings_source)
         self.assertIn("assistantUnresolvedSort", settings_source)
+
+    def test_frontend_api_client_is_loaded_and_bridge_uses_it(self):
+        api_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-api.js")
+        with open(api_path, "r", encoding="utf-8") as handle:
+            api_source = handle.read()
+        self.assertIn("window.ManuscriptApi", api_source)
+        self.assertIn("requestJson", api_source)
+        self.assertIn("admin:", api_source)
+        self.assertIn("assistant:", api_source)
+        self.assertIn("legacy:", api_source)
+        self.assertIn("runtime:", api_source)
+
+        bridge_path = os.path.join(os.path.dirname(__file__), "..", "web", "eel_web_bridge.js")
+        with open(bridge_path, "r", encoding="utf-8") as handle:
+            bridge_source = handle.read()
+        self.assertIn("window.ManuscriptApi", bridge_source)
+        self.assertIn("apiClient.getJson", bridge_source)
+        self.assertIn("apiClient.postJson", bridge_source)
+        self.assertNotIn("function responseToJson", bridge_source)
+
+        auth_admin_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-auth-admin.js")
+        with open(auth_admin_path, "r", encoding="utf-8") as handle:
+            auth_admin_source = handle.read()
+        self.assertIn("function callApiOrEel", auth_admin_source)
+        self.assertIn("api.auth.googleLogin", auth_admin_source)
+        self.assertIn("api.admin.globalSettings", auth_admin_source)
+        self.assertIn("api.admin.referenceValidationDiagnostics", auth_admin_source)
+        self.assertEqual(auth_admin_source.count("typeof eel !=="), 1)
+
+        app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
+        with open(app_js_path, "r", encoding="utf-8") as handle:
+            app_source = handle.read()
+        self.assertIn("function callApiOrEel", app_source)
+        self.assertIn("api.tasks.uploadText", app_source)
+        self.assertIn("api.tasks.process", app_source)
+        self.assertIn("api.assistant.reprocessTask", app_source)
+        self.assertIn("api.legacy.exportFile", app_source)
+        self.assertEqual(app_source.count("typeof eel !=="), 1)
+
+        quality_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "run_quality_checks.sh")
+        with open(quality_path, "r", encoding="utf-8") as handle:
+            quality_source = handle.read()
+        self.assertIn("node --check web/app-api.js", quality_source)
+        self.assertIn("node --check web/pages/tasks.js", quality_source)
+        self.assertIn("node --check web/pages/task-detail.js", quality_source)
+
+    def test_route_specific_page_modules_are_loaded_and_own_page_controls(self):
+        status, tasks_html = self.client.request_text("GET", "/tasks")
+        self.assertEqual(status, 200)
+        self.assertIn('class="tasks-dashboard-route"', tasks_html)
+        self.assertIn("/pages/tasks.js", tasks_html)
+        self.assertIn("/pages/task-detail.js", tasks_html)
+        self.assertLess(tasks_html.index("/pages/tasks.js"), tasks_html.index("/app.js"))
+
+        tasks_page_path = os.path.join(os.path.dirname(__file__), "..", "web", "pages", "tasks.js")
+        with open(tasks_page_path, "r", encoding="utf-8") as handle:
+            tasks_page_source = handle.read()
+        self.assertIn("root.pages.tasks", tasks_page_source)
+        self.assertIn("root.authAdmin", tasks_page_source)
+        self.assertIn("isTasksDashboardRoute", tasks_page_source)
+        self.assertIn("bindUploadControls", tasks_page_source)
+        self.assertIn("renderTaskHistory", tasks_page_source)
+        self.assertIn("bindTaskHistoryNavigation", tasks_page_source)
+        self.assertIn("auth.navigateToTask", tasks_page_source)
+        self.assertIn("handleSelectedFile", tasks_page_source)
+
+        detail_page_path = os.path.join(os.path.dirname(__file__), "..", "web", "pages", "task-detail.js")
+        with open(detail_page_path, "r", encoding="utf-8") as handle:
+            detail_page_source = handle.read()
+        self.assertIn("root.pages.taskDetail", detail_page_source)
+        self.assertIn("root.authAdmin", detail_page_source)
+        self.assertIn("isDetailWorkspaceRoute", detail_page_source)
+        self.assertIn("bindEditorControls", detail_page_source)
+        self.assertIn("bindPreviewControls", detail_page_source)
+        self.assertIn("hydrateCurrentRouteTaskIfNeeded", detail_page_source)
+        self.assertIn("bootstrapEditorSurface", detail_page_source)
+        self.assertIn("handlePageShow", detail_page_source)
+        self.assertIn("renderRunStagesFromState", detail_page_source)
+
+        settings_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings.js")
+        with open(settings_path, "r", encoding="utf-8") as handle:
+            settings_source = handle.read()
+        self.assertNotIn("settingsDom.dropZone.addEventListener('drop'", settings_source)
+        self.assertNotIn("settingsDom.processBtn.addEventListener", settings_source)
+        self.assertNotIn("document.querySelectorAll('.tab[data-tab]')", settings_source)
+
+        auth_admin_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-auth-admin.js")
+        with open(auth_admin_path, "r", encoding="utf-8") as handle:
+            auth_admin_source = handle.read()
+        self.assertIn("appAuth.pages.tasks", auth_admin_source)
+        self.assertIn("appAuth.pages.taskDetail", auth_admin_source)
+        self.assertNotIn("taskHistoryEl.querySelectorAll('.task-history-item", auth_admin_source)
+
+        app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
+        with open(app_js_path, "r", encoding="utf-8") as handle:
+            app_source = handle.read()
+        self.assertIn("appMain.pages.taskDetail.bootstrapEditorSurface", app_source)
+        self.assertIn("appMain.pages.taskDetail.handlePageShow", app_source)
 
     def test_json_response_sanitizes_non_finite_numbers(self):
         response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})

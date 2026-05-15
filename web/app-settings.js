@@ -524,12 +524,6 @@ function bindSettingsEvents() {
         el.addEventListener('change', saveAiSettings);
         el.addEventListener('input', saveAiSettings);
     });
-    if (settingsDom.browseFileBtn) settingsDom.browseFileBtn.addEventListener('click', () => settingsDom.fileInput.click());
-    if (settingsDom.processBtn) settingsDom.processBtn.addEventListener('click', () => appSettingsRoot.actions.process_document());
-    if (settingsDom.rerunUnresolvedBtn) settingsDom.rerunUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.rerunUnresolvedReferencesOnly());
-    if (settingsDom.saveCleanBtn) settingsDom.saveCleanBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('clean'));
-    if (settingsDom.saveHighlightBtn) settingsDom.saveHighlightBtn.addEventListener('click', () => appSettingsRoot.actions.save_file('highlighted'));
-    if (settingsDom.clearBtn) settingsDom.clearBtn.addEventListener('click', () => appSettingsRoot.actions.clear_all());
     if (settingsDom.assistantAskBtn) settingsDom.assistantAskBtn.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuestion());
     if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.assistantReprocessCurrentTask());
     if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
@@ -581,32 +575,6 @@ function bindSettingsEvents() {
             }
         });
     }
-    document.querySelectorAll('.tab[data-tab]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const tab = String(btn.dataset.tab || '').trim();
-            if (tab) appSettingsRoot.actions.switch_tab(tab);
-        });
-    });
-    document.querySelectorAll('.view-tab[data-view]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const mode = String(btn.dataset.view || '').trim();
-            if (mode) appSettingsRoot.actions.switch_view(mode);
-        });
-    });
-    settingsDom.dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        settingsDom.dropZone.classList.add('dragover');
-    });
-    settingsDom.dropZone.addEventListener('dragleave', () => settingsDom.dropZone.classList.remove('dragover'));
-    settingsDom.dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        settingsDom.dropZone.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        if (files.length > 0) appSettingsRoot.actions.handleFile(files[0]);
-    });
-    settingsDom.fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) appSettingsRoot.actions.handleFile(e.target.files[0]);
-    });
 }
 
 previewApi.applyAiAdvancedSettingsToInputs(settingsConstants.AI_ADVANCED_DEFAULTS);

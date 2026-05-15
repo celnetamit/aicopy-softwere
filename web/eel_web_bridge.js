@@ -10,65 +10,25 @@
         eelObj.expose = function () {};
     }
 
-    function responseToJson(response) {
-        return response.text().then(function (text) {
-            if (!text) {
-                return { success: response.ok, http_status: response.status };
-            }
-            try {
-                var payload = JSON.parse(text);
-                if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                    payload.http_status = response.status;
-                }
-                return payload;
-            } catch (err) {
-                var contentType = '';
-                try {
-                    contentType = response.headers.get('content-type') || '';
-                } catch (headerErr) {
-                    contentType = '';
-                }
-                var rawPreview = String(text || '').slice(0, 400);
-                return {
-                    success: false,
-                    error: 'Invalid JSON response from server',
-                    error_detail: 'The server returned a non-JSON response.',
-                    http_status: response.status,
-                    content_type: contentType,
-                    raw: rawPreview
-                };
-            }
-        });
-    }
-
-    function requestJson(url, options) {
-        var requestOptions = options || { credentials: 'same-origin' };
-        requestOptions.credentials = requestOptions.credentials || 'same-origin';
-
-        return fetch(url, requestOptions)
-            .then(responseToJson)
-            .catch(function (err) {
-                return {
-                    success: false,
-                    error: String(err && err.message ? err.message : err)
-                };
-            });
-    }
+    var apiClient = window.ManuscriptApi || {};
 
     function getJson(url) {
-        return requestJson(url, {
-            credentials: 'same-origin'
+        if (typeof apiClient.getJson === 'function') {
+            return apiClient.getJson(url);
+        }
+        return Promise.resolve({
+            success: false,
+            error: 'ManuscriptApi client is not loaded'
         });
     }
 
     function postJson(url, payload) {
-        return requestJson(url, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload || {})
+        if (typeof apiClient.postJson === 'function') {
+            return apiClient.postJson(url, payload);
+        }
+        return Promise.resolve({
+            success: false,
+            error: 'ManuscriptApi client is not loaded'
         });
     }
 
