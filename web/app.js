@@ -1973,30 +1973,3 @@ window.setGroupDecision = setGroupDecision;
 window.applyAllGroupDecisions = applyAllGroupDecisions;
 window.copyProseOnlyDiff = copyProseOnlyDiff;
 window.downloadProseOnlyDiff = downloadProseOnlyDiff;
-
-mainAuth.updateAdminGlobalAiProviderUI(false);
-mainAuth.updateAdminAiValidationHint();
-mainAuth.applyRouteViewMode();
-const editorBootstrapped = appMain.pages && appMain.pages.taskDetail && typeof appMain.pages.taskDetail.bootstrapEditorSurface === 'function'
-    ? appMain.pages.taskDetail.bootstrapEditorSurface()
-    : false;
-if (!editorBootstrapped) {
-    updateAssistantRouteHint();
-    updateAssistantDiagnostics('idle', 'none', 0);
-    setAssistantUnreadCount(0);
-}
-mainAuth.checkAuthenticatedUser();
-refreshProcessButtonState();
-
-window.addEventListener('pageshow', () => {
-    mainAuth.applyRouteViewMode();
-    const editorPageShown = appMain.pages && appMain.pages.taskDetail && typeof appMain.pages.taskDetail.handlePageShow === 'function'
-        ? appMain.pages.taskDetail.handlePageShow()
-        : false;
-    if (!editorPageShown) {
-        updateAssistantRouteHint();
-        restoreAssistantChatHistoryForCurrentTask();
-    }
-    mainAuth.syncAdminDashboardRouteState();
-    mainAuth.resetAdminDashboardScroll();
-});

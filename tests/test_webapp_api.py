@@ -487,6 +487,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         with open(quality_path, "r", encoding="utf-8") as handle:
             quality_source = handle.read()
         self.assertIn("node --check web/app-api.js", quality_source)
+        self.assertIn("node --check web/app-router.js", quality_source)
         self.assertIn("node --check web/pages/tasks.js", quality_source)
         self.assertIn("node --check web/pages/task-detail.js", quality_source)
 
@@ -497,6 +498,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("/pages/tasks.js", tasks_html)
         self.assertIn("/pages/task-detail.js", tasks_html)
         self.assertLess(tasks_html.index("/pages/tasks.js"), tasks_html.index("/app.js"))
+        self.assertLess(tasks_html.index("/app.js"), tasks_html.index("/app-router.js"))
 
         tasks_page_path = os.path.join(os.path.dirname(__file__), "..", "web", "pages", "tasks.js")
         with open(tasks_page_path, "r", encoding="utf-8") as handle:
@@ -540,8 +542,18 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
         with open(app_js_path, "r", encoding="utf-8") as handle:
             app_source = handle.read()
-        self.assertIn("appMain.pages.taskDetail.bootstrapEditorSurface", app_source)
-        self.assertIn("appMain.pages.taskDetail.handlePageShow", app_source)
+        self.assertNotIn("mainAuth.checkAuthenticatedUser();", app_source)
+
+        router_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-router.js")
+        with open(router_path, "r", encoding="utf-8") as handle:
+            router_source = handle.read()
+        self.assertIn("root.router", router_source)
+        self.assertIn("function getRouteName", router_source)
+        self.assertIn("initRouteModules", router_source)
+        self.assertIn("bootstrapRouteSurface", router_source)
+        self.assertIn("taskDetailPage.bootstrapEditorSurface", router_source)
+        self.assertIn("callAuth('checkAuthenticatedUser')", router_source)
+        self.assertIn("window.addEventListener('pageshow', handlePageShow)", router_source)
 
     def test_json_response_sanitizes_non_finite_numbers(self):
         response = webapp._json_response({"value": math.nan, "nested": {"score": math.inf}})

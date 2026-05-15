@@ -68,7 +68,7 @@ In-progress (local changes, not yet pushed):
 
 Latest full quality gate passed on 2026-05-15:
 1. `./scripts/run_quality_checks.sh`
-2. Result: `Ran 156 tests in 308.515s ... OK`
+2. Result: `Ran 156 tests in 310.927s ... OK`
 3. Compile checks and frontend syntax checks passed.
 
 Latest focused P0 validation also passed:
@@ -86,12 +86,13 @@ Completed locally:
 6. `web/app-auth-admin.js` now prefers `window.ManuscriptApi` for auth, task history, runtime settings, admin settings, diagnostics, user/audit lists, user status, Ollama model discovery, and provider validation while retaining one `eel` compatibility adapter. Full quality gate passed after this migration.
 7. `web/app.js` now prefers `window.ManuscriptApi` for upload, task polling, processing, group decisions, assistant actions, unresolved-reference reruns, export/save, redline preview, and reset-session flows while retaining one `eel` compatibility adapter. Full quality gate passed after this migration.
 8. First route-specific frontend split is in place: `web/pages/tasks.js` owns dashboard upload controls plus task-history rendering/navigation, `web/pages/task-detail.js` owns editor upload/process/save/tab/view controls plus task-detail hydration/editor bootstrapping, and `app-settings.js` is narrowed back toward settings/auth/admin wiring.
+9. `web/app-router.js` now owns shared route bootstrapping, page-module initialization, startup auth/session checks, and `pageshow` route refresh handling.
 
 ## Resume From Here
 
 Primary next workstreams from roadmap:
 1. `P0`: finish fresh-machine QA sign-off for Windows and Ubuntu installer/package builds.
-2. `P1`: continue frontend modernization by extracting remaining assistant/editor runtime helpers from `app.js` and creating a future `web/app-router.js`.
+2. `P1`: continue frontend modernization by extracting remaining assistant/editor runtime helpers from `app.js` and splitting admin/settings page modules.
 
 Suggested first commands:
 1. `./scripts/run_quality_checks.sh`

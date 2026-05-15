@@ -215,7 +215,7 @@ These items address the highest-risk issues and unblock further work.
   5. [x] Upload success redirects to new task detail page
   6. Keep `/` as compatibility redirect to `/tasks`
 - **Depends on**: P0.3 (route modules make adding new routes cleaner)
-- **Validation**: Route module loading/control ownership coverage added; full quality gate passed on 2026-05-15 (`Ran 156 tests in 308.515s ... OK`)
+- **Validation**: Route module loading/control ownership coverage added; full quality gate passed on 2026-05-15 (`Ran 156 tests in 310.927s ... OK`)
 
 #### P1.2 — Create Centralized Frontend API Client
 - **Status**: Foundation started locally on 2026-05-15.
@@ -230,17 +230,18 @@ These items address the highest-risk issues and unblock further work.
   6. [x] Migrate `web/app.js` processing/export/editor/assistant flows to prefer `window.ManuscriptApi` with a single `eel` fallback adapter
   7. [x] Split first route-specific page modules after shared API calls are stable
 - **Depends on**: P1.1 (page modules should use the new API client from the start)
-- **Validation**: Focused frontend API-client/app-flow tests and JS syntax checks passed; full quality gate passed on 2026-05-15 (`Ran 156 tests in 308.515s ... OK`)
+- **Validation**: Focused frontend API-client/app-flow tests and JS syntax checks passed; full quality gate passed on 2026-05-15 (`Ran 156 tests in 310.927s ... OK`)
 
 #### P1.3 — Create Frontend Router
+- **Status**: Completed locally on 2026-05-15.
 - **Files**: New `web/app-router.js`
 - **Issue**: No proper client-side routing; page bootstrapping is ad-hoc
 - **Action**:
-  1. Create `web/app-router.js` that reads `window.location.pathname`
-  2. Bootstrap the correct page module per route
-  3. Handle shared state initialization (auth, session, runtime settings)
+  1. [x] Create `web/app-router.js` that reads `window.location.pathname`
+  2. [x] Bootstrap the correct page module per route
+  3. [x] Handle shared route initialization, auth/session check, and `pageshow` refresh
 - **Depends on**: P1.1
-- **Validation**: Navigating to any route loads only the correct page module
+- **Validation**: Router loading/order coverage added; full quality gate passed on 2026-05-15 (`Ran 156 tests in 310.927s ... OK`)
 
 #### P1.4 — Centralize Versioning
 - **Files**: [`VERSION`](VERSION), [`version_info.py`](version_info.py), packaging configs, UI footer
