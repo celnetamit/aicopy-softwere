@@ -253,9 +253,9 @@ These items address the highest-risk issues and unblock further work.
   3. [x] Add task-aware backend response details for processing summary and unresolved-reference counts
   4. [x] Extract assistant UI/runtime helpers from `web/app.js` into `web/app-assistant.js`
   5. [x] Add guided action cards that explain what each safe action will change before running it
-  6. [ ] Split assistant markup into a reusable fragment so dashboard/task-detail/index shells cannot drift
+  6. [x] Split assistant markup into reusable `web/fragments/assistant_panel.html` so dashboard/task-detail/index shells cannot drift
 - **Depends on**: P1.2, P1.3
-- **Validation**: Focused assistant/module/source coverage passed; full quality gate passed on 2026-05-15 (`Ran 157 tests in 301.372s ... OK`)
+- **Validation**: Focused assistant fragment/rendering coverage passed; full quality gate passed on 2026-05-15 (`Ran 157 tests in 313.796s ... OK`)
 
 #### P1.5 — Centralize Versioning
 - **Files**: [`VERSION`](VERSION), [`version_info.py`](version_info.py), packaging configs, UI footer

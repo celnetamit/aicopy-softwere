@@ -46,6 +46,7 @@ REQUIRED_WEB_ASSETS = (
     "eel_web_bridge.js",
     "fragments/login.html",
     "fragments/app_header.html",
+    "fragments/assistant_panel.html",
     "fragments/app_footer.html",
     "fragments/script_bundle.html",
 )
@@ -1662,6 +1663,7 @@ def _render_html_shell(
     }
     fragment_values["LOGIN_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/login.html"), fragment_values)
     fragment_values["APP_HEADER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_header.html"), fragment_values)
+    fragment_values["ASSISTANT_PANEL_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/assistant_panel.html"), fragment_values)
     fragment_values["APP_FOOTER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_footer.html"), fragment_values)
     fragment_values["SCRIPT_BUNDLE_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/script_bundle.html"), fragment_values)
     shell_values = {

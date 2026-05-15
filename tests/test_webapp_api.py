@@ -347,6 +347,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('data-assistant-prompt="export"', html)
         self.assertIn('id="assistant-guided-action-card"', html)
         self.assertIn('id="assistant-guided-run-btn"', html)
+        self.assertNotIn("{{ASSISTANT_PANEL_FRAGMENT}}", html)
 
     def test_admin_dashboard_contains_new_reference_automation_controls(self):
         status, html = self.client.request_text("GET", "/admin-dashboard")
@@ -463,6 +464,13 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("prepareAssistantGuidedAction", assistant_source)
         self.assertIn("Review action card", assistant_source)
 
+        assistant_fragment_path = os.path.join(os.path.dirname(__file__), "..", "web", "fragments", "assistant_panel.html")
+        with open(assistant_fragment_path, "r", encoding="utf-8") as handle:
+            assistant_fragment = handle.read()
+        self.assertIn('id="assistant-prompt-panel"', assistant_fragment)
+        self.assertIn('id="assistant-guided-action-card"', assistant_fragment)
+        self.assertIn('id="assistant-unresolved-panel"', assistant_fragment)
+
     def test_frontend_api_client_is_loaded_and_bridge_uses_it(self):
         api_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-api.js")
         with open(api_path, "r", encoding="utf-8") as handle:
@@ -524,6 +532,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("/pages/tasks.js", tasks_html)
         self.assertIn("/pages/task-detail.js", tasks_html)
         self.assertIn("/app-assistant.js", tasks_html)
+        self.assertIn('id="assistant-guided-action-card"', tasks_html)
+        self.assertNotIn("{{ASSISTANT_PANEL_FRAGMENT}}", tasks_html)
         self.assertLess(tasks_html.index("/pages/tasks.js"), tasks_html.index("/app.js"))
         self.assertLess(tasks_html.index("/app.js"), tasks_html.index("/app-assistant.js"))
         self.assertLess(tasks_html.index("/app-assistant.js"), tasks_html.index("/app-router.js"))
