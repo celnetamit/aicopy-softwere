@@ -2,7 +2,7 @@
 
 Updated: 2026-05-15  
 Repo: `manuscript_editor`  
-Branch: `main` (assistant module committed; local assistant-panel fragment changes not yet committed)
+Branch: `main` (latest committed checkpoint includes assistant panel fragment; current local changes split settings/admin frontend modules)
 
 ## Current Stage
 
@@ -68,12 +68,12 @@ In-progress (local changes, not yet pushed):
 
 Latest full quality gate passed on 2026-05-15:
 1. `./scripts/run_quality_checks.sh`
-2. Result: `Ran 157 tests in 313.796s ... OK`
+2. Result: `Ran 157 tests in 310.758s ... OK`
 3. Compile checks and frontend syntax checks passed.
 
 Latest focused assistant validation also passed:
-1. `python3 -m pytest -q tests/test_webapp_api.py -k "assistant_quick_prompts_are_wired or task_detail_rerun_unresolved_button_has_safe_label_and_tooltip or route_specific_page_modules_are_loaded_and_own_page_controls or task_detail_route_renders_task_detail_shell or tasks_dashboard_route_renders_dashboard_shell"`
-2. Result: `5 passed, 39 deselected`
+1. `python3 -m pytest -q tests/test_webapp_api.py -k "frontend_api_client_is_loaded_and_bridge_uses_it or route_specific_page_modules_are_loaded_and_own_page_controls or unresolved_references_panel_actions_are_wired or assistant_quick_prompts_are_wired"`
+2. Result: `4 passed, 40 deselected`
 
 ## Current Architecture P0 Status
 
@@ -85,16 +85,18 @@ Completed locally:
 5. P1 API-client foundation started with `web/app-api.js`, script loading before `/eel.js`, `eel_web_bridge.js` delegating JSON requests through `window.ManuscriptApi`, and quality coverage for the new bridge path.
 6. `web/app-auth-admin.js` now prefers `window.ManuscriptApi` for auth, task history, runtime settings, admin settings, diagnostics, user/audit lists, user status, Ollama model discovery, and provider validation while retaining one `eel` compatibility adapter. Full quality gate passed after this migration.
 7. `web/app.js` now prefers `window.ManuscriptApi` for upload, task polling, processing, group decisions, assistant actions, unresolved-reference reruns, export/save, redline preview, and reset-session flows while retaining one `eel` compatibility adapter. Full quality gate passed after this migration.
-8. First route-specific frontend split is in place: `web/pages/tasks.js` owns dashboard upload controls plus task-history rendering/navigation, `web/pages/task-detail.js` owns editor upload/process/save/tab/view controls plus task-detail hydration/editor bootstrapping, and `app-settings.js` is narrowed back toward settings/auth/admin wiring.
+8. First route-specific frontend split is in place: `web/pages/tasks.js` owns dashboard upload controls plus task-history rendering/navigation, `web/pages/task-detail.js` owns editor upload/process/save/tab/view controls plus task-detail hydration/editor bootstrapping.
 9. `web/app-router.js` now owns shared route bootstrapping, page-module initialization, startup auth/session checks, and `pageshow` route refresh handling.
 10. Assistant module extraction and guided actions were committed in `a7eb5e3`.
-11. Assistant panel fragment extraction is now in local changes: `web/fragments/assistant_panel.html` is rendered into index/tasks/task-detail shells to prevent markup drift.
+11. Assistant panel fragment extraction was committed in `937499c`: `web/fragments/assistant_panel.html` is rendered into index/tasks/task-detail shells to prevent markup drift.
+12. Current local P1 split: `web/app-settings-panel.js` now owns settings/login/assistant/admin event binding, while `web/app-settings.js` remains the settings/provider persistence API layer.
+13. Current local P1 split: `web/admin/runtime.js`, `web/admin/users.js`, and `web/admin/audit.js` own runtime processing options, admin user status/list rendering, and audit rendering/refresh; `web/app-auth-admin.js` remains the compatibility facade.
 
 ## Resume From Here
 
 Primary next workstreams from roadmap:
 1. `P0`: finish fresh-machine QA sign-off for Windows and Ubuntu installer/package builds.
-2. `P1`: validate and commit the assistant panel fragment extraction, then continue admin/settings page splits.
+2. `P1`: validate and commit the settings/admin module split, then continue moving remaining admin panel/global-settings/reference-diagnostics logic out of `web/app-auth-admin.js`.
 
 Suggested first commands:
 1. `./scripts/run_quality_checks.sh`

@@ -257,7 +257,21 @@ These items address the highest-risk issues and unblock further work.
 - **Depends on**: P1.2, P1.3
 - **Validation**: Focused assistant fragment/rendering coverage passed; full quality gate passed on 2026-05-15 (`Ran 157 tests in 313.796s ... OK`)
 
-#### P1.5 — Centralize Versioning
+#### P1.5 — Split Settings and Admin Frontend Modules
+- **Status**: Started locally on 2026-05-15.
+- **Files**: [`web/app-settings.js`](web/app-settings.js), [`web/app-settings-panel.js`](web/app-settings-panel.js), [`web/app-auth-admin.js`](web/app-auth-admin.js), [`web/admin/runtime.js`](web/admin/runtime.js), [`web/admin/users.js`](web/admin/users.js), [`web/admin/audit.js`](web/admin/audit.js)
+- **Issue**: Settings, auth, admin user/audit, runtime settings, and event binding were still concentrated in broad frontend files.
+- **Action**:
+  1. [x] Keep `web/app-settings.js` as the settings/provider persistence API layer
+  2. [x] Move AI/provider/settings, setup wizard, assistant panel, login, and admin button event binding into `web/app-settings-panel.js`
+  3. [x] Add `web/admin/runtime.js` for runtime settings refresh and processing-option construction
+  4. [x] Add `web/admin/users.js` for admin user rendering/list/status updates
+  5. [x] Add `web/admin/audit.js` for admin audit rendering/refresh
+  6. [x] Keep `web/app-auth-admin.js` as the compatibility facade while later admin panel/global-settings/reference diagnostics splits continue
+- **Depends on**: P1.2, P1.3
+- **Validation**: Focused module loading/delegation coverage passed; full quality gate passed on 2026-05-15 (`Ran 157 tests in 310.758s ... OK`)
+
+#### P1.6 — Centralize Versioning
 - **Files**: [`VERSION`](VERSION), [`version_info.py`](version_info.py), packaging configs, UI footer
 - **Issue**: Version duplicated across docs, UI, packaging files
 - **Action**:
@@ -267,7 +281,7 @@ These items address the highest-risk issues and unblock further work.
 - **Depends on**: Nothing
 - **Validation**: Changing `VERSION` updates all release surfaces
 
-#### P1.6 — Add Dependency Lock File
+#### P1.7 — Add Dependency Lock File
 - **Files**: New `requirements.lock` or `constraints.txt`
 - **Issue**: No deterministic builds; dependency drift risk
 - **Action**:

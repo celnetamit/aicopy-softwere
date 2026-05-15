@@ -240,125 +240,23 @@ function refreshTaskHistory() {
 }
 
 function refreshRuntimeSettings(callback) {
-    const called = callApiOrEel(
-        (api) => api.runtime && typeof api.runtime.settings === 'function' ? api.runtime.settings() : null,
-        'get_runtime_settings',
-        [],
-        function (response) {
-            if (response && response.success && response.settings && typeof response.settings === 'object') {
-                authState.runtimeManagedSettings = response.settings;
-                if (typeof callback === 'function') {
-                    callback(authState.runtimeManagedSettings);
-                }
-                return;
-            }
-            authState.runtimeManagedSettings = null;
-            if (typeof callback === 'function') {
-                callback(null);
-            }
-        }
-    );
-    if (!called) {
-        authState.runtimeManagedSettings = null;
-        if (typeof callback === 'function') {
-            callback(null);
-        }
+    const runtimeModule = appAuth.adminRuntime || {};
+    if (typeof runtimeModule.refreshRuntimeSettings === 'function') {
+        return runtimeModule.refreshRuntimeSettings(callback);
     }
+    authState.runtimeManagedSettings = null;
+    if (typeof callback === 'function') {
+        callback(null);
+    }
+    return undefined;
 }
 
 function buildProcessingOptionsFromRuntimeSettings() {
-    const settings = authState.runtimeManagedSettings && typeof authState.runtimeManagedSettings === 'object'
-        ? authState.runtimeManagedSettings
-        : null;
-    const editing = settings && settings.editing && typeof settings.editing === 'object' ? settings.editing : {};
-    const onlineReferenceValidationEnabled = settings
-        ? editing.online_reference_validation !== false
-        : (authDom.onlineReferenceValidationInput ? authDom.onlineReferenceValidationInput.checked !== false : true);
-    const serperFallbackEnabled = settings
-        ? editing.online_reference_serper_fallback !== false
-        : (authDom.onlineReferenceSerperFallbackInput
-            ? authDom.onlineReferenceSerperFallbackInput.checked !== false
-            : onlineReferenceValidationEnabled);
-    const defaults = {
-        spelling: true,
-        sentence_case: true,
-        punctuation: true,
-        chicago_style: true,
-        cmos_strict_mode: true,
-        online_reference_validation: onlineReferenceValidationEnabled,
-        online_reference_serper_fallback: serperFallbackEnabled,
-        doi_insertion_mode: 'balanced',
-        domain_profile: 'auto',
-        cmos_profile: 'core',
-        custom_terms: [],
-        journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
-        reference_profile: authConstants.FIXED_JOURNAL_PROFILE,
-        ai: {
-            enabled: true,
-            provider: 'ollama',
-            model: authConstants.DEFAULT_MODEL_BY_PROVIDER.ollama,
-            ollama_host: 'http://localhost:11434',
-            api_key: '',
-            gemini_api_key: '',
-            openrouter_api_key: '',
-            agent_router_api_key: '',
-            ai_first_cmos: false,
-            section_wise: true,
-            section_threshold_chars: 12000,
-            section_threshold_paragraphs: 90,
-            section_chunk_chars: 5500,
-            section_chunk_lines: 28,
-            global_consistency_max_chars: 18000,
-            ollama_generate_timeout_seconds: 60,
-            ollama_health_timeout_seconds: 5,
-            ollama_retry_count: 0,
-            ollama_retry_backoff_seconds: 0,
-            ollama_fallback_model_retry: true
-        }
-    };
-    if (!settings) {
-        return defaults;
+    const runtimeModule = appAuth.adminRuntime || {};
+    if (typeof runtimeModule.buildProcessingOptionsFromRuntimeSettings === 'function') {
+        return runtimeModule.buildProcessingOptionsFromRuntimeSettings();
     }
-    const ai = settings.ai && typeof settings.ai === 'object' ? settings.ai : {};
-    return {
-        spelling: editing.spelling !== false,
-        sentence_case: editing.sentence_case !== false,
-        punctuation: editing.punctuation !== false,
-        chicago_style: editing.chicago_style !== false,
-        cmos_strict_mode: editing.cmos_strict_mode !== false,
-        online_reference_validation: onlineReferenceValidationEnabled,
-        online_reference_serper_fallback: serperFallbackEnabled,
-        doi_insertion_mode: editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced',
-        domain_profile: String(editing.domain_profile || 'auto'),
-        cmos_profile: ['core', 'strict', 'journal_custom'].includes(String(editing.cmos_profile || 'core'))
-            ? String(editing.cmos_profile || 'core')
-            : 'core',
-        custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
-        journal_profile: authConstants.FIXED_JOURNAL_PROFILE,
-        reference_profile: authConstants.FIXED_JOURNAL_PROFILE,
-        ai: {
-            enabled: ai.enabled !== false,
-            provider: String(ai.provider || 'ollama'),
-            model: String(ai.model || ''),
-            ollama_host: String(ai.ollama_host || ''),
-            api_key: String(ai.gemini_api_key || ''),
-            gemini_api_key: String(ai.gemini_api_key || ''),
-            openrouter_api_key: String(ai.openrouter_api_key || ''),
-            agent_router_api_key: String(ai.agent_router_api_key || ''),
-            ai_first_cmos: ai.ai_first_cmos === true,
-            section_wise: ai.section_wise !== false,
-            section_threshold_chars: Number(ai.section_threshold_chars || 12000),
-            section_threshold_paragraphs: Number(ai.section_threshold_paragraphs || 90),
-            section_chunk_chars: Number(ai.section_chunk_chars || 5500),
-            section_chunk_lines: Number(ai.section_chunk_lines || 28),
-            global_consistency_max_chars: Number(ai.global_consistency_max_chars || 18000),
-            ollama_generate_timeout_seconds: Number(ai.ollama_generate_timeout_seconds || 60),
-            ollama_health_timeout_seconds: Number(ai.ollama_health_timeout_seconds || 5),
-            ollama_retry_count: Number(ai.ollama_retry_count || 0),
-            ollama_retry_backoff_seconds: Number(ai.ollama_retry_backoff_seconds || 0),
-            ollama_fallback_model_retry: ai.ollama_fallback_model_retry !== false
-        }
-    };
+    return {};
 }
 
 function applyTaskDetailsToState(task) {
@@ -659,60 +557,19 @@ function logoutCurrentUser() {
 }
 
 function renderAdminUsers() {
-    if (!authDom.adminUsersBody) {
-        return;
+    const usersModule = appAuth.adminUsers || {};
+    if (typeof usersModule.renderAdminUsers === 'function') {
+        return usersModule.renderAdminUsers();
     }
-    if (!Array.isArray(authState.adminUsers) || authState.adminUsers.length === 0) {
-        authDom.adminUsersBody.innerHTML = '<tr><td colspan="4">No users found.</td></tr>';
-        return;
-    }
-    let html = '';
-    authState.adminUsers.forEach((user) => {
-        const userId = authHelpers.escapeHtml(String(user.id || ''));
-        const status = String(user.status || 'ACTIVE').toUpperCase();
-        const isActive = status === 'ACTIVE';
-        const role = authHelpers.escapeHtml(String(user.role || 'USER'));
-        const email = authHelpers.escapeHtml(String(user.email || ''));
-        const statusClass = isActive ? 'active' : 'inactive';
-        const actionLabel = isActive ? 'Deactivate' : 'Activate';
-        const nextStatus = isActive ? 'INACTIVE' : 'ACTIVE';
-        html += '<tr>';
-        html += `<td>${email}<br><small>${authHelpers.escapeHtml(String(user.display_name || ''))}</small></td>`;
-        html += `<td>${role}</td>`;
-        html += `<td><span class="status-pill ${statusClass}">${authHelpers.escapeHtml(status)}</span></td>`;
-        html += `<td><button class="btn-secondary btn-small" data-user-id="${userId}" data-next-status="${nextStatus}">${actionLabel}</button></td>`;
-        html += '</tr>';
-    });
-    authDom.adminUsersBody.innerHTML = html;
-    authDom.adminUsersBody.querySelectorAll('button[data-user-id][data-next-status]').forEach((button) => {
-        button.addEventListener('click', () => {
-            const userId = String(button.getAttribute('data-user-id') || '').trim();
-            const nextStatus = String(button.getAttribute('data-next-status') || '').trim();
-            if (userId && nextStatus) {
-                updateAdminUserStatus(userId, nextStatus);
-            }
-        });
-    });
+    return undefined;
 }
 
 function renderAdminAudit() {
-    if (!authDom.adminAuditBody) {
-        return;
+    const auditModule = appAuth.adminAudit || {};
+    if (typeof auditModule.renderAdminAudit === 'function') {
+        return auditModule.renderAdminAudit();
     }
-    if (!Array.isArray(authState.adminEvents) || authState.adminEvents.length === 0) {
-        authDom.adminAuditBody.innerHTML = '<tr><td colspan="4">No events found.</td></tr>';
-        return;
-    }
-    let html = '';
-    authState.adminEvents.forEach((event) => {
-        html += '<tr>';
-        html += `<td>${authHelpers.escapeHtml(authHelpers.formatUnixTimestamp(event.created_at))}</td>`;
-        html += `<td>${authHelpers.escapeHtml(String(event.actor_email || '-'))}</td>`;
-        html += `<td>${authHelpers.escapeHtml(String(event.event_type || 'unknown'))}</td>`;
-        html += `<td>${authHelpers.escapeHtml(String(event.target_email || '-'))}</td>`;
-        html += '</tr>';
-    });
-    authDom.adminAuditBody.innerHTML = html;
+    return undefined;
 }
 
 function renderDocxStructureSummary(docxPackageFeatures, options) {
@@ -1113,39 +970,19 @@ function saveAdminGlobalSettings() {
 }
 
 function refreshAdminUsers() {
-    if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
-        return;
+    const usersModule = appAuth.adminUsers || {};
+    if (typeof usersModule.refreshAdminUsers === 'function') {
+        return usersModule.refreshAdminUsers();
     }
-    callApiOrEel(
-        (api) => api.admin && typeof api.admin.users === 'function' ? api.admin.users(300) : null,
-        'admin_list_users',
-        [300],
-        function (response) {
-            if (!response || !response.success) {
-                return;
-            }
-            authState.adminUsers = Array.isArray(response.users) ? response.users : [];
-            renderAdminUsers();
-        }
-    );
+    return undefined;
 }
 
 function refreshAdminAudit() {
-    if (!authState.currentUser || String(authState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
-        return;
+    const auditModule = appAuth.adminAudit || {};
+    if (typeof auditModule.refreshAdminAudit === 'function') {
+        return auditModule.refreshAdminAudit();
     }
-    callApiOrEel(
-        (api) => api.admin && typeof api.admin.auditEvents === 'function' ? api.admin.auditEvents({ limit: 300 }) : null,
-        'admin_list_audit_events',
-        [{ limit: 300 }],
-        function (response) {
-            if (!response || !response.success) {
-                return;
-            }
-            authState.adminEvents = Array.isArray(response.events) ? response.events : [];
-            renderAdminAudit();
-        }
-    );
+    return undefined;
 }
 
 function renderAdminReferenceValidationDiagnostics(payload) {
@@ -1279,19 +1116,11 @@ function resetAdminReferenceValidationDiagnostics() {
 }
 
 function updateAdminUserStatus(userId, nextStatus) {
-    callApiOrEel(
-        (api) => api.admin && typeof api.admin.setUserStatus === 'function' ? api.admin.setUserStatus(userId, nextStatus) : null,
-        'admin_set_user_status',
-        [userId, nextStatus],
-        function (response) {
-            if (!response || !response.success) {
-                alert(response && response.error ? String(response.error) : 'Could not update user status');
-                return;
-            }
-            refreshAdminUsers();
-            refreshAdminAudit();
-        }
-    );
+    const usersModule = appAuth.adminUsers || {};
+    if (typeof usersModule.updateAdminUserStatus === 'function') {
+        return usersModule.updateAdminUserStatus(userId, nextStatus);
+    }
+    return undefined;
 }
 
 function updateAdminAiValidationHint() {
@@ -1423,6 +1252,7 @@ function closeAdminPanel() {
 }
 
 appAuth.authAdmin = {
+    callApiOrEel,
     setLoginStatus,
     showLoginView,
     showAppView,

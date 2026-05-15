@@ -1,10 +1,8 @@
 const appSettingsRoot = window.ManuscriptEditorApp;
 const settingsState = appSettingsRoot.state;
 const settingsDom = appSettingsRoot.dom;
-const settingsHelpers = appSettingsRoot.helpers;
 const settingsConstants = appSettingsRoot.constants;
 const previewApi = appSettingsRoot.preview;
-const authApi = appSettingsRoot.authAdmin;
 
 function getCurrentAiModel() {
     if (!settingsDom.aiProvider) {
@@ -392,196 +390,6 @@ function maybeShowSetupWizardOnFirstRun() {
     openSetupWizard();
 }
 
-function bindSettingsEvents() {
-    if (settingsDom.localLoginBtn) {
-        settingsDom.localLoginBtn.addEventListener('click', authApi.submitLocalLogin);
-    }
-    if (settingsDom.localLoginPasswordInput) {
-        settingsDom.localLoginPasswordInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                authApi.submitLocalLogin();
-            }
-        });
-    }
-    if (settingsDom.aiProvider) {
-        settingsDom.aiProvider.addEventListener('change', () => {
-            updateAiProviderUI();
-            saveAiSettings();
-        });
-    }
-    if (settingsDom.onlineReferenceValidationInput) {
-        settingsDom.onlineReferenceValidationInput.addEventListener('change', () => {
-            syncReferenceValidationToggleState();
-            saveAiSettings();
-        });
-    }
-    if (settingsDom.setupWizardProvider) settingsDom.setupWizardProvider.addEventListener('change', updateSetupWizardProviderUI);
-    if (settingsDom.openSetupWizardBtn) settingsDom.openSetupWizardBtn.addEventListener('click', openSetupWizard);
-    if (settingsDom.setupWizardSaveBtn) settingsDom.setupWizardSaveBtn.addEventListener('click', saveSetupWizardSettings);
-    if (settingsDom.setupWizardCancelBtn) settingsDom.setupWizardCancelBtn.addEventListener('click', () => {
-        closeSetupWizard(true);
-        appSettingsRoot.actions.setStatus('Setup closed. Reopen anytime from AI Settings.', 'warning');
-    });
-    if (settingsDom.setupWizardSkipBtn) settingsDom.setupWizardSkipBtn.addEventListener('click', () => {
-        closeSetupWizard(true);
-        appSettingsRoot.actions.setStatus('Setup skipped. You can reopen it anytime from AI Settings.', 'warning');
-    });
-    if (settingsDom.setupWizardBackdrop) {
-        settingsDom.setupWizardBackdrop.addEventListener('click', (event) => {
-            if (event.target === settingsDom.setupWizardBackdrop) {
-                closeSetupWizard(true);
-                appSettingsRoot.actions.setStatus('Setup closed. Reopen anytime from AI Settings.', 'warning');
-            }
-        });
-    }
-    document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && settingsDom.setupWizardBackdrop && !settingsDom.setupWizardBackdrop.classList.contains('hidden')) {
-            closeSetupWizard(true);
-            appSettingsRoot.actions.setStatus('Setup closed. Reopen anytime from AI Settings.', 'warning');
-            return;
-        }
-        if (event.key === 'Escape' && settingsDom.adminPanelBackdrop && !settingsDom.adminPanelBackdrop.classList.contains('hidden')) {
-            authApi.closeAdminPanel();
-        }
-    });
-    if (settingsDom.refreshModelsBtn && settingsDom.ollamaModelSelect) settingsDom.refreshModelsBtn.addEventListener('click', () => fetchOllamaModels(settingsDom.ollamaModelSelect.value));
-    if (settingsDom.ollamaHostInput && settingsDom.ollamaModelSelect) settingsDom.ollamaHostInput.addEventListener('change', () => fetchOllamaModels(settingsDom.ollamaModelSelect.value));
-    if (settingsDom.ollamaModelSelect) settingsDom.ollamaModelSelect.addEventListener('change', saveAiSettings);
-    if (settingsDom.useLocalOllamaBtn) settingsDom.useLocalOllamaBtn.addEventListener('click', () => applyOllamaHost('http://localhost:11434', 'Using local Ollama on this PC'));
-    if (settingsDom.useRemoteOllamaBtn && settingsDom.ollamaHostInput) settingsDom.useRemoteOllamaBtn.addEventListener('click', () => {
-        const seed = settingsState.remoteOllamaHostHint
-            || (!isLocalOllamaHost(settingsDom.ollamaHostInput.value) ? (normalizeOllamaHost(settingsDom.ollamaHostInput.value) || settingsDom.ollamaHostInput.value.trim()) : '')
-            || '192.168.1.25:11434';
-        const entered = window.prompt('Enter remote Ollama IP/URL (example: 192.168.1.25 or http://192.168.1.25:11434):', seed);
-        if (entered !== null) applyOllamaHost(entered, `Using remote Ollama: ${normalizeOllamaHost(entered) || entered}`);
-    });
-    if (settingsDom.importCustomTermsBtn && settingsDom.customTermsFileInput) settingsDom.importCustomTermsBtn.addEventListener('click', () => settingsDom.customTermsFileInput.click());
-    if (settingsDom.clearCustomTermsBtn && settingsDom.customTermsInput) settingsDom.clearCustomTermsBtn.addEventListener('click', () => {
-        settingsDom.customTermsInput.value = '';
-        saveAiSettings();
-    });
-    if (settingsDom.customTermsFileInput && settingsDom.customTermsInput) settingsDom.customTermsFileInput.addEventListener('change', (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function () {
-            const merged = previewApi.parseCustomTerms([settingsDom.customTermsInput.value, String(reader.result || '')].join('\n'));
-            settingsDom.customTermsInput.value = merged.join('\n');
-            saveAiSettings();
-        };
-        reader.onerror = function () {
-            alert('Could not read terms file.');
-        };
-        reader.readAsText(file);
-        settingsDom.customTermsFileInput.value = '';
-    });
-    if (settingsDom.pagePresetSelect) settingsDom.pagePresetSelect.addEventListener('change', () => {
-        const preset = settingsDom.pagePresetSelect.value;
-        if (preset === 'custom') {
-            previewApi.onPageSettingsEdited();
-            return;
-        }
-        previewApi.setPagePreset(preset);
-        saveAiSettings();
-        if (settingsState.currentViewMode === 'page') previewApi.renderCurrentPreview();
-    });
-    [
-        settingsDom.pageFontSizeInput,
-        settingsDom.pageLineHeightInput,
-        settingsDom.pageParagraphSpacingInput,
-        settingsDom.pageMarginTopInput,
-        settingsDom.pageMarginBottomInput,
-        settingsDom.pageMarginLeftInput,
-        settingsDom.pageMarginRightInput
-    ].filter(Boolean).forEach((el) => {
-        el.addEventListener('change', previewApi.onPageSettingsEdited);
-        el.addEventListener('input', previewApi.onPageSettingsEdited);
-    });
-    [
-        settingsDom.aiEnabled,
-        settingsDom.aiProvider,
-        settingsDom.geminiModelInput,
-        settingsDom.openrouterModelInput,
-        settingsDom.agentRouterModelInput,
-        settingsDom.ollamaHostInput,
-        settingsDom.geminiApiKeyInput,
-        settingsDom.openrouterApiKeyInput,
-        settingsDom.aiSectionWiseInput,
-        settingsDom.aiSectionThresholdCharsInput,
-        settingsDom.aiSectionThresholdParagraphsInput,
-        settingsDom.aiSectionChunkCharsInput,
-        settingsDom.aiSectionChunkLinesInput,
-        settingsDom.aiGlobalConsistencyMaxCharsInput,
-        settingsDom.domainProfileSelect,
-        settingsDom.cmosProfileSelect,
-        settingsDom.customTermsInput,
-        settingsDom.cmosStrictInput,
-        settingsDom.onlineReferenceValidationInput,
-        settingsDom.onlineReferenceSerperFallbackInput
-    ].forEach((el) => {
-        if (!el) return;
-        el.addEventListener('change', saveAiSettings);
-        el.addEventListener('input', saveAiSettings);
-    });
-    if (settingsDom.assistantAskBtn) settingsDom.assistantAskBtn.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuestion());
-    if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('reprocess'));
-    if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('apply_decisions'));
-    if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('retry_recommended'));
-    if (settingsDom.assistantRerunUnresolvedBtn) settingsDom.assistantRerunUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('rerun_unresolved'));
-    if (settingsDom.assistantUnresolvedRerunBtn) settingsDom.assistantUnresolvedRerunBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('rerun_unresolved'));
-    if (settingsDom.assistantUnresolvedRerunAutofixableBtn) settingsDom.assistantUnresolvedRerunAutofixableBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('rerun_auto_fixable'));
-    if (settingsDom.assistantExportUnresolvedBtn) settingsDom.assistantExportUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.exportUnresolvedReferencesReport());
-    if (settingsDom.assistantUnresolvedSort) settingsDom.assistantUnresolvedSort.addEventListener('change', () => appSettingsRoot.actions.renderUnresolvedReferencesPanelFromState());
-    if (settingsDom.assistantCopyDiagnosticsBtn) settingsDom.assistantCopyDiagnosticsBtn.addEventListener('click', () => appSettingsRoot.actions.copyAssistantDiagnostics());
-    if (settingsDom.assistantGuidedRunBtn) settingsDom.assistantGuidedRunBtn.addEventListener('click', () => appSettingsRoot.actions.runPreparedAssistantGuidedAction());
-    if (settingsDom.assistantGuidedCancelBtn) settingsDom.assistantGuidedCancelBtn.addEventListener('click', () => appSettingsRoot.actions.hideAssistantGuidedActionCard());
-    Array.prototype.forEach.call(settingsDom.assistantQuickPromptButtons || [], (button) => {
-        button.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuickPrompt(button.getAttribute('data-assistant-prompt')));
-    });
-    if (settingsDom.assistantChatToggleBtn) settingsDom.assistantChatToggleBtn.addEventListener('click', () => {
-        const open = !(settingsDom.assistantChatPanel && !settingsDom.assistantChatPanel.classList.contains('hidden'));
-        appSettingsRoot.actions.toggleAssistantChat(open);
-    });
-    if (settingsDom.assistantChatCloseBtn) settingsDom.assistantChatCloseBtn.addEventListener('click', () => appSettingsRoot.actions.toggleAssistantChat(false));
-    if (settingsDom.assistantQuestionInput) {
-        settingsDom.assistantQuestionInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                appSettingsRoot.actions.askAssistantQuestion();
-            }
-        });
-    }
-    if (settingsDom.logoutBtn) settingsDom.logoutBtn.addEventListener('click', authApi.logoutCurrentUser);
-    if (settingsDom.openTasksDashboardBtn) settingsDom.openTasksDashboardBtn.addEventListener('click', authApi.navigateToTasksDashboard);
-    if (settingsDom.refreshHistoryBtn) settingsDom.refreshHistoryBtn.addEventListener('click', authApi.refreshTaskHistory);
-    if (settingsDom.openAdminPanelBtn) settingsDom.openAdminPanelBtn.addEventListener('click', authApi.openAdminPanel);
-    if (settingsDom.adminClosePanelBtn) settingsDom.adminClosePanelBtn.addEventListener('click', authApi.closeAdminPanel);
-    if (settingsDom.adminRefreshUsersBtn) settingsDom.adminRefreshUsersBtn.addEventListener('click', authApi.refreshAdminUsers);
-    if (settingsDom.adminRefreshAuditBtn) settingsDom.adminRefreshAuditBtn.addEventListener('click', authApi.refreshAdminAudit);
-    if (settingsDom.adminRefreshReferenceDiagnosticsBtn) settingsDom.adminRefreshReferenceDiagnosticsBtn.addEventListener('click', authApi.refreshAdminReferenceValidationDiagnostics);
-    if (settingsDom.adminResetReferenceDiagnosticsBtn) settingsDom.adminResetReferenceDiagnosticsBtn.addEventListener('click', authApi.resetAdminReferenceValidationDiagnostics);
-    if (settingsDom.adminLoadGlobalSettingsBtn) settingsDom.adminLoadGlobalSettingsBtn.addEventListener('click', authApi.loadAdminGlobalSettings);
-    if (settingsDom.adminSaveGlobalSettingsBtn) settingsDom.adminSaveGlobalSettingsBtn.addEventListener('click', authApi.saveAdminGlobalSettings);
-    if (settingsDom.adminSettingAiProvider) settingsDom.adminSettingAiProvider.addEventListener('change', () => authApi.updateAdminGlobalAiProviderUI(true));
-    if (settingsDom.adminSettingOllamaHost) settingsDom.adminSettingOllamaHost.addEventListener('change', () => authApi.loadAdminGlobalOllamaModels(true));
-    if (settingsDom.adminAiProviderSelect) settingsDom.adminAiProviderSelect.addEventListener('change', authApi.updateAdminAiValidationHint);
-
-    authApi.bindPasswordToggle(settingsDom.adminAiKeyInput, settingsDom.adminAiKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show API key', hideAria: 'Hide API key' });
-    authApi.bindPasswordToggle(settingsDom.adminSettingGeminiKey, settingsDom.adminSettingGeminiKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show Gemini API key', hideAria: 'Hide Gemini API key' });
-    authApi.bindPasswordToggle(settingsDom.adminSettingOpenrouterKey, settingsDom.adminSettingOpenrouterKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show OpenRouter API key', hideAria: 'Hide OpenRouter API key' });
-    authApi.bindPasswordToggle(settingsDom.adminSettingAgentRouterKey, settingsDom.adminSettingAgentRouterKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show AgentRouter token', hideAria: 'Hide AgentRouter token' });
-
-    if (settingsDom.adminValidateAiBtn) settingsDom.adminValidateAiBtn.addEventListener('click', authApi.validateAdminAiProvider);
-    if (settingsDom.adminPanelBackdrop) {
-        settingsDom.adminPanelBackdrop.addEventListener('click', (event) => {
-            if (!authApi.isAdminDashboardRoute() && event.target === settingsDom.adminPanelBackdrop) {
-                authApi.closeAdminPanel();
-            }
-        });
-    }
-}
-
 previewApi.applyAiAdvancedSettingsToInputs(settingsConstants.AI_ADVANCED_DEFAULTS);
 loadAiSettings();
 syncReferenceValidationToggleState();
@@ -589,7 +397,6 @@ if (settingsDom.pagePresetSelect && !settingsDom.pagePresetSelect.value) {
     previewApi.setPagePreset('manuscript_default');
 }
 updateAiProviderUI();
-bindSettingsEvents();
 
 appSettingsRoot.settings = {
     getCurrentAiModel,
@@ -601,6 +408,7 @@ appSettingsRoot.settings = {
     fetchOllamaModels,
     saveAiSettings,
     loadAiSettings,
+    syncReferenceValidationToggleState,
     isSetupWizardComplete,
     markSetupWizardComplete,
     updateSetupWizardProviderUI,

@@ -443,15 +443,15 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("exportUnresolvedReferencesReport", assistant_source)
         self.assertIn("unresolved_references_", assistant_source)
 
-        settings_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings.js")
-        with open(settings_js_path, "r", encoding="utf-8") as handle:
-            settings_source = handle.read()
-        self.assertIn("assistantUnresolvedRerunBtn", settings_source)
-        self.assertIn("assistantUnresolvedRerunAutofixableBtn", settings_source)
-        self.assertIn("assistantExportUnresolvedBtn", settings_source)
-        self.assertIn("assistantUnresolvedSort", settings_source)
-        self.assertIn("assistantQuickPromptButtons", settings_source)
-        self.assertIn("askAssistantQuickPrompt", settings_source)
+        settings_panel_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings-panel.js")
+        with open(settings_panel_path, "r", encoding="utf-8") as handle:
+            settings_panel_source = handle.read()
+        self.assertIn("assistantUnresolvedRerunBtn", settings_panel_source)
+        self.assertIn("assistantUnresolvedRerunAutofixableBtn", settings_panel_source)
+        self.assertIn("assistantExportUnresolvedBtn", settings_panel_source)
+        self.assertIn("assistantUnresolvedSort", settings_panel_source)
+        self.assertIn("assistantQuickPromptButtons", settings_panel_source)
+        self.assertIn("askAssistantQuickPrompt", settings_panel_source)
 
     def test_assistant_quick_prompts_are_wired(self):
         assistant_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-assistant.js")
@@ -521,7 +521,13 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             quality_source = handle.read()
         self.assertIn("node --check web/app-api.js", quality_source)
         self.assertIn("node --check web/app-assistant.js", quality_source)
+        self.assertIn("node --check web/app-auth-admin.js", quality_source)
         self.assertIn("node --check web/app-router.js", quality_source)
+        self.assertIn("node --check web/app-settings.js", quality_source)
+        self.assertIn("node --check web/app-settings-panel.js", quality_source)
+        self.assertIn("node --check web/admin/runtime.js", quality_source)
+        self.assertIn("node --check web/admin/audit.js", quality_source)
+        self.assertIn("node --check web/admin/users.js", quality_source)
         self.assertIn("node --check web/pages/tasks.js", quality_source)
         self.assertIn("node --check web/pages/task-detail.js", quality_source)
 
@@ -531,9 +537,19 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('class="tasks-dashboard-route"', tasks_html)
         self.assertIn("/pages/tasks.js", tasks_html)
         self.assertIn("/pages/task-detail.js", tasks_html)
+        self.assertIn("/app-settings-panel.js", tasks_html)
+        self.assertIn("/admin/runtime.js", tasks_html)
+        self.assertIn("/admin/audit.js", tasks_html)
+        self.assertIn("/admin/users.js", tasks_html)
         self.assertIn("/app-assistant.js", tasks_html)
         self.assertIn('id="assistant-guided-action-card"', tasks_html)
         self.assertNotIn("{{ASSISTANT_PANEL_FRAGMENT}}", tasks_html)
+        self.assertLess(tasks_html.index("/app-auth-admin.js"), tasks_html.index("/admin/runtime.js"))
+        self.assertLess(tasks_html.index("/admin/runtime.js"), tasks_html.index("/admin/audit.js"))
+        self.assertLess(tasks_html.index("/admin/audit.js"), tasks_html.index("/admin/users.js"))
+        self.assertLess(tasks_html.index("/admin/users.js"), tasks_html.index("/app-preview.js"))
+        self.assertLess(tasks_html.index("/app-settings.js"), tasks_html.index("/app-settings-panel.js"))
+        self.assertLess(tasks_html.index("/app-settings-panel.js"), tasks_html.index("/pages/tasks.js"))
         self.assertLess(tasks_html.index("/pages/tasks.js"), tasks_html.index("/app.js"))
         self.assertLess(tasks_html.index("/app.js"), tasks_html.index("/app-assistant.js"))
         self.assertLess(tasks_html.index("/app-assistant.js"), tasks_html.index("/app-router.js"))
@@ -566,16 +582,53 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         settings_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings.js")
         with open(settings_path, "r", encoding="utf-8") as handle:
             settings_source = handle.read()
+        self.assertIn("appSettingsRoot.settings", settings_source)
+        self.assertIn("syncReferenceValidationToggleState", settings_source)
+        self.assertNotIn("function bindSettingsEvents", settings_source)
+        self.assertNotIn("addEventListener", settings_source)
         self.assertNotIn("settingsDom.dropZone.addEventListener('drop'", settings_source)
         self.assertNotIn("settingsDom.processBtn.addEventListener", settings_source)
         self.assertNotIn("document.querySelectorAll('.tab[data-tab]')", settings_source)
+
+        settings_panel_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings-panel.js")
+        with open(settings_panel_path, "r", encoding="utf-8") as handle:
+            settings_panel_source = handle.read()
+        self.assertIn("root.settingsPanel", settings_panel_source.replace("appSettingsPanelRoot.", "root."))
+        self.assertIn("bindAiProviderEvents", settings_panel_source)
+        self.assertIn("settingsPanelDom.aiProvider.addEventListener", settings_panel_source)
+        self.assertIn("bindAdminPanelEvents", settings_panel_source)
+        self.assertIn("bindAssistantPanelEvents", settings_panel_source)
 
         auth_admin_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-auth-admin.js")
         with open(auth_admin_path, "r", encoding="utf-8") as handle:
             auth_admin_source = handle.read()
         self.assertIn("appAuth.pages.tasks", auth_admin_source)
         self.assertIn("appAuth.pages.taskDetail", auth_admin_source)
+        self.assertIn("appAuth.adminRuntime", auth_admin_source)
+        self.assertIn("appAuth.adminUsers", auth_admin_source)
+        self.assertIn("appAuth.adminAudit", auth_admin_source)
         self.assertNotIn("taskHistoryEl.querySelectorAll('.task-history-item", auth_admin_source)
+
+        admin_runtime_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "runtime.js")
+        with open(admin_runtime_path, "r", encoding="utf-8") as handle:
+            admin_runtime_source = handle.read()
+        self.assertIn("appAdminRuntimeRoot.adminRuntime", admin_runtime_source)
+        self.assertIn("refreshRuntimeSettings", admin_runtime_source)
+        self.assertIn("buildProcessingOptionsFromRuntimeSettings", admin_runtime_source)
+
+        admin_users_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "users.js")
+        with open(admin_users_path, "r", encoding="utf-8") as handle:
+            admin_users_source = handle.read()
+        self.assertIn("appAdminUsersRoot.adminUsers", admin_users_source)
+        self.assertIn("renderAdminUsers", admin_users_source)
+        self.assertIn("updateAdminUserStatus", admin_users_source)
+
+        admin_audit_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "audit.js")
+        with open(admin_audit_path, "r", encoding="utf-8") as handle:
+            admin_audit_source = handle.read()
+        self.assertIn("appAdminAuditRoot.adminAudit", admin_audit_source)
+        self.assertIn("renderAdminAudit", admin_audit_source)
+        self.assertIn("refreshAdminAudit", admin_audit_source)
 
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
         with open(app_js_path, "r", encoding="utf-8") as handle:
