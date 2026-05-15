@@ -42,6 +42,7 @@ REQUIRED_WEB_ASSETS = (
     "task_detail.html",
     "style.css",
     "app.js",
+    "app-assistant.js",
     "eel_web_bridge.js",
     "fragments/login.html",
     "fragments/app_header.html",
@@ -1195,18 +1196,43 @@ def _read_task_download_payload(context: SessionContext, task_id: str, file_type
 def _task_diagnostics_snapshot(task: Dict) -> Dict:
     reports = task.get("reports") if isinstance(task.get("reports"), dict) else {}
     citation_report = reports.get("citation_reference_report") if isinstance(reports.get("citation_reference_report"), dict) else {}
+    citation_summary = citation_report.get("summary") if isinstance(citation_report.get("summary"), dict) else {}
     issue_counts = citation_report.get("issue_counts") if isinstance(citation_report.get("issue_counts"), dict) else {}
+    online = citation_report.get("online_validation") if isinstance(citation_report.get("online_validation"), dict) else {}
+    online_entries = online.get("entries") if isinstance(online.get("entries"), list) else []
+    enrichment = online.get("enrichment") if isinstance(online.get("enrichment"), dict) else {}
+    enrichment_trail = enrichment.get("trail") if isinstance(enrichment.get("trail"), list) else []
     processing_note = str(reports.get("processing_note") or "")
     processing_audit = reports.get("processing_audit") if isinstance(reports.get("processing_audit"), dict) else {}
     summary = processing_audit.get("summary") if isinstance(processing_audit.get("summary"), dict) else {}
+    unresolved_numbers = set()
+    for entry in online_entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("status") or "") in {"mismatch", "not_found", "ambiguous", "error"}:
+            try:
+                unresolved_numbers.add(int(entry.get("number") or 0))
+            except (TypeError, ValueError):
+                continue
+    for entry in enrichment_trail:
+        if not isinstance(entry, dict):
+            continue
+        autofill_status = str(entry.get("autofill_status") or "none")
+        if bool(entry.get("doi_rejected")) or bool(entry.get("doi_needs_review")) or autofill_status != "full":
+            try:
+                unresolved_numbers.add(int(entry.get("number") or 0))
+            except (TypeError, ValueError):
+                continue
+    unresolved_numbers.discard(0)
     return {
         "task": _task_summary(task),
         "has_corrected_text": bool(str(task.get("corrected_text") or "").strip()),
         "processing_note": processing_note,
-        "citation_issue_total": int(citation_report.get("summary", {}).get("issue_total", 0) or 0)
-        if isinstance(citation_report.get("summary"), dict)
-        else 0,
+        "citation_issue_total": int(citation_summary.get("issue_total", 0) or 0),
         "citation_issue_counts": issue_counts,
+        "processing_summary": summary,
+        "reference_issue_total": int(citation_summary.get("reference_issues", 0) or 0),
+        "unresolved_reference_count": len(unresolved_numbers),
         "cmos_guardrails": summary.get("cmos_guardrails") if isinstance(summary.get("cmos_guardrails"), dict) else {},
     }
 
@@ -1273,6 +1299,12 @@ def _assistant_qna_response(
                 "Use 'Tulsi' when it is a specific plant name or cultural/sacred name (as in your sentence). "
                 "Use 'tulsi' only for generic mention."
             )
+        if "next step" in text or "what should i do" in text or "safest action" in text:
+            return "I will use the current task diagnostics to choose the safest next step."
+        if "export" in text or "ready" in text:
+            return "I will check whether the task looks ready for clean or redline export."
+        if "fallback" in text or "retry" in text:
+            return "Fallback usually means the AI output was incomplete, risky, or failed a guardrail; use the task diagnostics before retrying."
         if "reference" in text or "citation" in text:
             return "References are checked for author/title/year and source-type rules. If format still looks wrong, run Retry Recommended once."
         if "spell" in text or "grammar" in text:
@@ -1286,6 +1318,12 @@ def _assistant_qna_response(
         suggestions.append("If spelling/grammar corrections look weak, reprocess with AI enabled and keep spelling + sentence_case + punctuation enabled.")
     if "reference" in lower or "citation" in lower:
         suggestions.append("For references, keep chicago_style enabled and verify citation/reference issues after processing.")
+    if "next step" in lower or "what should i do" in lower:
+        suggestions.append("Use the quick prompts first, then run only the smallest safe action: unresolved retry, recommended retry, or export.")
+    if "fallback" in lower or "retry" in lower:
+        suggestions.append("Use Retry Recommended when fallback sections are present; use unresolved-reference retry only for reference cleanup.")
+    if "export" in lower or "ready" in lower:
+        suggestions.append("Before final export, review unresolved references, fallback sections, and the corrected preview.")
     if "reprocess" in lower or "process" in lower:
         suggestions.append("Use mode=action with action=reprocess_task and task_id to execute the safe processing action.")
     if "decision" in lower or "accept" in lower or "reject" in lower:
@@ -1298,6 +1336,10 @@ def _assistant_qna_response(
         or "fallback" in lower
         or "score" in lower
         or "runtime" in lower
+        or "next step" in lower
+        or "what should i do" in lower
+        or "ready" in lower
+        or "export" in lower
     )
 
     task_snapshot = {}
@@ -1315,6 +1357,35 @@ def _assistant_qna_response(
             )
         if wants_diagnostics and task_snapshot.get("processing_note"):
             lines.append(f"Last note: {task_snapshot.get('processing_note')}")
+        if wants_diagnostics:
+            processing_summary = task_snapshot.get("processing_summary", {})
+            if not isinstance(processing_summary, dict):
+                processing_summary = {}
+            fallback_sections = int(processing_summary.get("fallback_sections", 0) or 0)
+            total_sections = int(processing_summary.get("total_sections", 0) or 0)
+            unresolved_count = int(task_snapshot.get("unresolved_reference_count", 0) or 0)
+            reference_issues = int(task_snapshot.get("reference_issue_total", 0) or 0)
+            has_corrected = bool(task_snapshot.get("has_corrected_text"))
+            if total_sections > 0:
+                lines.append(f"AI sections: fallback={fallback_sections}/{total_sections}.")
+            if unresolved_count > 0:
+                lines.append(f"Unresolved references needing review: {unresolved_count}.")
+            if "next step" in lower or "what should i do" in lower or "safest action" in lower:
+                if not has_corrected:
+                    lines.append("Next step: process or reprocess the task before export.")
+                elif unresolved_count > 0 or reference_issues > 0:
+                    lines.append("Next step: review unresolved references, then use Retry Auto-Fixable Only or export the unresolved report.")
+                elif fallback_sections > 0:
+                    lines.append("Next step: use Retry Recommended to reduce fallback sections before final export.")
+                else:
+                    lines.append("Next step: the task looks ready for clean/redline export after your human review.")
+            if "export" in lower or "ready" in lower:
+                if not has_corrected:
+                    lines.append("Export readiness: blocked until corrected text exists.")
+                elif unresolved_count > 0 or fallback_sections > 0:
+                    lines.append("Export readiness: usable for review, but resolve references/fallback before final delivery.")
+                else:
+                    lines.append("Export readiness: no assistant-level blocker found; export after reviewing the preview.")
 
     admin_activity = {}
     if include_admin_activity and context.role == ROLE_ADMIN:

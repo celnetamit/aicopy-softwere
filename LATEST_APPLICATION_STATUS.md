@@ -2,7 +2,7 @@
 
 Updated: 2026-05-15  
 Repo: `manuscript_editor`  
-Branch: `main` (synced with `origin/main`)
+Branch: `main` (local assistant usability changes not yet committed)
 
 ## Current Stage
 
@@ -68,12 +68,12 @@ In-progress (local changes, not yet pushed):
 
 Latest full quality gate passed on 2026-05-15:
 1. `./scripts/run_quality_checks.sh`
-2. Result: `Ran 156 tests in 310.927s ... OK`
+2. Result: `Ran 157 tests in 301.372s ... OK`
 3. Compile checks and frontend syntax checks passed.
 
-Latest focused P0 validation also passed:
-1. `python3 -m pytest -q tests/test_webapp_api.py -k "assistant_qna_admin_activity_summary_requires_admin_role or admin_global_settings_round_trip or task_detail_route_renders_task_detail_shell or admin_dashboard_contains_new_reference_automation_controls"`
-2. Result: `4 passed, 37 deselected`
+Latest focused assistant validation also passed:
+1. `python3 -m pytest -q tests/test_webapp_api.py -k "assistant_quick_prompts_are_wired or unresolved_references_panel_actions_are_wired or rerun_unresolved_frontend_has_direct_process_fallback_path or frontend_api_client_is_loaded_and_bridge_uses_it or route_specific_page_modules_are_loaded_and_own_page_controls or task_detail_rerun_unresolved_button_has_safe_label_and_tooltip or task_detail_route_renders_task_detail_shell or tasks_dashboard_route_renders_dashboard_shell"`
+2. Result: `8 passed, 36 deselected`
 
 ## Current Architecture P0 Status
 
@@ -87,12 +87,13 @@ Completed locally:
 7. `web/app.js` now prefers `window.ManuscriptApi` for upload, task polling, processing, group decisions, assistant actions, unresolved-reference reruns, export/save, redline preview, and reset-session flows while retaining one `eel` compatibility adapter. Full quality gate passed after this migration.
 8. First route-specific frontend split is in place: `web/pages/tasks.js` owns dashboard upload controls plus task-history rendering/navigation, `web/pages/task-detail.js` owns editor upload/process/save/tab/view controls plus task-detail hydration/editor bootstrapping, and `app-settings.js` is narrowed back toward settings/auth/admin wiring.
 9. `web/app-router.js` now owns shared route bootstrapping, page-module initialization, startup auth/session checks, and `pageshow` route refresh handling.
+10. Assistant usability upgrade is in local changes: `web/app-assistant.js` now owns assistant chat, diagnostics, quick prompts, unresolved-reference helpers, retry/reprocess/apply flows, and guided action cards; `web/app.js` exposes core editor runtime hooks to that module.
 
 ## Resume From Here
 
 Primary next workstreams from roadmap:
 1. `P0`: finish fresh-machine QA sign-off for Windows and Ubuntu installer/package builds.
-2. `P1`: continue frontend modernization by extracting remaining assistant/editor runtime helpers from `app.js` and splitting admin/settings page modules.
+2. `P1`: finish assistant polish by moving repeated assistant panel markup into a reusable fragment, then continue admin/settings page splits.
 
 Suggested first commands:
 1. `./scripts/run_quality_checks.sh`

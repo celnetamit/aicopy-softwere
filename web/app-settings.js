@@ -525,15 +525,20 @@ function bindSettingsEvents() {
         el.addEventListener('input', saveAiSettings);
     });
     if (settingsDom.assistantAskBtn) settingsDom.assistantAskBtn.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuestion());
-    if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.assistantReprocessCurrentTask());
-    if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.assistantApplyCurrentDecisions());
-    if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.retryWithRecommendedSettings());
-    if (settingsDom.assistantRerunUnresolvedBtn) settingsDom.assistantRerunUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.rerunUnresolvedReferencesOnly());
-    if (settingsDom.assistantUnresolvedRerunBtn) settingsDom.assistantUnresolvedRerunBtn.addEventListener('click', () => appSettingsRoot.actions.rerunUnresolvedReferencesOnly());
-    if (settingsDom.assistantUnresolvedRerunAutofixableBtn) settingsDom.assistantUnresolvedRerunAutofixableBtn.addEventListener('click', () => appSettingsRoot.actions.rerunAutoFixableReferencesOnly());
+    if (settingsDom.assistantReprocessBtn) settingsDom.assistantReprocessBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('reprocess'));
+    if (settingsDom.assistantApplyDecisionsBtn) settingsDom.assistantApplyDecisionsBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('apply_decisions'));
+    if (settingsDom.assistantRetryRecommendedBtn) settingsDom.assistantRetryRecommendedBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('retry_recommended'));
+    if (settingsDom.assistantRerunUnresolvedBtn) settingsDom.assistantRerunUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('rerun_unresolved'));
+    if (settingsDom.assistantUnresolvedRerunBtn) settingsDom.assistantUnresolvedRerunBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('rerun_unresolved'));
+    if (settingsDom.assistantUnresolvedRerunAutofixableBtn) settingsDom.assistantUnresolvedRerunAutofixableBtn.addEventListener('click', () => appSettingsRoot.actions.prepareAssistantGuidedAction('rerun_auto_fixable'));
     if (settingsDom.assistantExportUnresolvedBtn) settingsDom.assistantExportUnresolvedBtn.addEventListener('click', () => appSettingsRoot.actions.exportUnresolvedReferencesReport());
     if (settingsDom.assistantUnresolvedSort) settingsDom.assistantUnresolvedSort.addEventListener('change', () => appSettingsRoot.actions.renderUnresolvedReferencesPanelFromState());
     if (settingsDom.assistantCopyDiagnosticsBtn) settingsDom.assistantCopyDiagnosticsBtn.addEventListener('click', () => appSettingsRoot.actions.copyAssistantDiagnostics());
+    if (settingsDom.assistantGuidedRunBtn) settingsDom.assistantGuidedRunBtn.addEventListener('click', () => appSettingsRoot.actions.runPreparedAssistantGuidedAction());
+    if (settingsDom.assistantGuidedCancelBtn) settingsDom.assistantGuidedCancelBtn.addEventListener('click', () => appSettingsRoot.actions.hideAssistantGuidedActionCard());
+    Array.prototype.forEach.call(settingsDom.assistantQuickPromptButtons || [], (button) => {
+        button.addEventListener('click', () => appSettingsRoot.actions.askAssistantQuickPrompt(button.getAttribute('data-assistant-prompt')));
+    });
     if (settingsDom.assistantChatToggleBtn) settingsDom.assistantChatToggleBtn.addEventListener('click', () => {
         const open = !(settingsDom.assistantChatPanel && !settingsDom.assistantChatPanel.classList.contains('hidden'));
         appSettingsRoot.actions.toggleAssistantChat(open);

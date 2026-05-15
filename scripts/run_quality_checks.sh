@@ -10,6 +10,7 @@ python3 -m py_compile main.py webapp.py document_processor.py chicago_editor.py
 echo "[2/3] Frontend syntax checks"
 node --check web/app-api.js
 node --check web/app.js
+node --check web/app-assistant.js
 node --check web/app-router.js
 node --check web/eel_web_bridge.js
 node --check web/pages/tasks.js

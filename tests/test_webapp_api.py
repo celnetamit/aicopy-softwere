@@ -342,6 +342,11 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('id="assistant-unresolved-rerun-btn"', html)
         self.assertIn('id="assistant-unresolved-rerun-autofixable-btn"', html)
         self.assertIn('id="assistant-export-unresolved-btn"', html)
+        self.assertIn('id="assistant-prompt-panel"', html)
+        self.assertIn('data-assistant-prompt="next_step"', html)
+        self.assertIn('data-assistant-prompt="export"', html)
+        self.assertIn('id="assistant-guided-action-card"', html)
+        self.assertIn('id="assistant-guided-run-btn"', html)
 
     def test_admin_dashboard_contains_new_reference_automation_controls(self):
         status, html = self.client.request_text("GET", "/admin-dashboard")
@@ -410,8 +415,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("unresolved_trends", diagnostics)
 
     def test_rerun_unresolved_frontend_has_direct_process_fallback_path(self):
-        app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
-        with open(app_js_path, "r", encoding="utf-8") as handle:
+        assistant_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-assistant.js")
+        with open(assistant_js_path, "r", encoding="utf-8") as handle:
             source = handle.read()
         self.assertIn("rerun_unresolved_references_fallback", source)
         self.assertIn("assistant_reprocess_task", source)
@@ -430,12 +435,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("Unresolved reason:", source)
 
     def test_unresolved_references_panel_actions_are_wired(self):
-        app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
-        with open(app_js_path, "r", encoding="utf-8") as handle:
-            app_source = handle.read()
-        self.assertIn("collectUnresolvedReferenceItemsFromState", app_source)
-        self.assertIn("exportUnresolvedReferencesReport", app_source)
-        self.assertIn("unresolved_references_", app_source)
+        assistant_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-assistant.js")
+        with open(assistant_js_path, "r", encoding="utf-8") as handle:
+            assistant_source = handle.read()
+        self.assertIn("collectUnresolvedReferenceItemsFromState", assistant_source)
+        self.assertIn("exportUnresolvedReferencesReport", assistant_source)
+        self.assertIn("unresolved_references_", assistant_source)
 
         settings_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings.js")
         with open(settings_js_path, "r", encoding="utf-8") as handle:
@@ -444,6 +449,19 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("assistantUnresolvedRerunAutofixableBtn", settings_source)
         self.assertIn("assistantExportUnresolvedBtn", settings_source)
         self.assertIn("assistantUnresolvedSort", settings_source)
+        self.assertIn("assistantQuickPromptButtons", settings_source)
+        self.assertIn("askAssistantQuickPrompt", settings_source)
+
+    def test_assistant_quick_prompts_are_wired(self):
+        assistant_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-assistant.js")
+        with open(assistant_js_path, "r", encoding="utf-8") as handle:
+            assistant_source = handle.read()
+        self.assertIn("getAssistantQuickPromptMessage", assistant_source)
+        self.assertIn("What should I do next for this task?", assistant_source)
+        self.assertIn("Is this task ready to export?", assistant_source)
+        self.assertIn("askAssistantQuickPrompt", assistant_source)
+        self.assertIn("prepareAssistantGuidedAction", assistant_source)
+        self.assertIn("Review action card", assistant_source)
 
     def test_frontend_api_client_is_loaded_and_bridge_uses_it(self):
         api_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-api.js")
@@ -479,14 +497,22 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("function callApiOrEel", app_source)
         self.assertIn("api.tasks.uploadText", app_source)
         self.assertIn("api.tasks.process", app_source)
-        self.assertIn("api.assistant.reprocessTask", app_source)
+        self.assertIn("appMain.editorRuntime", app_source)
+        self.assertIn("assistantAction('assistantReprocessCurrentTask')", app_source)
         self.assertIn("api.legacy.exportFile", app_source)
         self.assertEqual(app_source.count("typeof eel !=="), 1)
+
+        assistant_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-assistant.js")
+        with open(assistant_js_path, "r", encoding="utf-8") as handle:
+            assistant_source = handle.read()
+        self.assertIn("app.assistant = assistantActions", assistant_source)
+        self.assertIn("api.assistant.reprocessTask", assistant_source)
 
         quality_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "run_quality_checks.sh")
         with open(quality_path, "r", encoding="utf-8") as handle:
             quality_source = handle.read()
         self.assertIn("node --check web/app-api.js", quality_source)
+        self.assertIn("node --check web/app-assistant.js", quality_source)
         self.assertIn("node --check web/app-router.js", quality_source)
         self.assertIn("node --check web/pages/tasks.js", quality_source)
         self.assertIn("node --check web/pages/task-detail.js", quality_source)
@@ -497,8 +523,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('class="tasks-dashboard-route"', tasks_html)
         self.assertIn("/pages/tasks.js", tasks_html)
         self.assertIn("/pages/task-detail.js", tasks_html)
+        self.assertIn("/app-assistant.js", tasks_html)
         self.assertLess(tasks_html.index("/pages/tasks.js"), tasks_html.index("/app.js"))
-        self.assertLess(tasks_html.index("/app.js"), tasks_html.index("/app-router.js"))
+        self.assertLess(tasks_html.index("/app.js"), tasks_html.index("/app-assistant.js"))
+        self.assertLess(tasks_html.index("/app-assistant.js"), tasks_html.index("/app-router.js"))
 
         tasks_page_path = os.path.join(os.path.dirname(__file__), "..", "web", "pages", "tasks.js")
         with open(tasks_page_path, "r", encoding="utf-8") as handle:

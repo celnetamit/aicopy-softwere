@@ -97,18 +97,39 @@
             <p class="assistant-dashboard-hint hidden" id="assistant-dashboard-hint">
                 You are on dashboard. Open a task to use assistant actions on that task.
             </p>
+            <div class="assistant-quick-summary" id="assistant-quick-summary">Open a processed task to see assistant status summary.</div>
+            <div class="assistant-prompt-panel" id="assistant-prompt-panel" aria-label="Assistant quick prompts">
+                <div class="assistant-panel-label">Ask fast</div>
+                <div class="assistant-prompt-grid">
+                    <button class="assistant-prompt-chip" type="button" data-assistant-prompt="next_step">Next step</button>
+                    <button class="assistant-prompt-chip" type="button" data-assistant-prompt="quality">Quality status</button>
+                    <button class="assistant-prompt-chip" type="button" data-assistant-prompt="fallback">Why fallback?</button>
+                    <button class="assistant-prompt-chip" type="button" data-assistant-prompt="references">References</button>
+                    <button class="assistant-prompt-chip" type="button" data-assistant-prompt="export">Export ready?</button>
+                </div>
+            </div>
             <div class="assistant-output" id="assistant-output">Assistant output appears here.</div>
             <div class="assistant-suggestions" id="assistant-suggestions"></div>
-            <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask about spelling, references, citations, or diagnostics."></textarea>
+            <textarea id="assistant-question-input" class="input-field assistant-question-input" placeholder="Ask one thing: spelling, references, fallback reason, or what to retry next."></textarea>
             <label class="checkbox-item">
                 <input type="checkbox" id="assistant-include-admin-activity">
                 <span>Include admin activity snapshot (admin only)</span>
             </label>
+            <div class="assistant-panel-label">Run safely</div>
             <div class="assistant-actions">
                 <button class="btn-secondary" id="assistant-ask-btn" type="button">Send</button>
                 <button class="btn-secondary" id="assistant-reprocess-btn" type="button">Reprocess</button>
                 <button class="btn-secondary" id="assistant-apply-decisions-btn" type="button">Apply Decisions</button>
                 <button class="btn-secondary assistant-retry-btn" id="assistant-retry-recommended-btn" type="button">Retry Recommended</button>
+            </div>
+            <div class="assistant-guided-action-card hidden" id="assistant-guided-action-card" aria-live="polite">
+                <div class="assistant-guided-action-title" id="assistant-guided-action-title">Review action</div>
+                <p class="assistant-guided-action-summary" id="assistant-guided-action-summary">Choose an assistant action to see what will change.</p>
+                <div class="assistant-guided-action-details" id="assistant-guided-action-details"></div>
+                <div class="assistant-guided-action-buttons">
+                    <button class="btn-secondary" id="assistant-guided-run-btn" type="button">Run Action</button>
+                    <button class="btn-text" id="assistant-guided-cancel-btn" type="button">Cancel</button>
+                </div>
             </div>
             <div class="assistant-diagnostics" id="assistant-diagnostics">
                 <div><strong>Diagnostics</strong></div>

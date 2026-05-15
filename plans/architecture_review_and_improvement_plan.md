@@ -243,7 +243,21 @@ These items address the highest-risk issues and unblock further work.
 - **Depends on**: P1.1
 - **Validation**: Router loading/order coverage added; full quality gate passed on 2026-05-15 (`Ran 156 tests in 310.927s ... OK`)
 
-#### P1.4 — Centralize Versioning
+#### P1.4 — Make Assistant Easier to Use
+- **Status**: Started locally on 2026-05-15.
+- **Files**: [`web/task_detail.html`](web/task_detail.html), [`web/tasks.html`](web/tasks.html), [`web/app.js`](web/app.js), [`web/app-settings.js`](web/app-settings.js), [`web/app-state.js`](web/app-state.js), [`webapp.py`](webapp.py), [`tests/test_webapp_api.py`](tests/test_webapp_api.py)
+- **Issue**: Assistant actions are powerful but hard to discover; users must know what to ask and which operation is safe.
+- **Action**:
+  1. [x] Add quick prompts for next step, quality status, fallback cause, references, and export readiness
+  2. [x] Wire quick prompts through the existing authenticated assistant query path
+  3. [x] Add task-aware backend response details for processing summary and unresolved-reference counts
+  4. [x] Extract assistant UI/runtime helpers from `web/app.js` into `web/app-assistant.js`
+  5. [x] Add guided action cards that explain what each safe action will change before running it
+  6. [ ] Split assistant markup into a reusable fragment so dashboard/task-detail/index shells cannot drift
+- **Depends on**: P1.2, P1.3
+- **Validation**: Focused assistant/module/source coverage passed; full quality gate passed on 2026-05-15 (`Ran 157 tests in 301.372s ... OK`)
+
+#### P1.5 — Centralize Versioning
 - **Files**: [`VERSION`](VERSION), [`version_info.py`](version_info.py), packaging configs, UI footer
 - **Issue**: Version duplicated across docs, UI, packaging files
 - **Action**:
@@ -253,7 +267,7 @@ These items address the highest-risk issues and unblock further work.
 - **Depends on**: Nothing
 - **Validation**: Changing `VERSION` updates all release surfaces
 
-#### P1.5 — Add Dependency Lock File
+#### P1.6 — Add Dependency Lock File
 - **Files**: New `requirements.lock` or `constraints.txt`
 - **Issue**: No deterministic builds; dependency drift risk
 - **Action**:
@@ -322,9 +336,11 @@ graph TD
     P1_1 --> P1_2["P1.2: API Client"]
     P1_1 --> P1_3["P1.3: Frontend Router"]
     P1_1 --> P3_1["P3.1: Multi-Page Complete"]
+    P1_2 --> P1_4["P1.4: Assistant Usability"]
+    P1_3 --> P1_4
     P1_3 --> P3_1
-    P1_4["P1.4: Centralize Versioning"]
-    P1_5["P1.5: Dependency Lock"]
+    P1_5["P1.5: Centralize Versioning"]
+    P1_6["P1.6: Dependency Lock"]
 ```
 
 ---
@@ -348,6 +364,7 @@ graph TD
 | Frontend HTML shells | 1 (index.html) | 5 (login, tasks, task_detail, settings, admin) |
 | Failing tests | 0 | 0 |
 | API client locations | Centralized `app-api.js`; first route modules added under `web/pages/` | 1 (`app-api.js`) plus route modules |
+| Assistant usability | Manual question/action flow | Guided quick prompts + action cards |
 | Version sources | 5+ files | 1 (`VERSION`) |
 | Admin settings with UI controls | ~80% | 100% |
 | Synchronous processing endpoints | 1 (blocks) | 0 (all async with polling) |
@@ -359,10 +376,11 @@ graph TD
 1. **P0.1** → Fix the failing test (unblocks everything)
 2. **P0.2** → Complete admin settings UI (quick win, standalone)
 3. **P0.3** → Split `webapp.py` into route modules (foundational for all P1/P2 work)
-4. **P1.4 + P1.5** → Versioning + dependency lock (standalone, quick wins)
+4. **P1.5 + P1.6** → Versioning + dependency lock (standalone, quick wins)
 5. **P1.1** → Multi-page Split 1: Tasks Dashboard vs Task Detail
 6. **P1.2 + P1.3** → API client + frontend router (enables clean P3)
-7. **P2.1** → Background job queue (resilience)
-8. **P2.2** → Reduce desktop/web duplication
-9. **P3.1** → Complete multi-page split
-10. **P3.2** → Secret management hardening
+7. **P1.4** → Assistant usability and assistant module extraction
+8. **P2.1** → Background job queue (resilience)
+9. **P2.2** → Reduce desktop/web duplication
+10. **P3.1** → Complete multi-page split
+11. **P3.2** → Secret management hardening
