@@ -1002,6 +1002,7 @@
     }
 
     const assistantActions = {
+        showAssistantToast,
         askAssistantQuestion,
         askAssistantQuickPrompt,
         prepareAssistantGuidedAction,

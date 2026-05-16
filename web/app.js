@@ -63,6 +63,8 @@ function assistantAction(actionName) {
     return (...args) => callAssistantModuleAction(actionName, ...args);
 }
 
+const showAssistantToast = assistantAction('showAssistantToast');
+
 function setStatus(message, type) {
     const statusEl = document.getElementById('status');
     const footerStatusEl = document.getElementById('footer-status');
