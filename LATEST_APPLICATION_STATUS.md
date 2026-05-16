@@ -2,7 +2,7 @@
 
 Updated: 2026-05-15  
 Repo: `manuscript_editor`  
-Branch: `main` (latest committed checkpoint includes assistant panel fragment; current local changes split settings/admin frontend modules)
+Branch: `main` (latest pushed checkpoint: `e1f43de`; current local changes continue admin frontend module split)
 
 ## Current Stage
 
@@ -66,14 +66,14 @@ In-progress (local changes, not yet pushed):
 
 ## Validation Snapshot
 
-Latest full quality gate passed on 2026-05-15:
+Latest full quality gate passed on 2026-05-16:
 1. `./scripts/run_quality_checks.sh`
-2. Result: `Ran 157 tests in 310.758s ... OK`
+2. Result: `Ran 157 tests in 306.603s ... OK`
 3. Compile checks and frontend syntax checks passed.
 
 Latest focused assistant validation also passed:
-1. `python3 -m pytest -q tests/test_webapp_api.py -k "frontend_api_client_is_loaded_and_bridge_uses_it or route_specific_page_modules_are_loaded_and_own_page_controls or unresolved_references_panel_actions_are_wired or assistant_quick_prompts_are_wired"`
-2. Result: `4 passed, 40 deselected`
+1. `python3 -m pytest -q tests/test_webapp_api.py -k "frontend_api_client_is_loaded_and_bridge_uses_it or route_specific_page_modules_are_loaded_and_own_page_controls or admin_global_settings_round_trip or admin_reference_validation_diagnostics_is_safe_and_structured or admin_can_validate_ai_provider"`
+2. Result: `5 passed, 39 deselected`
 
 ## Current Architecture P0 Status
 
@@ -89,14 +89,15 @@ Completed locally:
 9. `web/app-router.js` now owns shared route bootstrapping, page-module initialization, startup auth/session checks, and `pageshow` route refresh handling.
 10. Assistant module extraction and guided actions were committed in `a7eb5e3`.
 11. Assistant panel fragment extraction was committed in `937499c`: `web/fragments/assistant_panel.html` is rendered into index/tasks/task-detail shells to prevent markup drift.
-12. Current local P1 split: `web/app-settings-panel.js` now owns settings/login/assistant/admin event binding, while `web/app-settings.js` remains the settings/provider persistence API layer.
-13. Current local P1 split: `web/admin/runtime.js`, `web/admin/users.js`, and `web/admin/audit.js` own runtime processing options, admin user status/list rendering, and audit rendering/refresh; `web/app-auth-admin.js` remains the compatibility facade.
+12. Settings/admin module split was committed in `e1f43de`: `web/app-settings-panel.js` owns settings/login/assistant/admin event binding, while `web/app-settings.js` remains the settings/provider persistence API layer.
+13. Settings/admin module split was committed in `e1f43de`: `web/admin/runtime.js`, `web/admin/users.js`, and `web/admin/audit.js` own runtime processing options, admin user status/list rendering, and audit rendering/refresh; `web/app-auth-admin.js` remains the compatibility facade.
+14. Current local P1 continuation: `web/admin/global-settings.js`, `web/admin/reference-diagnostics.js`, and `web/admin/panel.js` continue moving admin panel/global-settings/reference-diagnostics logic out of `web/app-auth-admin.js`.
 
 ## Resume From Here
 
 Primary next workstreams from roadmap:
 1. `P0`: finish fresh-machine QA sign-off for Windows and Ubuntu installer/package builds.
-2. `P1`: validate and commit the settings/admin module split, then continue moving remaining admin panel/global-settings/reference-diagnostics logic out of `web/app-auth-admin.js`.
+2. `P1`: validate and commit the remaining admin panel/global-settings/reference-diagnostics frontend split, then move to P1.6 centralized versioning.
 
 Suggested first commands:
 1. `./scripts/run_quality_checks.sh`

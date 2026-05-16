@@ -495,9 +495,20 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             auth_admin_source = handle.read()
         self.assertIn("function callApiOrEel", auth_admin_source)
         self.assertIn("api.auth.googleLogin", auth_admin_source)
-        self.assertIn("api.admin.globalSettings", auth_admin_source)
-        self.assertIn("api.admin.referenceValidationDiagnostics", auth_admin_source)
+        self.assertIn("appAuth.adminGlobalSettings", auth_admin_source)
+        self.assertIn("appAuth.adminReferenceDiagnostics", auth_admin_source)
         self.assertEqual(auth_admin_source.count("typeof eel !=="), 1)
+
+        admin_global_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "global-settings.js")
+        with open(admin_global_path, "r", encoding="utf-8") as handle:
+            admin_global_source = handle.read()
+        self.assertIn("api.admin.globalSettings", admin_global_source)
+        self.assertIn("api.admin.validateAiProvider", admin_global_source)
+
+        admin_reference_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "reference-diagnostics.js")
+        with open(admin_reference_path, "r", encoding="utf-8") as handle:
+            admin_reference_source = handle.read()
+        self.assertIn("api.admin.referenceValidationDiagnostics", admin_reference_source)
 
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
         with open(app_js_path, "r", encoding="utf-8") as handle:
@@ -528,6 +539,9 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("node --check web/admin/runtime.js", quality_source)
         self.assertIn("node --check web/admin/audit.js", quality_source)
         self.assertIn("node --check web/admin/users.js", quality_source)
+        self.assertIn("node --check web/admin/global-settings.js", quality_source)
+        self.assertIn("node --check web/admin/reference-diagnostics.js", quality_source)
+        self.assertIn("node --check web/admin/panel.js", quality_source)
         self.assertIn("node --check web/pages/tasks.js", quality_source)
         self.assertIn("node --check web/pages/task-detail.js", quality_source)
 
@@ -541,13 +555,19 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("/admin/runtime.js", tasks_html)
         self.assertIn("/admin/audit.js", tasks_html)
         self.assertIn("/admin/users.js", tasks_html)
+        self.assertIn("/admin/global-settings.js", tasks_html)
+        self.assertIn("/admin/reference-diagnostics.js", tasks_html)
+        self.assertIn("/admin/panel.js", tasks_html)
         self.assertIn("/app-assistant.js", tasks_html)
         self.assertIn('id="assistant-guided-action-card"', tasks_html)
         self.assertNotIn("{{ASSISTANT_PANEL_FRAGMENT}}", tasks_html)
         self.assertLess(tasks_html.index("/app-auth-admin.js"), tasks_html.index("/admin/runtime.js"))
         self.assertLess(tasks_html.index("/admin/runtime.js"), tasks_html.index("/admin/audit.js"))
         self.assertLess(tasks_html.index("/admin/audit.js"), tasks_html.index("/admin/users.js"))
-        self.assertLess(tasks_html.index("/admin/users.js"), tasks_html.index("/app-preview.js"))
+        self.assertLess(tasks_html.index("/admin/users.js"), tasks_html.index("/admin/global-settings.js"))
+        self.assertLess(tasks_html.index("/admin/global-settings.js"), tasks_html.index("/admin/reference-diagnostics.js"))
+        self.assertLess(tasks_html.index("/admin/reference-diagnostics.js"), tasks_html.index("/admin/panel.js"))
+        self.assertLess(tasks_html.index("/admin/panel.js"), tasks_html.index("/app-preview.js"))
         self.assertLess(tasks_html.index("/app-settings.js"), tasks_html.index("/app-settings-panel.js"))
         self.assertLess(tasks_html.index("/app-settings-panel.js"), tasks_html.index("/pages/tasks.js"))
         self.assertLess(tasks_html.index("/pages/tasks.js"), tasks_html.index("/app.js"))
@@ -607,7 +627,13 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("appAuth.adminRuntime", auth_admin_source)
         self.assertIn("appAuth.adminUsers", auth_admin_source)
         self.assertIn("appAuth.adminAudit", auth_admin_source)
+        self.assertIn("appAuth.adminGlobalSettings", auth_admin_source)
+        self.assertIn("appAuth.adminReferenceDiagnostics", auth_admin_source)
+        self.assertIn("appAuth.adminPanel", auth_admin_source)
         self.assertNotIn("taskHistoryEl.querySelectorAll('.task-history-item", auth_admin_source)
+        self.assertNotIn("api.admin.globalSettings", auth_admin_source)
+        self.assertNotIn("api.admin.referenceValidationDiagnostics", auth_admin_source)
+        self.assertNotIn("api.admin.validateAiProvider", auth_admin_source)
 
         admin_runtime_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "runtime.js")
         with open(admin_runtime_path, "r", encoding="utf-8") as handle:
@@ -629,6 +655,29 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("appAdminAuditRoot.adminAudit", admin_audit_source)
         self.assertIn("renderAdminAudit", admin_audit_source)
         self.assertIn("refreshAdminAudit", admin_audit_source)
+
+        admin_global_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "global-settings.js")
+        with open(admin_global_path, "r", encoding="utf-8") as handle:
+            admin_global_source = handle.read()
+        self.assertIn("appAdminGlobalRoot.adminGlobalSettings", admin_global_source)
+        self.assertIn("loadAdminGlobalSettings", admin_global_source)
+        self.assertIn("validateAdminAiProvider", admin_global_source)
+        self.assertIn("api.admin.globalSettings", admin_global_source)
+
+        admin_reference_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "reference-diagnostics.js")
+        with open(admin_reference_path, "r", encoding="utf-8") as handle:
+            admin_reference_source = handle.read()
+        self.assertIn("appAdminReferenceRoot.adminReferenceDiagnostics", admin_reference_source)
+        self.assertIn("refreshAdminReferenceValidationDiagnostics", admin_reference_source)
+        self.assertIn("resetAdminReferenceValidationDiagnostics", admin_reference_source)
+        self.assertIn("api.admin.referenceValidationDiagnostics", admin_reference_source)
+
+        admin_panel_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "panel.js")
+        with open(admin_panel_path, "r", encoding="utf-8") as handle:
+            admin_panel_source = handle.read()
+        self.assertIn("appAdminPanelRoot.adminPanel", admin_panel_source)
+        self.assertIn("openAdminPanel", admin_panel_source)
+        self.assertIn("renderAdminDocxStructureSummary", admin_panel_source)
 
         app_js_path = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
         with open(app_js_path, "r", encoding="utf-8") as handle:

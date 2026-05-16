@@ -18,6 +18,9 @@ node --check web/app-settings-panel.js
 node --check web/admin/runtime.js
 node --check web/admin/audit.js
 node --check web/admin/users.js
+node --check web/admin/global-settings.js
+node --check web/admin/reference-diagnostics.js
+node --check web/admin/panel.js
 node --check web/eel_web_bridge.js
 node --check web/pages/tasks.js
 node --check web/pages/task-detail.js

@@ -267,9 +267,12 @@ These items address the highest-risk issues and unblock further work.
   3. [x] Add `web/admin/runtime.js` for runtime settings refresh and processing-option construction
   4. [x] Add `web/admin/users.js` for admin user rendering/list/status updates
   5. [x] Add `web/admin/audit.js` for admin audit rendering/refresh
-  6. [x] Keep `web/app-auth-admin.js` as the compatibility facade while later admin panel/global-settings/reference diagnostics splits continue
+  6. [x] Add `web/admin/global-settings.js` for admin global settings forms, provider UI, model suggestions, and provider validation
+  7. [x] Add `web/admin/reference-diagnostics.js` for reference diagnostics render/refresh/reset
+  8. [x] Add `web/admin/panel.js` for admin panel visibility/open/close and DOCX structure summary rendering
+  9. [x] Keep `web/app-auth-admin.js` as the compatibility facade for auth/session/task-detail helpers and delegated admin APIs
 - **Depends on**: P1.2, P1.3
-- **Validation**: Focused module loading/delegation coverage passed; full quality gate passed on 2026-05-15 (`Ran 157 tests in 310.758s ... OK`)
+- **Validation**: Focused module loading/delegation coverage passed; full quality gate passed on 2026-05-16 (`Ran 157 tests in 306.603s ... OK`)
 
 #### P1.6 — Centralize Versioning
 - **Files**: [`VERSION`](VERSION), [`version_info.py`](version_info.py), packaging configs, UI footer
