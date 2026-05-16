@@ -34,10 +34,16 @@ See [KID_GUIDE.md](KID_GUIDE.md).
 ### Python Dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.lock
 ```
 
-`requirements.txt` includes `setuptools` because `eel` imports `pkg_resources` on some Python and Windows setups. It also pins `bottle` directly because the deployable web server imports it outside the Eel desktop wrapper.
+`requirements.lock` is the reproducible install file for local release checks, Docker, and packaged builds. `requirements.txt` remains the editable dependency intent file. It includes `setuptools` because `eel` imports `pkg_resources` on some Python and Windows setups, and it pins `bottle` directly because the deployable web server imports it outside the Eel desktop wrapper.
+
+Upgrade policy:
+1. Edit `requirements.txt` first when dependency intent changes.
+2. Refresh `requirements.lock` in a clean Python 3.12 environment.
+3. Run `python3 scripts/check_dependency_lock.py`.
+4. Run `./scripts/run_quality_checks.sh`.
 
 ### Ollama Setup (Optional)
 
@@ -264,7 +270,7 @@ python main.py
 If you see `ModuleNotFoundError: No module named 'pkg_resources'`, reinstall dependencies:
 
 ```bash
-py -m pip install -r requirements.txt
+py -m pip install -r requirements.lock
 ```
 
 ### Browser/Web App
@@ -413,7 +419,8 @@ manuscript_editor/
 ├── main.py              # Application entry point and UI
 ├── document_processor.py # Document loading, AI processing, DOCX generation
 ├── chicago_editor.py    # Chicago Manual of Style editing rules
-├── requirements.txt    # Python dependencies
+├── requirements.txt    # Editable Python dependency intent
+├── requirements.lock   # Pinned runtime dependency lock
 ├── tests/              # Regression tests
 ├── scripts/            # Quality and utility scripts
 ├── run.sh              # Linux launcher

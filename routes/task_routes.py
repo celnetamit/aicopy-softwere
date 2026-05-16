@@ -110,6 +110,56 @@ def register_task_routes(app, deps):
         if error is not None:
             return error
 
+        if bool(payload.get("async", False) or payload.get("background", False)):
+            deps.store.update_task_status(
+                task_id=task_id,
+                status="PROCESSING",
+                user_id=context.user_id,
+                is_admin=context.role == deps.role_admin,
+            )
+
+            def run_processing_job():
+                try:
+                    return deps.process_task(context, task, options)
+                except Exception as exc:
+                    deps.store.update_task_status(
+                        task_id=task_id,
+                        status="FAILED",
+                        user_id=context.user_id,
+                        is_admin=context.role == deps.role_admin,
+                    )
+                    deps.record_audit(
+                        event_type="task_process_failed",
+                        actor_user_id=context.user_id,
+                        entity_type="task",
+                        entity_id=task_id,
+                        metadata={"error": str(exc), "async": True},
+                    )
+                    raise
+
+            job = deps.processing_job_queue.submit(
+                task_id=task_id,
+                owner_user_id=str(task.get("user_id") or context.user_id),
+                callback=run_processing_job,
+            )
+            deps.record_audit(
+                event_type="task_process_queued",
+                actor_user_id=context.user_id,
+                entity_type="task",
+                entity_id=task_id,
+                metadata={"job_id": job.get("id", "")},
+            )
+            return deps.json_response(
+                {
+                    "success": True,
+                    "queued": True,
+                    "task_id": task_id,
+                    "job": job,
+                },
+                status=202,
+                session_id=context.session_id,
+            )
+
         try:
             process_payload = deps.process_task(context, task, options)
             return deps.json_response(process_payload, session_id=context.session_id)
@@ -122,6 +172,30 @@ def register_task_routes(app, deps):
                 metadata={"error": str(exc)},
             )
             return deps.json_response(deps.error_payload("TASK_PROCESS_FAILED", str(exc)), status=500, session_id=context.session_id)
+
+    @app.get("/api/tasks/<task_id>/process-status")
+    @deps.require_auth
+    def api_tasks_process_status(task_id: str):
+        context = deps.auth_context_from_request()
+        task, error = deps.get_owned_task_or_error(context, task_id)
+        if error is not None:
+            return error
+
+        job = deps.processing_job_queue.latest_for_task(
+            task_id=task_id,
+            owner_user_id=str(task.get("user_id") or context.user_id),
+            is_admin=context.role == deps.role_admin,
+        )
+        return deps.json_response(
+            {
+                "success": True,
+                "task_id": task_id,
+                "status": str(task.get("status") or ""),
+                "job": job,
+                "task": deps.task_summary(task),
+            },
+            session_id=context.session_id,
+        )
 
     @app.post("/api/tasks/<task_id>/apply-correction-group-decisions")
     @deps.require_auth

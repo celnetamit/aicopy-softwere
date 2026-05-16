@@ -181,9 +181,16 @@ function getTaskRecoveryPollDelay(elapsedMs) {
     return mainConstants.TASK_RECOVERY_SLOW_POLL_MS;
 }
 
-function buildTaskRecoveryStatus(status, elapsedMs) {
+function buildTaskRecoveryStatus(status, elapsedMs, jobStatus) {
     const elapsedText = formatProcessingDuration(Math.floor(elapsedMs / 1000));
     const normalized = String(status || '').toUpperCase();
+    const normalizedJob = String(jobStatus || '').toUpperCase();
+    if (normalizedJob === 'PENDING') {
+        return `Processing queued on server (${elapsedText}). Waiting for a worker...`;
+    }
+    if (normalizedJob === 'RUNNING') {
+        return `Processing on server (${elapsedText}). You can leave this page open while we poll automatically.`;
+    }
     if (elapsedMs >= mainConstants.TASK_RECOVERY_SOFT_TIMEOUT_MS) {
         return `Still processing on server (${elapsedText}). We are tracking it automatically.`;
     }
@@ -224,6 +231,23 @@ function startServerTaskTracking(taskId, message) {
         setStatus(message, 'warning');
     }
     pollTaskUntilProcessed(safeTaskId);
+}
+
+function completeTrackedProcessingFromPayload(response, statusMessage) {
+    clearServerTaskTracking();
+    mainState.isProcessingDocument = false;
+    applyProcessResponseToState(response, { keepGroupDecisions: false });
+    switch_tab('corrected');
+    const wordCountEl = document.getElementById('word-count');
+    if (wordCountEl) wordCountEl.textContent = 'Words: ' + response.word_count;
+    if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
+    if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
+    stopProcessingPresence();
+    setStatus(statusMessage || 'Processing complete', 'success');
+    showAssistantToast('Processing completed in background.');
+    setProgress(100);
+    mainAuth.refreshTaskHistory();
+    refreshProcessButtonState();
 }
 
 function handleLoadResponse(displayName) {
@@ -499,8 +523,13 @@ function pollTaskUntilProcessed(taskId) {
     }
     mainState.taskRecoveryPollCount = Number(mainState.taskRecoveryPollCount || 0) + 1;
     const called = callApiOrEel(
-        (api) => api.tasks && typeof api.tasks.get === 'function' ? api.tasks.get(safeTaskId) : null,
-        'get_task',
+        (api) => {
+            if (api.tasks && typeof api.tasks.processStatus === 'function') {
+                return api.tasks.processStatus(safeTaskId);
+            }
+            return api.tasks && typeof api.tasks.get === 'function' ? api.tasks.get(safeTaskId) : null;
+        },
+        'get_task_process_status',
         [safeTaskId],
         function (response) {
         if (mainState.trackedProcessingTaskId !== safeTaskId) {
@@ -526,6 +555,22 @@ function pollTaskUntilProcessed(taskId) {
             return;
         }
         const task = response.task;
+        const job = response.job && typeof response.job === 'object' ? response.job : null;
+        const jobStatus = String((job && job.status) || '').toUpperCase();
+        if (jobStatus === 'SUCCEEDED' && job && job.result && job.result.success) {
+            completeTrackedProcessingFromPayload(job.result, 'Processing complete');
+            return;
+        }
+        if (jobStatus === 'FAILED') {
+            clearServerTaskTracking();
+            mainState.isProcessingDocument = false;
+            stopProcessingPresence();
+            setStatus('Processing failed', 'error');
+            showAssistantToast('Background processing failed.');
+            alert('Processing error: ' + String((job && job.error) || 'Task failed on server.'));
+            refreshProcessButtonState();
+            return;
+        }
         const status = String(task.status || '').toUpperCase();
         if (status === 'PROCESSED') {
             clearServerTaskTracking();
@@ -561,7 +606,7 @@ function pollTaskUntilProcessed(taskId) {
             refreshProcessButtonState();
             return;
         }
-        setStatus(buildTaskRecoveryStatus(status, elapsedMs), 'warning');
+        setStatus(buildTaskRecoveryStatus(status, elapsedMs, jobStatus), 'warning');
         scheduleTaskRecoveryPoll(safeTaskId);
         }
     );
@@ -599,17 +644,27 @@ function process_document() {
     const called = callApiOrEel(
         (api) => {
             if (taskId && api.tasks && typeof api.tasks.process === 'function') {
-                return api.tasks.process(taskId, options);
+                return api.tasks.process(taskId, options, { async: true });
             }
             return api.legacy && typeof api.legacy.processDocument === 'function'
                 ? api.legacy.processDocument(options, taskId)
                 : null;
         },
         'process_document',
-        [options, taskId],
+        [options, taskId, Boolean(taskId)],
         function (response) {
         let keepProcessingState = false;
-        if (response.success) {
+        if (response && response.success && response.queued) {
+            const queuedTaskId = String(response.task_id || taskId || '').trim();
+            mainState.fileContent.taskId = queuedTaskId;
+            appMain.syncWindowFileContent();
+            mainState.taskRecoveryStartedAt = Date.now();
+            mainState.taskRecoveryPollCount = 0;
+            keepProcessingState = true;
+            callAssistantModuleAction('applyProcessingModeProviderContext', processProviderModel.provider, processProviderModel.model);
+            showAssistantToast('Processing queued. Tracking server progress.');
+            startServerTaskTracking(queuedTaskId, 'Processing queued. Tracking server progress...');
+        } else if (response.success) {
             clearServerTaskTracking();
             applyProcessResponseToState(response, { keepGroupDecisions: false });
             callAssistantModuleAction('applyProcessingModeProviderContext', processProviderModel.provider, processProviderModel.model);

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Package version (example: 1.0.0)"
+        description: "Package version. Leave blank to use VERSION."
         required: false
-        default: "1.0.0"
+        default: ""
   push:
     tags:
       - "v*"
@@ -37,7 +37,7 @@ jobs:
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            VERSION="1.0.0"
+            VERSION="$(tr -d '[:space:]' < VERSION)"
           fi
           ./scripts/linux/build_deb.sh "${VERSION}"
 

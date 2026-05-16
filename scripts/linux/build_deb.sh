@@ -30,13 +30,18 @@ install -m 0644 "${ROOT_DIR}/main.py" "${PKG_DIR}/opt/${APP_ID}/main.py"
 install -m 0644 "${ROOT_DIR}/chicago_editor.py" "${PKG_DIR}/opt/${APP_ID}/chicago_editor.py"
 install -m 0644 "${ROOT_DIR}/document_processor.py" "${PKG_DIR}/opt/${APP_ID}/document_processor.py"
 install -m 0644 "${ROOT_DIR}/requirements.txt" "${PKG_DIR}/opt/${APP_ID}/requirements.txt"
+install -m 0644 "${ROOT_DIR}/requirements.lock" "${PKG_DIR}/opt/${APP_ID}/requirements.lock"
 install -m 0644 "${ROOT_DIR}/README.md" "${PKG_DIR}/opt/${APP_ID}/README.md"
 cp -a "${ROOT_DIR}/web" "${PKG_DIR}/opt/${APP_ID}/web"
 
 echo "[3/7] Creating runtime virtual environment..."
 python3 -m venv "${PKG_DIR}/opt/${APP_ID}/.venv"
 "${PKG_DIR}/opt/${APP_ID}/.venv/bin/python" -m pip install --upgrade pip
-"${PKG_DIR}/opt/${APP_ID}/.venv/bin/pip" install -r "${PKG_DIR}/opt/${APP_ID}/requirements.txt"
+DEPENDENCY_FILE="${PKG_DIR}/opt/${APP_ID}/requirements.lock"
+if [[ ! -f "${DEPENDENCY_FILE}" ]]; then
+  DEPENDENCY_FILE="${PKG_DIR}/opt/${APP_ID}/requirements.txt"
+fi
+"${PKG_DIR}/opt/${APP_ID}/.venv/bin/pip" install -r "${DEPENDENCY_FILE}"
 
 echo "[4/7] Installing launcher and desktop entry..."
 install -m 0755 "${ROOT_DIR}/packaging/linux/manuscript-editor" "${PKG_DIR}/usr/bin/manuscript-editor"

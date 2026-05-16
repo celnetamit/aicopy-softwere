@@ -122,10 +122,16 @@
                     base64_data: base64Data
                 });
             },
-            process: function (taskId, options) {
+            process: function (taskId, options, requestOptions) {
+                var input = requestOptions || {};
                 return postJson('/api/tasks/' + encodeURIComponent(taskId) + '/process', {
-                    options: options || {}
+                    options: options || {},
+                    async: Boolean(input.async),
+                    background: Boolean(input.background)
                 });
+            },
+            processStatus: function (taskId) {
+                return getJson('/api/tasks/' + encodeURIComponent(taskId) + '/process-status');
             },
             applyCorrectionGroupDecisions: function (taskId, payload) {
                 var input = payload || {};

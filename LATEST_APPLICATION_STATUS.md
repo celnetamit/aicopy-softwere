@@ -68,8 +68,8 @@ In-progress (local changes, not yet pushed):
 
 Latest full quality gate passed on 2026-05-16:
 1. `./scripts/run_quality_checks.sh`
-2. Result: `Ran 157 tests in 311.899s ... OK`
-3. Compile checks and frontend syntax checks passed.
+2. Result: `Ran 159 tests in 311.896s ... OK`
+3. Compile checks, dependency/version guard checks, and frontend syntax checks passed.
 
 Latest focused assistant validation also passed:
 1. `python3 -m pytest -q tests/test_webapp_api.py -k "frontend_api_client_is_loaded_and_bridge_uses_it or route_specific_page_modules_are_loaded_and_own_page_controls or admin_global_settings_round_trip or admin_reference_validation_diagnostics_is_safe_and_structured or admin_can_validate_ai_provider"`
@@ -92,13 +92,17 @@ Completed locally:
 12. Settings/admin module split was committed in `e1f43de`: `web/app-settings-panel.js` owns settings/login/assistant/admin event binding, while `web/app-settings.js` remains the settings/provider persistence API layer.
 13. Settings/admin module split was committed in `e1f43de`: `web/admin/runtime.js`, `web/admin/users.js`, and `web/admin/audit.js` own runtime processing options, admin user status/list rendering, and audit rendering/refresh; `web/app-auth-admin.js` remains the compatibility facade.
 14. Remaining admin split was committed locally in `1be9db9`: `web/admin/global-settings.js`, `web/admin/reference-diagnostics.js`, and `web/admin/panel.js` continue moving admin panel/global-settings/reference-diagnostics logic out of `web/app-auth-admin.js`.
-15. Current local P1.6 versioning slice: `scripts/check_version_consistency.py` verifies `VERSION`/`version_info.py`, web template version placeholders, Windows installer version wiring, Debian package version wiring, and stale packaging examples in docs. Full quality gate passed after this change.
+15. P1.6 versioning slice was committed in `3bc4496`: `scripts/check_version_consistency.py` verifies `VERSION`/`version_info.py`, web template version placeholders, Windows installer version wiring, Debian package version wiring, and stale packaging examples in docs. Full quality gate passed after this change.
+16. Current local P1.7 dependency-lock slice: `requirements.lock` pins runtime dependencies, CI/Docker/Windows build deps/Ubuntu packaging consume the lock, `.github/workflows/dependency-audit.yml` adds weekly `pip-audit`, and `scripts/check_dependency_lock.py` is wired into the quality gate.
+17. Current local P2.1 slice: `job_queue.py` adds an in-process processing queue, `POST /api/tasks/<id>/process` supports opt-in `async: true`, `GET /api/tasks/<id>/process-status` exposes latest job/task state, and the frontend now queues task-backed processing then polls status while preserving synchronous/legacy processing fallbacks.
+18. Release-path local QA refresh was captured in `docs/release/P0_QA_SIGNOFF_2026-05-16_LOCAL.md`; final Windows/Ubuntu fresh-machine installer signoff remains pending.
 
 ## Resume From Here
 
 Primary next workstreams from roadmap:
 1. `P0`: finish fresh-machine QA sign-off for Windows and Ubuntu installer/package builds.
-2. `P1`: validate and commit P1.6 centralized versioning, then decide between P1.7 dependency lock or P2 processing queue.
+2. `P1`: validate and commit P1.7 dependency lock.
+3. `P2`: commit the completed P1.7/P2.1 slice, then move to P2.2 or release fresh-machine QA.
 
 Suggested first commands:
 1. `./scripts/run_quality_checks.sh`

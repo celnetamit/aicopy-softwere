@@ -287,27 +287,32 @@ These items address the highest-risk issues and unblock further work.
 - **Validation**: Focused version/packaging tests passed; full quality gate passed on 2026-05-16 (`Ran 157 tests in 311.899s ... OK`)
 
 #### P1.7 — Add Dependency Lock File
+- **Status**: Completed locally on 2026-05-16.
 - **Files**: New `requirements.lock` or `constraints.txt`
 - **Issue**: No deterministic builds; dependency drift risk
 - **Action**:
-  1. Generate `requirements.lock` from current working dependency set
-  2. Add `pip-audit` CI job for weekly vulnerability scanning
-  3. Document upgrade policy
+  1. [x] Generate `requirements.lock` from the current release dependency policy
+  2. [x] Add `pip-audit` CI job for weekly vulnerability scanning
+  3. [x] Document upgrade policy
+  4. [x] Wire Docker, CI, Windows build dependencies, and Ubuntu package build through `requirements.lock`
+  5. [x] Add `scripts/check_dependency_lock.py` and wire it into the quality gate
 - **Depends on**: Nothing
-- **Validation**: `pip install -r requirements.lock` produces identical environment
+- **Validation**: Dependency-lock wiring check and focused packaging tests passed; full quality gate passed on 2026-05-16 (`Ran 159 tests in 309.155s ... OK`)
 
 ### Phase P2 — Processing Resilience & Scale
 
 #### P2.1 — Background Job Queue for Processing
+- **Status**: Started locally on 2026-05-16.
 - **Files**: [`webapp.py`](webapp.py), new `job_queue.py`
 - **Issue**: Synchronous AI processing blocks request thread; risks timeout on large manuscripts or slow providers
 - **Action**:
-  1. Implement simple in-process job queue with thread pool (or Redis/Celery for multi-worker)
-  2. `POST /api/tasks/<id>/process` returns immediately with job status
-  3. Frontend polls `GET /api/tasks/<id>/process-status` for progress
-  4. Maintain backward compatibility for quick rule-only processing
+  1. [x] Implement simple in-process job queue with thread pool
+  2. [x] Add opt-in async `POST /api/tasks/<id>/process` path that returns immediately with job status
+  3. [x] Add `GET /api/tasks/<id>/process-status` polling endpoint
+  4. [x] Maintain backward compatibility for quick rule-only processing
+  5. [x] Wire frontend polling controls and default long-running process behavior
 - **Depends on**: P0.3 (cleaner route structure)
-- **Validation**: Large manuscript processing doesn't block other requests; progress updates visible in UI
+- **Validation**: Async route/API and frontend polling coverage passed; full quality gate passed on 2026-05-16 (`Ran 159 tests in 311.896s ... OK`).
 
 #### P2.2 — Reduce Desktop/Web Duplication
 - **Files**: [`main.py`](main.py), [`webapp.py`](webapp.py), [`web/eel_web_bridge.js`](web/eel_web_bridge.js)

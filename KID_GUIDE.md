@@ -36,7 +36,7 @@ Think of this app like a smart helper that fixes writing in your document.
 - Run:
 
 ```bat
-pip install -r requirements.txt
+pip install -r requirements.lock
 ```
 
 ### Step C: Start app
@@ -74,7 +74,7 @@ http://127.0.0.1:8000
 ### Step B: Install Python packages
 
 ```bash
-pip3 install -r requirements.txt
+pip3 install -r requirements.lock
 ```
 
 ### Step C: Start app

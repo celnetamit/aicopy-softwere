@@ -5,8 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "[1/3] Python compile checks"
-python3 -m py_compile main.py webapp.py document_processor.py chicago_editor.py
+python3 -m py_compile main.py webapp.py document_processor.py chicago_editor.py job_queue.py scripts/check_dependency_lock.py scripts/check_version_consistency.py
 python3 scripts/check_version_consistency.py
+python3 scripts/check_dependency_lock.py
 
 echo "[2/3] Frontend syntax checks"
 node --check web/app-api.js

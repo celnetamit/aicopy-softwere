@@ -15,9 +15,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     adduser --disabled-password --gecos "" appuser
 
-COPY requirements.txt ./
+COPY requirements.txt requirements.lock ./
 RUN python -m pip install --upgrade pip && \
-    python -m pip install -r requirements.txt
+    python -m pip install -r requirements.lock
 
 COPY . .
 

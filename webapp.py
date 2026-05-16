@@ -23,6 +23,7 @@ from bottle import Bottle, HTTPResponse, request, response, run, static_file
 
 from app_store import AppStore, ROLE_ADMIN, STATUS_ACTIVE, STATUS_INACTIVE, SessionContext
 from document_processor import DocumentProcessor
+from job_queue import BackgroundJobQueue
 from version_info import APP_VERSION, WEB_ASSET_VERSION
 
 
@@ -79,6 +80,7 @@ DEFAULT_ADMIN_EMAILS = [
 MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 APP_SETTING_KEY_GLOBAL_RUNTIME = "global_runtime_settings"
 APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS = "reference_unresolved_trends"
+PROCESSING_JOB_WORKERS = int(os.getenv("PROCESSING_JOB_WORKERS", "2") or "2")
 
 
 def _parse_csv_env(key: str, default_values):
@@ -130,6 +132,7 @@ os.makedirs(os.path.join(DATA_DIR, "tasks"), exist_ok=True)
 
 _STORE = AppStore(database_url=DATABASE_URL, data_dir=DATA_DIR)
 _STORE.bootstrap_admin_roles(ADMIN_EMAILS)
+_PROCESSING_JOB_QUEUE = BackgroundJobQueue(max_workers=PROCESSING_JOB_WORKERS)
 
 _CLEANUP_LOCK = threading.Lock()
 _LAST_CLEANUP_AT = 0.0
@@ -1734,6 +1737,7 @@ def _build_route_dependencies():
         local_manual_login_username=LOCAL_MANUAL_LOGIN_USERNAME,
         mime_docx=MIME_DOCX,
         normalize_global_runtime_settings=_normalize_global_runtime_settings,
+        processing_job_queue=_PROCESSING_JOB_QUEUE,
         process_task=_process_task,
         public_user_payload=_public_user_payload,
         read_global_runtime_settings=_read_global_runtime_settings,

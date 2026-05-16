@@ -405,6 +405,40 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("FileRead", version_check)
         self.assertIn("build_deb.sh 1.0.0", version_check)
 
+    def test_dependency_lock_is_used_for_release_installs(self):
+        root_dir = os.path.join(os.path.dirname(__file__), "..")
+        lock_path = os.path.join(root_dir, "requirements.lock")
+        with open(lock_path, "r", encoding="utf-8") as handle:
+            lock_lines = [
+                line.strip()
+                for line in handle
+                if line.strip() and not line.strip().startswith("#")
+            ]
+
+        self.assertIn("Eel==0.17.0", lock_lines)
+        self.assertIn("python-docx==1.1.2", lock_lines)
+        self.assertIn("requests==2.31.0", lock_lines)
+        self.assertTrue(all("==" in line for line in lock_lines))
+
+        with open(os.path.join(root_dir, "requirements-build.txt"), "r", encoding="utf-8") as handle:
+            build_requirements = handle.read()
+        self.assertIn("-r requirements.lock", build_requirements)
+        self.assertNotIn("-r requirements.txt", build_requirements)
+
+        with open(os.path.join(root_dir, "Dockerfile"), "r", encoding="utf-8") as handle:
+            dockerfile = handle.read()
+        self.assertIn("requirements.lock", dockerfile)
+        self.assertIn("pip install -r requirements.lock", dockerfile)
+
+        with open(os.path.join(root_dir, "scripts", "linux", "build_deb.sh"), "r", encoding="utf-8") as handle:
+            deb_script = handle.read()
+        self.assertIn("requirements.lock", deb_script)
+        self.assertIn("DEPENDENCY_FILE", deb_script)
+
+        with open(os.path.join(root_dir, "scripts", "run_quality_checks.sh"), "r", encoding="utf-8") as handle:
+            quality_gate = handle.read()
+        self.assertIn("scripts/check_dependency_lock.py", quality_gate)
+
     def test_reference_validation_diagnostics_includes_admin_cap_setting(self):
         self._login("admin@conwiz.in")
         admin_client = WsgiTestClient(webapp.app)
@@ -513,6 +547,12 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             admin_global_source = handle.read()
         self.assertIn("api.admin.globalSettings", admin_global_source)
         self.assertIn("api.admin.validateAiProvider", admin_global_source)
+
+        api_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-api.js")
+        with open(api_path, "r", encoding="utf-8") as handle:
+            api_source = handle.read()
+        self.assertIn("processStatus: function (taskId)", api_source)
+        self.assertIn("async: Boolean(input.async)", api_source)
 
         admin_reference_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "reference-diagnostics.js")
         with open(admin_reference_path, "r", encoding="utf-8") as handle:
@@ -693,6 +733,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         with open(app_js_path, "r", encoding="utf-8") as handle:
             app_source = handle.read()
         self.assertNotIn("mainAuth.checkAuthenticatedUser();", app_source)
+        self.assertIn("api.tasks.process(taskId, options, { async: true })", app_source)
+        self.assertIn("api.tasks.processStatus(safeTaskId)", app_source)
+        self.assertIn("completeTrackedProcessingFromPayload", app_source)
+        self.assertIn("response.success && response.queued", app_source)
 
         router_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-router.js")
         with open(router_path, "r", encoding="utf-8") as handle:
@@ -768,6 +812,45 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertGreaterEqual(len(payload.get("tasks", [])), 1)
+
+    def test_async_process_route_returns_job_and_status(self):
+        self._login("writer@conwiz.in")
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "sample.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = payload.get("task_id")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {
+                "async": True,
+                "options": {
+                    "spelling": True,
+                    "sentence_case": True,
+                    "punctuation": True,
+                    "chicago_style": True,
+                    "ai": {"enabled": False},
+                },
+            },
+        )
+        self.assertEqual(status, 202)
+        self.assertTrue(payload.get("success"))
+        self.assertTrue(payload.get("queued"))
+        self.assertEqual(payload.get("task_id"), task_id)
+        self.assertIn((payload.get("job") or {}).get("status"), {"PENDING", "RUNNING", "SUCCEEDED"})
+
+        status, payload = self.client.request("GET", f"/api/tasks/{task_id}/process-status")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("task_id"), task_id)
+        self.assertIn("job", payload)
+        self.assertIn((payload.get("job") or {}).get("status"), {"PENDING", "RUNNING", "SUCCEEDED", "FAILED"})
 
     def test_binary_download_endpoint_returns_valid_docx(self):
         self._login("writer@conwiz.in")

@@ -107,10 +107,11 @@
             });
         }),
 
-        process_document: callbackWrapper(function (options, taskId) {
+        process_document: callbackWrapper(function (options, taskId, asyncProcess) {
             if (taskId) {
                 return postJson('/api/tasks/' + encodeURIComponent(taskId) + '/process', {
-                    options: options
+                    options: options,
+                    async: Boolean(asyncProcess)
                 });
             }
             return postJson('/api/process-document', {
@@ -121,6 +122,10 @@
                 source_text: (window.fileContent && window.fileContent.original) || '',
                 source_file_name: (window.fileContent && window.fileContent.fileName) || ''
             });
+        }),
+
+        get_task_process_status: callbackWrapper(function (taskId) {
+            return getJson('/api/tasks/' + encodeURIComponent(taskId || '') + '/process-status');
         }),
 
         apply_correction_group_decisions: callbackWrapper(function (payload) {
