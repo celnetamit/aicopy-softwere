@@ -356,7 +356,7 @@ scripts\windows\build_installer.bat
 
 Expected outputs:
 1. Portable app: `dist\ManuscriptEditor\ManuscriptEditor.exe`
-2. Installer: `dist_installer\ManuscriptEditor_Setup_1.0.0.exe`
+2. Installer: `dist_installer\ManuscriptEditor_Setup_<VERSION>.exe`
 
 If a built `.exe` fails with `No module named 'pkg_resources'`, rebuild after refreshing build dependencies:
 
@@ -371,11 +371,11 @@ On an Ubuntu machine:
 
 1. Build Debian package:
 ```bash
-./scripts/linux/build_deb.sh 1.0.0
+./scripts/linux/build_deb.sh
 ```
 
 Expected output:
-1. Debian package: `dist_deb/manuscript-editor_1.0.0_amd64.deb` (architecture may vary)
+1. Debian package: `dist_deb/manuscript-editor_<VERSION>_amd64.deb` (architecture may vary)
 
 ### Release Process Files
 

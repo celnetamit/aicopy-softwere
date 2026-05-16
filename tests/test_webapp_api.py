@@ -395,6 +395,15 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         with open(windows_iss_path, "r", encoding="utf-8") as handle:
             windows_iss = handle.read()
         self.assertIn('#define MyAppVersion Trim(FileRead("..\\..\\VERSION"))', windows_iss)
+        self.assertIn("AppVersion={#MyAppVersion}", windows_iss)
+        self.assertIn("OutputBaseFilename=ManuscriptEditor_Setup_{#MyAppVersion}", windows_iss)
+
+        version_check_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "check_version_consistency.py")
+        with open(version_check_path, "r", encoding="utf-8") as handle:
+            version_check = handle.read()
+        self.assertIn("version_info.APP_VERSION == version", version_check)
+        self.assertIn("FileRead", version_check)
+        self.assertIn("build_deb.sh 1.0.0", version_check)
 
     def test_reference_validation_diagnostics_includes_admin_cap_setting(self):
         self._login("admin@conwiz.in")
@@ -530,6 +539,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         quality_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "run_quality_checks.sh")
         with open(quality_path, "r", encoding="utf-8") as handle:
             quality_source = handle.read()
+        self.assertIn("python3 scripts/check_version_consistency.py", quality_source)
         self.assertIn("node --check web/app-api.js", quality_source)
         self.assertIn("node --check web/app-assistant.js", quality_source)
         self.assertIn("node --check web/app-auth-admin.js", quality_source)

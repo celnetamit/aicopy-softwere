@@ -203,7 +203,7 @@ Installer file will be in:
 On Ubuntu, in project folder:
 
 ```bash
-./scripts/linux/build_deb.sh 1.0.0
+./scripts/linux/build_deb.sh
 ```
 
 Package file will be in:

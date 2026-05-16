@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 echo "[1/3] Python compile checks"
 python3 -m py_compile main.py webapp.py document_processor.py chicago_editor.py
+python3 scripts/check_version_consistency.py
 
 echo "[2/3] Frontend syntax checks"
 node --check web/app-api.js

@@ -2,7 +2,7 @@
 
 Updated: 2026-05-15  
 Repo: `manuscript_editor`  
-Branch: `main` (latest pushed checkpoint: `e1f43de`; current local changes continue admin frontend module split)
+Branch: `main` (latest pushed checkpoint: `e1f43de`; local commits/changes continue P1 frontend modernization)
 
 ## Current Stage
 
@@ -68,7 +68,7 @@ In-progress (local changes, not yet pushed):
 
 Latest full quality gate passed on 2026-05-16:
 1. `./scripts/run_quality_checks.sh`
-2. Result: `Ran 157 tests in 306.603s ... OK`
+2. Result: `Ran 157 tests in 311.899s ... OK`
 3. Compile checks and frontend syntax checks passed.
 
 Latest focused assistant validation also passed:
@@ -91,13 +91,14 @@ Completed locally:
 11. Assistant panel fragment extraction was committed in `937499c`: `web/fragments/assistant_panel.html` is rendered into index/tasks/task-detail shells to prevent markup drift.
 12. Settings/admin module split was committed in `e1f43de`: `web/app-settings-panel.js` owns settings/login/assistant/admin event binding, while `web/app-settings.js` remains the settings/provider persistence API layer.
 13. Settings/admin module split was committed in `e1f43de`: `web/admin/runtime.js`, `web/admin/users.js`, and `web/admin/audit.js` own runtime processing options, admin user status/list rendering, and audit rendering/refresh; `web/app-auth-admin.js` remains the compatibility facade.
-14. Current local P1 continuation: `web/admin/global-settings.js`, `web/admin/reference-diagnostics.js`, and `web/admin/panel.js` continue moving admin panel/global-settings/reference-diagnostics logic out of `web/app-auth-admin.js`.
+14. Remaining admin split was committed locally in `1be9db9`: `web/admin/global-settings.js`, `web/admin/reference-diagnostics.js`, and `web/admin/panel.js` continue moving admin panel/global-settings/reference-diagnostics logic out of `web/app-auth-admin.js`.
+15. Current local P1.6 versioning slice: `scripts/check_version_consistency.py` verifies `VERSION`/`version_info.py`, web template version placeholders, Windows installer version wiring, Debian package version wiring, and stale packaging examples in docs. Full quality gate passed after this change.
 
 ## Resume From Here
 
 Primary next workstreams from roadmap:
 1. `P0`: finish fresh-machine QA sign-off for Windows and Ubuntu installer/package builds.
-2. `P1`: validate and commit the remaining admin panel/global-settings/reference-diagnostics frontend split, then move to P1.6 centralized versioning.
+2. `P1`: validate and commit P1.6 centralized versioning, then decide between P1.7 dependency lock or P2 processing queue.
 
 Suggested first commands:
 1. `./scripts/run_quality_checks.sh`

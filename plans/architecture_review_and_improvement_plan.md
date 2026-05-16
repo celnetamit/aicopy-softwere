@@ -275,14 +275,16 @@ These items address the highest-risk issues and unblock further work.
 - **Validation**: Focused module loading/delegation coverage passed; full quality gate passed on 2026-05-16 (`Ran 157 tests in 306.603s ... OK`)
 
 #### P1.6 — Centralize Versioning
+- **Status**: Completed locally on 2026-05-16.
 - **Files**: [`VERSION`](VERSION), [`version_info.py`](version_info.py), packaging configs, UI footer
 - **Issue**: Version duplicated across docs, UI, packaging files
 - **Action**:
-  1. Ensure `VERSION` + `version_info.py` is the single source of truth
-  2. Update Windows installer (`.iss`), Debian build script, and UI footer to read from this source
-  3. Add CI check that all version references are consistent
+  1. [x] Ensure `VERSION` + `version_info.py` is the single source of truth
+  2. [x] Confirm Windows installer (`.iss`), Debian build script, and UI footer read from this source
+  3. [x] Add `scripts/check_version_consistency.py` and wire it into the quality gate
+  4. [x] Remove stale hardcoded `1.0.0` package examples from README/KID guide
 - **Depends on**: Nothing
-- **Validation**: Changing `VERSION` updates all release surfaces
+- **Validation**: Focused version/packaging tests passed; full quality gate passed on 2026-05-16 (`Ran 157 tests in 311.899s ... OK`)
 
 #### P1.7 — Add Dependency Lock File
 - **Files**: New `requirements.lock` or `constraints.txt`
