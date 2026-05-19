@@ -148,6 +148,32 @@ function getSavedValidationKeyForProvider(provider, aiSettings) {
     return '';
 }
 
+function updateAdminEditingControlsHint() {
+    if (adminGlobalDom.adminEditingModeHelp && adminGlobalDom.adminSettingEditingMode) {
+        const mode = String(adminGlobalDom.adminSettingEditingMode.value || 'copyedit');
+        const modeHelp = {
+            proofread: 'Proofread applies surface-level corrections and avoids stylistic rewrites.',
+            copyedit: 'Copyedit balances correctness and readability with minimal meaning drift.',
+            clarity: 'Clarity rewrites for smoother flow while preserving factual intent.',
+            tone_adjust: 'Tone Adjust shifts voice to match audience and publication context.',
+            concise: 'Concise reduces verbosity and repetition while keeping key information.'
+        };
+        adminGlobalDom.adminEditingModeHelp.textContent = modeHelp[mode] || modeHelp.copyedit;
+    }
+    if (adminGlobalDom.adminToneHelp && adminGlobalDom.adminSettingTone) {
+        const tone = String(adminGlobalDom.adminSettingTone.value || 'neutral');
+        adminGlobalDom.adminToneHelp.textContent = tone === 'neutral'
+            ? 'Neutral keeps outputs consistent across manuscript types.'
+            : `Outputs are biased toward a ${tone.replace('_', ' ')} tone across all processing jobs.`;
+    }
+    if (adminGlobalDom.adminRewriteStrengthHelp && adminGlobalDom.adminSettingRewriteStrength) {
+        const strength = String(adminGlobalDom.adminSettingRewriteStrength.value || 'minimal');
+        adminGlobalDom.adminRewriteStrengthHelp.textContent = strength === 'moderate'
+            ? 'Moderate permits broader rewrites for flow; review for meaning drift in sensitive documents.'
+            : 'Minimal is safer for preserving claims, numbers, and citations.';
+    }
+}
+
 function syncAdminValidationInputs(forceOverwrite) {
     const ai = adminGlobalState.runtimeManagedSettings && adminGlobalState.runtimeManagedSettings.ai && typeof adminGlobalState.runtimeManagedSettings.ai === 'object'
         ? adminGlobalState.runtimeManagedSettings.ai
@@ -198,6 +224,25 @@ function applyAdminGlobalSettingsForm(settings) {
         adminGlobalDom.adminSettingAutoResolveUnresolvedReferences.checked = editing.auto_resolve_unresolved_references !== false;
     }
     if (adminGlobalDom.adminSettingDomainProfile) adminGlobalDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
+    if (adminGlobalDom.adminSettingEditingMode) {
+        const editingMode = String(editing.editing_mode || 'copyedit');
+        adminGlobalDom.adminSettingEditingMode.value = ['proofread', 'copyedit', 'clarity', 'tone_adjust', 'concise'].includes(editingMode)
+            ? editingMode
+            : 'copyedit';
+    }
+    if (adminGlobalDom.adminSettingTone) {
+        const tone = String(editing.tone || 'neutral');
+        adminGlobalDom.adminSettingTone.value = ['neutral', 'formal', 'informal', 'academic', 'business', 'technical', 'marketing', 'legal', 'casual'].includes(tone)
+            ? tone
+            : 'neutral';
+    }
+    if (adminGlobalDom.adminSettingRewriteStrength) {
+        const rewriteStrength = String(editing.rewrite_strength || 'minimal');
+        adminGlobalDom.adminSettingRewriteStrength.value = rewriteStrength === 'moderate' ? 'moderate' : 'minimal';
+    }
+    if (adminGlobalDom.adminSettingExplainEdits) {
+        adminGlobalDom.adminSettingExplainEdits.checked = editing.explain_edits === true;
+    }
     if (adminGlobalDom.adminSettingCmosProfile) {
         const profile = String(editing.cmos_profile || 'core');
         adminGlobalDom.adminSettingCmosProfile.value = ['core', 'strict', 'journal_custom'].includes(profile) ? profile : 'core';
@@ -226,6 +271,7 @@ function applyAdminGlobalSettingsForm(settings) {
     if (adminGlobalDom.adminSettingOllamaRetryBackoffSeconds) adminGlobalDom.adminSettingOllamaRetryBackoffSeconds.value = adminGlobalHelpers.clampNumber(ai.ollama_retry_backoff_seconds, 0, 30, 0);
     if (adminGlobalDom.adminSettingOllamaFallbackModelRetry) adminGlobalDom.adminSettingOllamaFallbackModelRetry.checked = ai.ollama_fallback_model_retry !== false;
     updateAdminGlobalAiProviderUI(false);
+    updateAdminEditingControlsHint();
 }
 
 function collectAdminGlobalSettingsForm() {
@@ -249,6 +295,10 @@ function collectAdminGlobalSettingsForm() {
                 ? adminGlobalDom.adminSettingAutoResolveUnresolvedReferences.checked
                 : true,
             domain_profile: adminGlobalDom.adminSettingDomainProfile ? String(adminGlobalDom.adminSettingDomainProfile.value || 'auto') : 'auto',
+            editing_mode: adminGlobalDom.adminSettingEditingMode ? String(adminGlobalDom.adminSettingEditingMode.value || 'copyedit') : 'copyedit',
+            tone: adminGlobalDom.adminSettingTone ? String(adminGlobalDom.adminSettingTone.value || 'neutral') : 'neutral',
+            rewrite_strength: adminGlobalDom.adminSettingRewriteStrength ? String(adminGlobalDom.adminSettingRewriteStrength.value || 'minimal') : 'minimal',
+            explain_edits: adminGlobalDom.adminSettingExplainEdits ? adminGlobalDom.adminSettingExplainEdits.checked : false,
             cmos_profile: adminGlobalDom.adminSettingCmosProfile ? String(adminGlobalDom.adminSettingCmosProfile.value || 'core') : 'core',
             custom_terms: adminGlobalDom.adminSettingCustomTerms ? appAdminGlobalRoot.preview.parseCustomTerms(adminGlobalDom.adminSettingCustomTerms.value) : []
         },
@@ -277,6 +327,12 @@ function collectAdminGlobalSettingsForm() {
 }
 
 function loadAdminGlobalSettings() {
+    if (adminGlobalDom.adminLoadGlobalSettingsBtn) {
+        adminGlobalDom.adminLoadGlobalSettingsBtn.disabled = true;
+    }
+    if (adminGlobalDom.adminSaveGlobalSettingsBtn) {
+        adminGlobalDom.adminSaveGlobalSettingsBtn.disabled = true;
+    }
     if (adminGlobalDom.adminGlobalSettingsStatus) {
         adminGlobalDom.adminGlobalSettingsStatus.textContent = 'Loading global settings...';
         adminGlobalDom.adminGlobalSettingsStatus.style.color = '#ffd58d';
@@ -286,6 +342,12 @@ function loadAdminGlobalSettings() {
         'admin_get_global_settings',
         [],
         function (response) {
+            if (adminGlobalDom.adminLoadGlobalSettingsBtn) {
+                adminGlobalDom.adminLoadGlobalSettingsBtn.disabled = false;
+            }
+            if (adminGlobalDom.adminSaveGlobalSettingsBtn) {
+                adminGlobalDom.adminSaveGlobalSettingsBtn.disabled = false;
+            }
             if (!response || !response.success) {
                 const message = response && response.error ? String(response.error) : 'Could not load global settings';
                 if (adminGlobalDom.adminGlobalSettingsStatus) {
@@ -442,5 +504,6 @@ appAdminGlobalRoot.adminGlobalSettings = {
     saveAdminGlobalSettings,
     syncAdminValidationInputs,
     updateAdminAiValidationHint,
+    updateAdminEditingControlsHint,
     validateAdminAiProvider
 };

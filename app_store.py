@@ -270,11 +270,33 @@ class AppStore:
             )
             """
         )
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_runs (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                job_id TEXT,
+                options_json TEXT,
+                result_json TEXT,
+                error TEXT,
+                created_at INTEGER NOT NULL,
+                started_at INTEGER,
+                finished_at INTEGER,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES tasks(id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
 
         self._execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_task_files_task ON task_files(task_id, file_type)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_task_runs_task_created ON task_runs(task_id, created_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_task_runs_user_created ON task_runs(user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_type ON audit_events(event_type, created_at)")
@@ -736,6 +758,137 @@ class AppStore:
             ),
         )
 
+    def create_task_run(
+        self,
+        *,
+        task_id: str,
+        user_id: str,
+        status: str = "PENDING",
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        now = self._now_ts()
+        run_id = uuid.uuid4().hex
+        self._execute(
+            """
+            INSERT INTO task_runs (
+                id, task_id, user_id, status, job_id, options_json, result_json, error,
+                created_at, started_at, finished_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+            """
+            if self.backend == "sqlite"
+            else
+            """
+            INSERT INTO task_runs (
+                id, task_id, user_id, status, job_id, options_json, result_json, error,
+                created_at, started_at, finished_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, NULL, %s)
+            """,
+            (
+                run_id,
+                str(task_id or ""),
+                str(user_id or ""),
+                str(status or "PENDING"),
+                "",
+                self._safe_json_dump(options or {}),
+                "{}",
+                "",
+                now,
+                now,
+            ),
+        )
+        return self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=True) or {}
+
+    def update_task_run(
+        self,
+        *,
+        run_id: str,
+        user_id: str,
+        is_admin: bool = False,
+        status: str = "",
+        job_id: str = "",
+        error: str = "",
+        result: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        now = self._now_ts()
+        current = self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=is_admin)
+        if current is None:
+            return None
+        next_status = str(status or current.get("status") or "PENDING")
+        next_job_id = str(job_id or current.get("job_id") or "")
+        next_error = str(error or current.get("error") or "")
+        next_result = result if isinstance(result, dict) else current.get("result", {})
+        started_at = int(current.get("started_at") or 0)
+        finished_at = int(current.get("finished_at") or 0)
+
+        if next_status == "RUNNING" and not started_at:
+            started_at = now
+        if next_status in ("SUCCEEDED", "FAILED") and not finished_at:
+            finished_at = now
+
+        params: Sequence[Any] = (
+            next_status,
+            next_job_id,
+            self._safe_json_dump(next_result or {}),
+            next_error,
+            started_at or None,
+            finished_at or None,
+            now,
+            run_id,
+        )
+        self._execute(
+            """
+            UPDATE task_runs
+            SET status = ?, job_id = ?, result_json = ?, error = ?, started_at = ?, finished_at = ?, updated_at = ?
+            WHERE id = ?
+            """
+            if self.backend == "sqlite"
+            else
+            """
+            UPDATE task_runs
+            SET status = %s, job_id = %s, result_json = %s, error = %s, started_at = %s, finished_at = %s, updated_at = %s
+            WHERE id = %s
+            """,
+            params,
+        )
+        return self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=is_admin)
+
+    def get_task_run_for_user(self, *, run_id: str, user_id: str, is_admin: bool) -> Optional[Dict[str, Any]]:
+        if is_admin:
+            row = self._query_one(
+                "SELECT * FROM task_runs WHERE id = ?" if self.backend == "sqlite" else "SELECT * FROM task_runs WHERE id = %s",
+                (run_id,),
+            )
+        else:
+            row = self._query_one(
+                "SELECT * FROM task_runs WHERE id = ? AND user_id = ?"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM task_runs WHERE id = %s AND user_id = %s",
+                (run_id, user_id),
+            )
+        return self._normalize_task_run_row(row)
+
+    def get_latest_task_run_for_task(self, *, task_id: str, user_id: str, is_admin: bool) -> Optional[Dict[str, Any]]:
+        if is_admin:
+            row = self._query_one(
+                "SELECT * FROM task_runs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM task_runs WHERE task_id = %s ORDER BY created_at DESC LIMIT 1",
+                (task_id,),
+            )
+        else:
+            row = self._query_one(
+                "SELECT * FROM task_runs WHERE task_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM task_runs WHERE task_id = %s AND user_id = %s ORDER BY created_at DESC LIMIT 1",
+                (task_id, user_id),
+            )
+        return self._normalize_task_run_row(row)
+
     def get_task_file_for_user(
         self,
         *,
@@ -994,8 +1147,17 @@ class AppStore:
         item["reports"] = self._safe_json_load(item.get("reports_json"))
         return item
 
+    def _normalize_task_run_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if row is None:
+            return None
+        item = dict(row)
+        item["options"] = self._safe_json_load(item.get("options_json"))
+        item["result"] = self._safe_json_load(item.get("result_json"))
+        return item
+
     def clear_all_for_tests(self):
         """Utility for tests to reset database content."""
+        self._execute("DELETE FROM task_runs")
         self._execute("DELETE FROM task_files")
         self._execute("DELETE FROM tasks")
         self._execute("DELETE FROM user_sessions")

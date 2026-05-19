@@ -64,6 +64,7 @@ The application will still work without Ollama using built-in rule-based editing
 1. Clone or download this repository
 2. Install Python dependencies
 3. (Optional) Install and configure Ollama
+4. Copy `.env.example` to `.env` and set deployment values (`GOOGLE_CLIENT_ID`, `DATABASE_URL`, provider keys as needed)
 
 ## Quality Checks (Week 1 Baseline)
 

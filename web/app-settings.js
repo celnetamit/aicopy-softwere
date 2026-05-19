@@ -78,6 +78,37 @@ function syncReferenceValidationToggleState() {
     }
 }
 
+function updateEditingExperienceHints() {
+    if (settingsDom.editingModeHelp && settingsDom.editingModeSelect) {
+        const mode = String(settingsDom.editingModeSelect.value || 'copyedit');
+        const modeHelp = {
+            proofread: 'Proofread focuses on grammar, spelling, punctuation, and typo cleanup only.',
+            copyedit: 'Copyedit fixes grammar, spelling, and style while preserving intent.',
+            clarity: 'Clarity improves readability and flow while keeping original meaning intact.',
+            tone_adjust: 'Tone Adjust shifts voice and formality without changing core claims.',
+            concise: 'Concise removes redundancy and shortens wording while retaining key facts.'
+        };
+        settingsDom.editingModeHelp.textContent = modeHelp[mode] || modeHelp.copyedit;
+    }
+    if (settingsDom.targetToneHelp && settingsDom.targetToneSelect) {
+        const tone = String(settingsDom.targetToneSelect.value || 'neutral');
+        settingsDom.targetToneHelp.textContent = tone === 'neutral'
+            ? 'Neutral is safest for mixed audiences and scholarly writing.'
+            : `Optimizes wording toward a ${tone.replace('_', ' ')} tone while preserving meaning.`;
+    }
+    if (settingsDom.rewriteStrengthHelp && settingsDom.rewriteStrengthSelect) {
+        const strength = String(settingsDom.rewriteStrengthSelect.value || 'minimal');
+        settingsDom.rewriteStrengthHelp.textContent = strength === 'moderate'
+            ? 'Moderate allows broader sentence rewrites to improve flow.'
+            : 'Minimal keeps sentence structure stable and avoids unnecessary rewrites.';
+    }
+    if (settingsDom.explainEditsHelp && settingsDom.explainEditsInput) {
+        settingsDom.explainEditsHelp.textContent = settingsDom.explainEditsInput.checked
+            ? 'Edit explanations are enabled and will be included in processing reports.'
+            : 'Adds grouped reasons for key edits in the correction report.';
+    }
+}
+
 function applyOllamaHost(host, statusMessage) {
     if (!settingsDom.ollamaHostInput || !settingsDom.aiProvider) {
         return;
@@ -182,6 +213,10 @@ function saveAiSettings() {
         online_reference_validation: settingsDom.onlineReferenceValidationInput ? settingsDom.onlineReferenceValidationInput.checked !== false : true,
         online_reference_serper_fallback: settingsDom.onlineReferenceSerperFallbackInput ? settingsDom.onlineReferenceSerperFallbackInput.checked !== false : true,
         doi_insertion_mode: settingsDom.doiInsertionModeInput ? String(settingsDom.doiInsertionModeInput.value || 'balanced') : 'balanced',
+        editing_mode: settingsDom.editingModeSelect ? String(settingsDom.editingModeSelect.value || 'copyedit') : 'copyedit',
+        tone: settingsDom.targetToneSelect ? String(settingsDom.targetToneSelect.value || 'neutral') : 'neutral',
+        rewrite_strength: settingsDom.rewriteStrengthSelect ? String(settingsDom.rewriteStrengthSelect.value || 'minimal') : 'minimal',
+        explain_edits: settingsDom.explainEditsInput ? settingsDom.explainEditsInput.checked === true : false,
         custom_terms_text: previewApi.normalizeCustomTermsText(settingsDom.customTermsInput.value),
         journal_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: settingsConstants.FIXED_JOURNAL_PROFILE,
@@ -262,6 +297,25 @@ function loadAiSettings() {
     } else {
         settingsDom.domainProfileSelect.value = 'auto';
     }
+    if (settingsDom.editingModeSelect) {
+        const editingMode = String(parsed.editing_mode || 'copyedit');
+        settingsDom.editingModeSelect.value = ['proofread', 'copyedit', 'clarity', 'tone_adjust', 'concise'].includes(editingMode)
+            ? editingMode
+            : 'copyedit';
+    }
+    if (settingsDom.targetToneSelect) {
+        const tone = String(parsed.tone || 'neutral');
+        settingsDom.targetToneSelect.value = ['neutral', 'formal', 'informal', 'academic', 'business', 'technical', 'marketing', 'legal', 'casual'].includes(tone)
+            ? tone
+            : 'neutral';
+    }
+    if (settingsDom.rewriteStrengthSelect) {
+        const rewriteStrength = String(parsed.rewrite_strength || 'minimal');
+        settingsDom.rewriteStrengthSelect.value = rewriteStrength === 'moderate' ? 'moderate' : 'minimal';
+    }
+    if (settingsDom.explainEditsInput) {
+        settingsDom.explainEditsInput.checked = parsed.explain_edits === true;
+    }
     if (settingsDom.cmosProfileSelect) {
         const profile = String(parsed.cmos_profile || 'core');
         settingsDom.cmosProfileSelect.value = ['core', 'strict', 'journal_custom'].includes(profile) ? profile : 'core';
@@ -289,6 +343,7 @@ function loadAiSettings() {
         : previewApi.sanitizePageSettings({ ...settingsConstants.PAGE_PRESETS.manuscript_default, preset: 'manuscript_default' });
     previewApi.applyPageSettingsToInputs(settingsState.pageSettings);
     previewApi.applyPageStyleVariables();
+    updateEditingExperienceHints();
     return true;
 }
 
@@ -406,6 +461,7 @@ appSettingsRoot.settings = {
     applyOllamaHost,
     setOllamaModelOptions,
     fetchOllamaModels,
+    updateEditingExperienceHints,
     saveAiSettings,
     loadAiSettings,
     syncReferenceValidationToggleState,

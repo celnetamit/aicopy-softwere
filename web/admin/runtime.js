@@ -7,7 +7,28 @@ function callRuntimeApiOrEel(apiInvoker, eelMethod, eelArgs, callback) {
     return appAdminRuntimeRoot.authAdmin.callApiOrEel(apiInvoker, eelMethod, eelArgs, callback);
 }
 
+function setManagedRuntimeStatus(message, tone) {
+    if (!adminRuntimeDom.managedSettingsRuntimeStatus) {
+        return;
+    }
+    adminRuntimeDom.managedSettingsRuntimeStatus.textContent = message;
+    if (tone === 'warning') {
+        adminRuntimeDom.managedSettingsRuntimeStatus.style.color = '#ffd58d';
+        return;
+    }
+    if (tone === 'error') {
+        adminRuntimeDom.managedSettingsRuntimeStatus.style.color = '#ffb8c2';
+        return;
+    }
+    if (tone === 'success') {
+        adminRuntimeDom.managedSettingsRuntimeStatus.style.color = '#a9f2d3';
+        return;
+    }
+    adminRuntimeDom.managedSettingsRuntimeStatus.style.color = '';
+}
+
 function refreshRuntimeSettings(callback) {
+    setManagedRuntimeStatus('Loading managed runtime settings...', 'warning');
     const called = callRuntimeApiOrEel(
         (api) => api.runtime && typeof api.runtime.settings === 'function' ? api.runtime.settings() : null,
         'get_runtime_settings',
@@ -15,12 +36,17 @@ function refreshRuntimeSettings(callback) {
         function (response) {
             if (response && response.success && response.settings && typeof response.settings === 'object') {
                 adminRuntimeState.runtimeManagedSettings = response.settings;
+                setManagedRuntimeStatus('Managed settings loaded. Processing uses admin-configured options.', 'success');
                 if (typeof callback === 'function') {
                     callback(adminRuntimeState.runtimeManagedSettings);
                 }
                 return;
             }
             adminRuntimeState.runtimeManagedSettings = null;
+            const message = response && response.error
+                ? `Managed settings unavailable: ${String(response.error)}. Using safe local fallback.`
+                : 'Managed settings unavailable. Using safe local fallback options.';
+            setManagedRuntimeStatus(message, 'error');
             if (typeof callback === 'function') {
                 callback(null);
             }
@@ -28,6 +54,7 @@ function refreshRuntimeSettings(callback) {
     );
     if (!called) {
         adminRuntimeState.runtimeManagedSettings = null;
+        setManagedRuntimeStatus('Runtime settings bridge unavailable. Using safe local fallback options.', 'error');
         if (typeof callback === 'function') {
             callback(null);
         }
@@ -57,6 +84,10 @@ function buildProcessingOptionsFromRuntimeSettings() {
         online_reference_serper_fallback: serperFallbackEnabled,
         doi_insertion_mode: 'balanced',
         domain_profile: 'auto',
+        editing_mode: 'copyedit',
+        tone: 'neutral',
+        rewrite_strength: 'minimal',
+        explain_edits: false,
         cmos_profile: 'core',
         custom_terms: [],
         journal_profile: adminRuntimeConstants.FIXED_JOURNAL_PROFILE,
@@ -85,6 +116,10 @@ function buildProcessingOptionsFromRuntimeSettings() {
         }
     };
     if (!settings) {
+        defaults.editing_mode = adminRuntimeDom.editingModeSelect ? String(adminRuntimeDom.editingModeSelect.value || 'copyedit') : 'copyedit';
+        defaults.tone = adminRuntimeDom.targetToneSelect ? String(adminRuntimeDom.targetToneSelect.value || 'neutral') : 'neutral';
+        defaults.rewrite_strength = adminRuntimeDom.rewriteStrengthSelect ? String(adminRuntimeDom.rewriteStrengthSelect.value || 'minimal') : 'minimal';
+        defaults.explain_edits = adminRuntimeDom.explainEditsInput ? adminRuntimeDom.explainEditsInput.checked === true : false;
         return defaults;
     }
     const ai = settings.ai && typeof settings.ai === 'object' ? settings.ai : {};
@@ -98,6 +133,14 @@ function buildProcessingOptionsFromRuntimeSettings() {
         online_reference_serper_fallback: serperFallbackEnabled,
         doi_insertion_mode: editing.doi_insertion_mode === 'strict' ? 'strict' : 'balanced',
         domain_profile: String(editing.domain_profile || 'auto'),
+        editing_mode: ['proofread', 'copyedit', 'clarity', 'tone_adjust', 'concise'].includes(String(editing.editing_mode || 'copyedit'))
+            ? String(editing.editing_mode || 'copyedit')
+            : 'copyedit',
+        tone: ['neutral', 'formal', 'informal', 'academic', 'business', 'technical', 'marketing', 'legal', 'casual'].includes(String(editing.tone || 'neutral'))
+            ? String(editing.tone || 'neutral')
+            : 'neutral',
+        rewrite_strength: String(editing.rewrite_strength || 'minimal') === 'moderate' ? 'moderate' : 'minimal',
+        explain_edits: editing.explain_edits === true,
         cmos_profile: ['core', 'strict', 'journal_custom'].includes(String(editing.cmos_profile || 'core'))
             ? String(editing.cmos_profile || 'core')
             : 'core',

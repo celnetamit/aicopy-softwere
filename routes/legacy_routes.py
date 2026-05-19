@@ -15,6 +15,12 @@ def register_legacy_routes(app, deps):
         payload = deps.read_json_payload()
         file_name = str(payload.get("file_name", "manuscript.txt") or "manuscript.txt")
         content = str(payload.get("content", "") or "")
+        if len(content) > int(deps.max_text_chars):
+            return deps.json_response(
+                deps.error_payload("TASK_UPLOAD_TOO_LARGE", f"Text exceeds maximum size of {deps.max_text_chars} characters"),
+                status=413,
+                session_id=context.session_id,
+            )
 
         try:
             result = deps.upload_text_to_task(context, file_name=file_name, text=content, source_type="text")
@@ -31,9 +37,15 @@ def register_legacy_routes(app, deps):
         base64_data = str(payload.get("base64_data", "") or "")
 
         try:
-            byte_data = base64.b64decode(base64_data)
+            byte_data = base64.b64decode(base64_data, validate=True)
         except Exception:
             return deps.json_response(deps.error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"), status=400)
+        if len(byte_data) > int(deps.max_upload_bytes):
+            return deps.json_response(
+                deps.error_payload("TASK_UPLOAD_TOO_LARGE", f"DOCX exceeds maximum size of {deps.max_upload_bytes} bytes"),
+                status=413,
+                session_id=context.session_id,
+            )
 
         try:
             result = deps.upload_docx_to_task(context, file_name=file_name, byte_data=byte_data)
@@ -61,11 +73,16 @@ def register_legacy_routes(app, deps):
             if not task_id:
                 if source_type == "docx" and source_docx_base64.strip():
                     try:
-                        source_docx_bytes = base64.b64decode(source_docx_base64)
+                        source_docx_bytes = base64.b64decode(source_docx_base64, validate=True)
                     except Exception:
                         return deps.json_response(
                             deps.error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"),
                             status=400,
+                        )
+                    if len(source_docx_bytes) > int(deps.max_upload_bytes):
+                        return deps.json_response(
+                            deps.error_payload("TASK_UPLOAD_TOO_LARGE", f"DOCX exceeds maximum size of {deps.max_upload_bytes} bytes"),
+                            status=413,
                         )
                     uploaded = deps.upload_docx_to_task(
                         context,
@@ -74,6 +91,11 @@ def register_legacy_routes(app, deps):
                     )
                     task_id = str(uploaded.get("task_id") or "")
                 elif source_text.strip():
+                    if len(source_text) > int(deps.max_text_chars):
+                        return deps.json_response(
+                            deps.error_payload("TASK_UPLOAD_TOO_LARGE", f"Text exceeds maximum size of {deps.max_text_chars} characters"),
+                            status=413,
+                        )
                     uploaded = deps.upload_text_to_task(
                         context,
                         file_name=source_file_name,

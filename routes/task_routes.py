@@ -13,6 +13,12 @@ def register_task_routes(app, deps):
         payload = deps.read_json_payload()
         file_name = str(payload.get("file_name", "manuscript.txt") or "manuscript.txt")
         content = str(payload.get("content", "") or "")
+        if len(content) > int(deps.max_text_chars):
+            return deps.json_response(
+                deps.error_payload("TASK_UPLOAD_TOO_LARGE", f"Text exceeds maximum size of {deps.max_text_chars} characters"),
+                status=413,
+                session_id=context.session_id,
+            )
 
         try:
             result = deps.upload_text_to_task(context, file_name=file_name, text=content, source_type="text")
@@ -29,9 +35,15 @@ def register_task_routes(app, deps):
         base64_data = str(payload.get("base64_data", "") or "")
 
         try:
-            byte_data = base64.b64decode(base64_data)
+            byte_data = base64.b64decode(base64_data, validate=True)
         except Exception:
             return deps.json_response(deps.error_payload("TASK_UPLOAD_INVALID_BASE64", "Invalid base64 document payload"), status=400)
+        if len(byte_data) > int(deps.max_upload_bytes):
+            return deps.json_response(
+                deps.error_payload("TASK_UPLOAD_TOO_LARGE", f"DOCX exceeds maximum size of {deps.max_upload_bytes} bytes"),
+                status=413,
+                session_id=context.session_id,
+            )
 
         try:
             result = deps.upload_docx_to_task(context, file_name=file_name, byte_data=byte_data)
@@ -47,6 +59,7 @@ def register_task_routes(app, deps):
             limit = int(str(request.query.get("limit", "100") or "100"))
         except Exception:
             limit = 100
+        limit = max(1, min(int(deps.task_list_limit_max), limit))
         tasks = deps.store.list_tasks_for_user(user_id=context.user_id, limit=limit)
         return deps.json_response(
             {
@@ -117,10 +130,31 @@ def register_task_routes(app, deps):
                 user_id=context.user_id,
                 is_admin=context.role == deps.role_admin,
             )
+            task_run = deps.store.create_task_run(
+                task_id=task_id,
+                user_id=str(task.get("user_id") or context.user_id),
+                status="PENDING",
+                options=options,
+            )
+            task_run_id = str(task_run.get("id") or "")
 
             def run_processing_job():
+                deps.store.update_task_run(
+                    run_id=task_run_id,
+                    user_id=str(task.get("user_id") or context.user_id),
+                    is_admin=context.role == deps.role_admin,
+                    status="RUNNING",
+                )
                 try:
-                    return deps.process_task(context, task, options)
+                    result = deps.process_task(context, task, options)
+                    deps.store.update_task_run(
+                        run_id=task_run_id,
+                        user_id=str(task.get("user_id") or context.user_id),
+                        is_admin=context.role == deps.role_admin,
+                        status="SUCCEEDED",
+                        result=result,
+                    )
+                    return result
                 except Exception as exc:
                     deps.store.update_task_status(
                         task_id=task_id,
@@ -135,12 +169,25 @@ def register_task_routes(app, deps):
                         entity_id=task_id,
                         metadata={"error": str(exc), "async": True},
                     )
+                    deps.store.update_task_run(
+                        run_id=task_run_id,
+                        user_id=str(task.get("user_id") or context.user_id),
+                        is_admin=context.role == deps.role_admin,
+                        status="FAILED",
+                        error=str(exc),
+                    )
                     raise
 
             job = deps.processing_job_queue.submit(
                 task_id=task_id,
                 owner_user_id=str(task.get("user_id") or context.user_id),
                 callback=run_processing_job,
+            )
+            deps.store.update_task_run(
+                run_id=task_run_id,
+                user_id=str(task.get("user_id") or context.user_id),
+                is_admin=context.role == deps.role_admin,
+                job_id=str(job.get("id") or ""),
             )
             deps.record_audit(
                 event_type="task_process_queued",
@@ -155,6 +202,11 @@ def register_task_routes(app, deps):
                     "queued": True,
                     "task_id": task_id,
                     "job": job,
+                    "task_run": deps.store.get_task_run_for_user(
+                        run_id=task_run_id,
+                        user_id=context.user_id,
+                        is_admin=context.role == deps.role_admin,
+                    ),
                 },
                 status=202,
                 session_id=context.session_id,
@@ -186,12 +238,18 @@ def register_task_routes(app, deps):
             owner_user_id=str(task.get("user_id") or context.user_id),
             is_admin=context.role == deps.role_admin,
         )
+        task_run = deps.store.get_latest_task_run_for_task(
+            task_id=task_id,
+            user_id=context.user_id,
+            is_admin=context.role == deps.role_admin,
+        )
         return deps.json_response(
             {
                 "success": True,
                 "task_id": task_id,
                 "status": str(task.get("status") or ""),
                 "job": job,
+                "task_run": task_run,
                 "task": deps.task_summary(task),
             },
             session_id=context.session_id,

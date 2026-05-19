@@ -80,6 +80,39 @@
                         <option value="engineering">Engineering</option>
                         <option value="law">Law</option>
                     </select>
+                    <label class="field-label" for="editing-mode">Editing Mode</label>
+                    <select id="editing-mode" class="input-field">
+                        <option value="copyedit" selected>Copyedit</option>
+                        <option value="proofread">Proofread</option>
+                        <option value="clarity">Clarity</option>
+                        <option value="tone_adjust">Tone Adjust</option>
+                        <option value="concise">Concise</option>
+                    </select>
+                    <p class="hint-text" id="editing-mode-help">Copyedit fixes grammar, spelling, and style while preserving intent.</p>
+                    <label class="field-label" for="target-tone">Target Tone</label>
+                    <select id="target-tone" class="input-field">
+                        <option value="neutral" selected>Neutral</option>
+                        <option value="formal">Formal</option>
+                        <option value="informal">Informal</option>
+                        <option value="academic">Academic</option>
+                        <option value="business">Business</option>
+                        <option value="technical">Technical</option>
+                        <option value="marketing">Marketing</option>
+                        <option value="legal">Legal</option>
+                        <option value="casual">Casual</option>
+                    </select>
+                    <p class="hint-text" id="target-tone-help">Neutral is safest for mixed audiences and scholarly writing.</p>
+                    <label class="field-label" for="rewrite-strength">Rewrite Strength</label>
+                    <select id="rewrite-strength" class="input-field">
+                        <option value="minimal" selected>Minimal (safe, local edits)</option>
+                        <option value="moderate">Moderate (more rewrites for flow)</option>
+                    </select>
+                    <p class="hint-text" id="rewrite-strength-help">Minimal keeps sentence structure stable and avoids unnecessary rewrites.</p>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="opt-explain-edits">
+                        <span>Include explanation of edits</span>
+                    </label>
+                    <p class="hint-text" id="explain-edits-help">Adds grouped reasons for key edits in the correction report.</p>
                     <label class="field-label" for="cmos-profile">CMOS Profile</label>
                     <select id="cmos-profile" class="input-field">
                         <option value="core" selected>Core (default)</option>
@@ -213,7 +246,7 @@
 
                 <section class="options-section" id="managed-settings-note">
                     <h2>Managed Settings</h2>
-                    <p class="hint-text">Editing and AI configuration are managed by Admin Dashboard and applied to all users.</p>
+                    <p class="hint-text" id="managed-settings-runtime-status">Editing and AI configuration are managed by Admin Dashboard and applied to all users.</p>
                 </section>
 
                 <section class="actions-section">
@@ -431,6 +464,50 @@
                                 <option value="engineering">Engineering</option>
                                 <option value="law">Law</option>
                             </select>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-editing-mode">Editing Mode</label>
+                            <select id="admin-setting-editing-mode" class="input-field">
+                                <option value="copyedit" selected>Copyedit</option>
+                                <option value="proofread">Proofread</option>
+                                <option value="clarity">Clarity</option>
+                                <option value="tone_adjust">Tone Adjust</option>
+                                <option value="concise">Concise</option>
+                            </select>
+                            <p class="hint-text" id="admin-editing-mode-help">Copyedit balances correctness and readability with minimal meaning drift.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-tone">Target Tone</label>
+                            <select id="admin-setting-tone" class="input-field">
+                                <option value="neutral" selected>Neutral</option>
+                                <option value="formal">Formal</option>
+                                <option value="informal">Informal</option>
+                                <option value="academic">Academic</option>
+                                <option value="business">Business</option>
+                                <option value="technical">Technical</option>
+                                <option value="marketing">Marketing</option>
+                                <option value="legal">Legal</option>
+                                <option value="casual">Casual</option>
+                            </select>
+                            <p class="hint-text" id="admin-tone-help">Neutral keeps outputs consistent across manuscript types.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-rewrite-strength">Rewrite Strength</label>
+                            <select id="admin-setting-rewrite-strength" class="input-field">
+                                <option value="minimal" selected>Minimal</option>
+                                <option value="moderate">Moderate</option>
+                            </select>
+                            <p class="hint-text" id="admin-rewrite-strength-help">Minimal is safer for preserving claims, numbers, and citations.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-explain-edits">Edit Explanations</label>
+                            <div class="admin-check-grid">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="admin-setting-explain-edits">
+                                    <span>Include grouped explanations of key edits</span>
+                                </label>
+                            </div>
+                            <p class="hint-text">Recommended for QA review and user trust in AI-assisted edits.</p>
                         </div>
                         <div class="admin-settings-row">
                             <label class="field-label admin-row-label" for="admin-setting-cmos-profile">CMOS Profile</label>

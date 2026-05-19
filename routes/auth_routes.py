@@ -28,6 +28,19 @@ def register_auth_routes(app, deps):
 
     @app.post("/api/auth/google-login")
     def api_auth_google_login():
+        if deps.is_production_env():
+            ip_key = f"{deps.get_client_ip()}:google-login"
+            allowed, retry_after = deps.check_rate_limit(
+                "auth_login",
+                ip_key,
+                deps.auth_rate_limit_count,
+                deps.auth_rate_limit_window_seconds,
+            )
+            if not allowed:
+                return deps.json_response(
+                    deps.error_payload("RATE_LIMITED", f"Too many login attempts. Retry after {retry_after} seconds.", retry_after=retry_after),
+                    status=429,
+                )
         payload = deps.read_json_payload()
         id_token_raw = str(payload.get("id_token", "") or "")
 
@@ -107,6 +120,19 @@ def register_auth_routes(app, deps):
 
     @app.post("/api/auth/local-login")
     def api_auth_local_login():
+        if deps.is_production_env():
+            ip_key = f"{deps.get_client_ip()}:local-login"
+            allowed, retry_after = deps.check_rate_limit(
+                "auth_login",
+                ip_key,
+                deps.auth_rate_limit_count,
+                deps.auth_rate_limit_window_seconds,
+            )
+            if not allowed:
+                return deps.json_response(
+                    deps.error_payload("RATE_LIMITED", f"Too many login attempts. Retry after {retry_after} seconds.", retry_after=retry_after),
+                    status=429,
+                )
         if not deps.is_local_manual_login_allowed():
             deps.record_audit(
                 event_type="auth_local_login_blocked",

@@ -755,6 +755,14 @@ function validateAdminAiProvider() {
     return undefined;
 }
 
+function updateAdminEditingControlsHint() {
+    const globalModule = appAuth.adminGlobalSettings || {};
+    if (typeof globalModule.updateAdminEditingControlsHint === 'function') {
+        return globalModule.updateAdminEditingControlsHint();
+    }
+    return undefined;
+}
+
 function openAdminPanel() {
     const panelModule = appAuth.adminPanel || {};
     if (typeof panelModule.openAdminPanel === 'function') {
@@ -823,6 +831,7 @@ appAuth.authAdmin = {
     resetAdminReferenceValidationDiagnostics,
     updateAdminUserStatus,
     updateAdminAiValidationHint,
+    updateAdminEditingControlsHint,
     validateAdminAiProvider,
     openAdminPanel,
     closeAdminPanel,

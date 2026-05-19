@@ -80,7 +80,28 @@ DEFAULT_ADMIN_EMAILS = [
 MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 APP_SETTING_KEY_GLOBAL_RUNTIME = "global_runtime_settings"
 APP_SETTING_KEY_REFERENCE_UNRESOLVED_TRENDS = "reference_unresolved_trends"
-PROCESSING_JOB_WORKERS = int(os.getenv("PROCESSING_JOB_WORKERS", "2") or "2")
+
+
+def _boot_env_int(key: str, default_value: int, min_value: int, max_value: int) -> int:
+    raw = str(os.getenv(key, "") or "").strip()
+    if not raw:
+        return default_value
+    try:
+        parsed = int(raw)
+    except Exception:
+        return default_value
+    return max(min_value, min(max_value, parsed))
+
+
+PROCESSING_JOB_WORKERS = _boot_env_int("PROCESSING_JOB_WORKERS", 2, 1, 32)
+MAX_UPLOAD_BYTES = _boot_env_int("MAX_UPLOAD_BYTES", 10 * 1024 * 1024, 1024 * 100, 1024 * 1024 * 100)
+MAX_TEXT_CHARS = _boot_env_int("MAX_TEXT_CHARS", 500000, 1000, 5_000_000)
+TASK_LIST_LIMIT_MAX = _boot_env_int("TASK_LIST_LIMIT_MAX", 200, 10, 1000)
+AUTH_RATE_LIMIT_COUNT = _boot_env_int("AUTH_RATE_LIMIT_COUNT", 20, 1, 1000)
+AUTH_RATE_LIMIT_WINDOW_SECONDS = _boot_env_int("AUTH_RATE_LIMIT_WINDOW_SECONDS", 300, 1, 3600)
+WRITE_RATE_LIMIT_COUNT = _boot_env_int("WRITE_RATE_LIMIT_COUNT", 120, 1, 5000)
+WRITE_RATE_LIMIT_WINDOW_SECONDS = _boot_env_int("WRITE_RATE_LIMIT_WINDOW_SECONDS", 300, 1, 3600)
+ALLOWED_ORIGINS = [value.strip().lower() for value in str(os.getenv("ALLOWED_ORIGINS", "") or "").split(",") if value.strip()]
 
 
 def _parse_csv_env(key: str, default_values):
@@ -139,6 +160,8 @@ _LAST_CLEANUP_AT = 0.0
 
 _RUNTIME_TELEMETRY_LOCK = threading.Lock()
 _RUNTIME_TELEMETRY: Dict[str, Dict] = {}
+_RATE_LIMIT_LOCK = threading.Lock()
+_RATE_LIMIT_BUCKETS: Dict[str, Dict[str, Tuple[int, float]]] = {}
 
 
 app = Bottle()
@@ -259,6 +282,75 @@ def _get_client_ip() -> str:
     return str(request.environ.get("REMOTE_ADDR", "") or "").strip()[:128]
 
 
+def _is_production_env() -> bool:
+    env = str(os.getenv("MANUSCRIPT_EDITOR_ENV", "") or "").strip().lower()
+    return env in ("prod", "production")
+
+
+def _validate_startup_config():
+    if not _is_production_env():
+        return
+    errors = []
+    if not GOOGLE_CLIENT_ID:
+        errors.append("GOOGLE_CLIENT_ID is required in production.")
+    if ENABLE_LOCAL_MANUAL_LOGIN:
+        errors.append("MANUSCRIPT_EDITOR_LOCAL_LOGIN must be disabled in production.")
+    if LOCAL_MANUAL_LOGIN_PASSWORD.strip().lower() in ("password", "admin", "changeme", ""):
+        errors.append("MANUSCRIPT_EDITOR_LOCAL_LOGIN_PASSWORD must not use weak/default values.")
+    if not DATABASE_URL:
+        errors.append("DATABASE_URL should be configured explicitly in production.")
+    if errors:
+        raise RuntimeError("Startup configuration validation failed: " + " ".join(errors))
+
+
+def _prune_rate_bucket(bucket: Dict[str, Tuple[int, float]], now_ts: float):
+    stale_keys = [key for key, value in bucket.items() if float(value[1]) <= now_ts]
+    for key in stale_keys:
+        bucket.pop(key, None)
+
+
+def _check_rate_limit(bucket_name: str, key: str, limit: int, window_seconds: int) -> Tuple[bool, int]:
+    now_ts = time.time()
+    expires_at = now_ts + max(1, int(window_seconds))
+    token = str(key or "").strip()[:256]
+    if not token:
+        token = "unknown"
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_BUCKETS.get(bucket_name)
+        if bucket is None:
+            bucket = {}
+            _RATE_LIMIT_BUCKETS[bucket_name] = bucket
+        _prune_rate_bucket(bucket, now_ts)
+        current_count, current_expiry = bucket.get(token, (0, 0.0))
+        if float(current_expiry) <= now_ts:
+            current_count = 0
+            current_expiry = expires_at
+        if int(current_count) >= int(limit):
+            retry_after = max(1, int(round(float(current_expiry) - now_ts)))
+            return False, retry_after
+        bucket[token] = (int(current_count) + 1, float(current_expiry or expires_at))
+    return True, 0
+
+
+def _is_allowed_origin() -> bool:
+    origin = str(request.get_header("Origin", "") or "").strip().lower()
+    referer = str(request.get_header("Referer", "") or "").strip().lower()
+    if not origin and not referer:
+        return (not _is_production_env()) or _is_local_request()
+    allowed = set(ALLOWED_ORIGINS)
+    host = str(request.get_header("Host", "") or "").strip().lower()
+    if host:
+        scheme = "https" if _is_https_request() else "http"
+        allowed.add(f"{scheme}://{host}")
+    if origin and origin in allowed:
+        return True
+    if referer:
+        for allowed_origin in allowed:
+            if referer.startswith(allowed_origin + "/") or referer == allowed_origin:
+                return True
+    return False
+
+
 def _get_user_agent() -> str:
     return str(request.get_header("User-Agent", "") or "").strip()[:512]
 
@@ -371,6 +463,10 @@ def _default_global_runtime_settings() -> Dict:
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
             "cmos_profile": "strict",
+            "editing_mode": "copyedit",
+            "tone": "neutral",
+            "rewrite_strength": "minimal",
+            "explain_edits": False,
             "custom_terms": [],
         },
         "ai": {
@@ -452,6 +548,15 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
     doi_mode = str(editing_in.get("doi_insertion_mode", defaults["editing"]["doi_insertion_mode"]) or "balanced").strip().lower()
     if doi_mode not in ("strict", "balanced"):
         doi_mode = "balanced"
+    editing_mode = str(editing_in.get("editing_mode", defaults["editing"]["editing_mode"]) or "copyedit").strip().lower()
+    if editing_mode not in ("proofread", "copyedit", "clarity", "tone_adjust", "concise"):
+        editing_mode = "copyedit"
+    tone = str(editing_in.get("tone", defaults["editing"]["tone"]) or "neutral").strip().lower()
+    if tone not in ("neutral", "formal", "informal", "academic", "business", "technical", "marketing", "legal", "casual"):
+        tone = "neutral"
+    rewrite_strength = str(editing_in.get("rewrite_strength", defaults["editing"]["rewrite_strength"]) or "minimal").strip().lower()
+    if rewrite_strength not in ("minimal", "moderate"):
+        rewrite_strength = "minimal"
 
     provider = str(ai_in.get("provider", defaults["ai"]["provider"]) or "ollama").strip().lower()
     if provider not in ("ollama", "gemini", "openrouter", "agent_router"):
@@ -489,6 +594,10 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
             "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
             "cmos_profile": cmos_profile,
+            "editing_mode": editing_mode,
+            "tone": tone,
+            "rewrite_strength": rewrite_strength,
+            "explain_edits": _bool(editing_in, "explain_edits", defaults["editing"]["explain_edits"]),
             "custom_terms": _normalize_custom_terms(editing_in.get("custom_terms", defaults["editing"]["custom_terms"])),
         },
         "ai": {
@@ -575,6 +684,10 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["auto_resolve_unresolved_references"] = bool(editing.get("auto_resolve_unresolved_references", True))
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
+    opts["editing_mode"] = str(editing.get("editing_mode", "copyedit"))
+    opts["tone"] = str(editing.get("tone", "neutral"))
+    opts["rewrite_strength"] = str(editing.get("rewrite_strength", "minimal"))
+    opts["explain_edits"] = bool(editing.get("explain_edits", False))
     resolved_cmos_profile = str(editing.get("cmos_profile", "strict"))
     if bool(editing.get("cmos_strict_mode", True)) and resolved_cmos_profile == "core":
         resolved_cmos_profile = "strict"
@@ -702,9 +815,27 @@ def _require_auth_context() -> Tuple[Optional[SessionContext], Optional[HTTPResp
 def require_auth(handler):
     @wraps(handler)
     def wrapped(*args, **kwargs):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not _is_allowed_origin():
+            return _json_response(_error_payload("CSRF_ORIGIN_DENIED", "Request origin is not allowed"), status=403)
         context, response = _require_auth_context()
         if response is not None:
             return response
+        rate_key = f"{_get_client_ip()}:{context.user_id}:{request.path}"
+        allowed, retry_after = _check_rate_limit(
+            "write_authenticated",
+            rate_key,
+            WRITE_RATE_LIMIT_COUNT,
+            WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not allowed:
+            return _json_response(
+                _error_payload(
+                    "RATE_LIMITED",
+                    f"Too many write requests. Retry after {retry_after} seconds.",
+                    retry_after=retry_after,
+                ),
+                status=429,
+            )
         _maybe_run_cleanup()
         return handler(*args, **kwargs)
 
@@ -714,6 +845,8 @@ def require_auth(handler):
 def require_admin(handler):
     @wraps(handler)
     def wrapped(*args, **kwargs):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not _is_allowed_origin():
+            return _json_response(_error_payload("CSRF_ORIGIN_DENIED", "Request origin is not allowed"), status=403)
         context, response = _require_auth_context()
         if response is not None:
             return response
@@ -787,6 +920,7 @@ def _build_process_payload(
 ) -> Dict:
     original_text = str(task_row.get("original_text") or "")
     corrections_report = processor.build_corrections_report(original_text, corrected_text)
+    edit_explanations = processor.build_edit_explanations(corrections_report, options or {})
     return {
         "success": True,
         "task_id": str(task_row.get("id") or ""),
@@ -805,6 +939,7 @@ def _build_process_payload(
         "citation_reference_report": processor.get_citation_reference_report(),
         "processing_audit": processor.get_processing_audit(),
         "processing_note": getattr(processor, "_last_selection_note", ""),
+        "edit_explanations": edit_explanations,
     }
 
 
@@ -821,6 +956,7 @@ def _extract_reports_from_process_payload(process_payload: Dict) -> Dict:
         "citation_reference_report": process_payload.get("citation_reference_report") or {},
         "processing_audit": process_payload.get("processing_audit") or {},
         "processing_note": process_payload.get("processing_note", ""),
+        "edit_explanations": process_payload.get("edit_explanations") or {},
     }
 
 
@@ -1732,6 +1868,8 @@ def _build_route_dependencies():
         google_client_id=GOOGLE_CLIENT_ID,
         increment_runtime_counter=_increment_runtime_counter,
         is_local_manual_login_allowed=_is_local_manual_login_allowed,
+        is_local_request=_is_local_request,
+        is_production_env=_is_production_env,
         json_response=_json_response,
         local_manual_login_password=LOCAL_MANUAL_LOGIN_PASSWORD,
         local_manual_login_username=LOCAL_MANUAL_LOGIN_USERNAME,
@@ -1744,6 +1882,7 @@ def _build_route_dependencies():
         read_json_payload=_read_json_payload,
         read_runtime_telemetry=_read_runtime_telemetry,
         read_task_download_payload=_read_task_download_payload,
+        check_rate_limit=_check_rate_limit,
         record_audit=_record_audit,
         render_html_shell=_render_html_shell,
         require_admin=require_admin,
@@ -1756,6 +1895,11 @@ def _build_route_dependencies():
         session_ttl_hours=SESSION_TTL_HOURS,
         status_active=STATUS_ACTIVE,
         status_inactive=STATUS_INACTIVE,
+        auth_rate_limit_count=AUTH_RATE_LIMIT_COUNT,
+        auth_rate_limit_window_seconds=AUTH_RATE_LIMIT_WINDOW_SECONDS,
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+        max_text_chars=MAX_TEXT_CHARS,
+        task_list_limit_max=TASK_LIST_LIMIT_MAX,
         store=_STORE,
         task_summary=_task_summary,
         upload_docx_to_task=_upload_docx_to_task,
@@ -1774,6 +1918,7 @@ def _register_routes():
 
 
 _register_routes()
+_validate_startup_config()
 
 
 def main():

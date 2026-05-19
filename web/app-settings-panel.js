@@ -163,6 +163,10 @@ function bindSettingsPersistenceEvents() {
         settingsPanelDom.aiSectionChunkLinesInput,
         settingsPanelDom.aiGlobalConsistencyMaxCharsInput,
         settingsPanelDom.domainProfileSelect,
+        settingsPanelDom.editingModeSelect,
+        settingsPanelDom.targetToneSelect,
+        settingsPanelDom.rewriteStrengthSelect,
+        settingsPanelDom.explainEditsInput,
         settingsPanelDom.cmosProfileSelect,
         settingsPanelDom.customTermsInput,
         settingsPanelDom.cmosStrictInput,
@@ -172,6 +176,16 @@ function bindSettingsPersistenceEvents() {
         if (!el) return;
         el.addEventListener('change', settingsPanelApi.saveAiSettings);
         el.addEventListener('input', settingsPanelApi.saveAiSettings);
+    });
+    [
+        settingsPanelDom.editingModeSelect,
+        settingsPanelDom.targetToneSelect,
+        settingsPanelDom.rewriteStrengthSelect,
+        settingsPanelDom.explainEditsInput
+    ].forEach((el) => {
+        if (!el) return;
+        el.addEventListener('change', settingsPanelApi.updateEditingExperienceHints);
+        el.addEventListener('input', settingsPanelApi.updateEditingExperienceHints);
     });
 }
 
@@ -221,6 +235,9 @@ function bindAdminPanelEvents() {
     if (settingsPanelDom.adminSettingAiProvider) settingsPanelDom.adminSettingAiProvider.addEventListener('change', () => settingsPanelAuth.updateAdminGlobalAiProviderUI(true));
     if (settingsPanelDom.adminSettingOllamaHost) settingsPanelDom.adminSettingOllamaHost.addEventListener('change', () => settingsPanelAuth.loadAdminGlobalOllamaModels(true));
     if (settingsPanelDom.adminAiProviderSelect) settingsPanelDom.adminAiProviderSelect.addEventListener('change', settingsPanelAuth.updateAdminAiValidationHint);
+    if (settingsPanelDom.adminSettingEditingMode) settingsPanelDom.adminSettingEditingMode.addEventListener('change', settingsPanelAuth.updateAdminEditingControlsHint);
+    if (settingsPanelDom.adminSettingTone) settingsPanelDom.adminSettingTone.addEventListener('change', settingsPanelAuth.updateAdminEditingControlsHint);
+    if (settingsPanelDom.adminSettingRewriteStrength) settingsPanelDom.adminSettingRewriteStrength.addEventListener('change', settingsPanelAuth.updateAdminEditingControlsHint);
 
     settingsPanelAuth.bindPasswordToggle(settingsPanelDom.adminAiKeyInput, settingsPanelDom.adminAiKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show API key', hideAria: 'Hide API key' });
     settingsPanelAuth.bindPasswordToggle(settingsPanelDom.adminSettingGeminiKey, settingsPanelDom.adminSettingGeminiKeyToggleBtn, { show: 'Show', hide: 'Hide', showAria: 'Show Gemini API key', hideAria: 'Hide Gemini API key' });
@@ -263,6 +280,7 @@ function bindSettingsEvents() {
 }
 
 bindSettingsEvents();
+settingsPanelApi.updateEditingExperienceHints();
 
 appSettingsPanelRoot.settingsPanel = {
     bindSettingsEvents,

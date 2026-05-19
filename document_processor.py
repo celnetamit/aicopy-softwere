@@ -605,6 +605,15 @@ class DocumentProcessor:
         cmos_profile = str(options.get("cmos_profile", "strict") or "strict").strip().lower()
         if cmos_profile not in ("core", "strict", "journal_custom"):
             cmos_profile = "strict"
+        editing_mode = str(options.get("editing_mode", "copyedit") or "copyedit").strip().lower()
+        if editing_mode not in ("proofread", "copyedit", "clarity", "tone_adjust", "concise"):
+            editing_mode = "copyedit"
+        tone = str(options.get("tone", "neutral") or "neutral").strip().lower()
+        if tone not in ("neutral", "formal", "informal", "academic", "business", "technical", "marketing", "legal", "casual"):
+            tone = "neutral"
+        rewrite_strength = str(options.get("rewrite_strength", "minimal") or "minimal").strip().lower()
+        if rewrite_strength not in ("minimal", "moderate"):
+            rewrite_strength = "minimal"
         ai_first_cmos = self._is_ai_first_cmos_mode(options)
         initials_rule = "without periods (Smith AB)" if not bool(journal_profile.get("initials_with_periods")) else "with periods (Smith A.B.)"
         title_rule = "sentence case" if str(journal_profile.get("title_case", "sentence")) == "sentence" else "title case"
@@ -1487,6 +1496,15 @@ Final consistent manuscript:"""
         cmos_profile = str(options.get("cmos_profile", "strict") or "strict").strip().lower()
         if cmos_profile not in ("core", "strict", "journal_custom"):
             cmos_profile = "strict"
+        editing_mode = str(options.get("editing_mode", "copyedit") or "copyedit").strip().lower()
+        if editing_mode not in ("proofread", "copyedit", "clarity", "tone_adjust", "concise"):
+            editing_mode = "copyedit"
+        tone = str(options.get("tone", "neutral") or "neutral").strip().lower()
+        if tone not in ("neutral", "formal", "informal", "academic", "business", "technical", "marketing", "legal", "casual"):
+            tone = "neutral"
+        rewrite_strength = str(options.get("rewrite_strength", "minimal") or "minimal").strip().lower()
+        if rewrite_strength not in ("minimal", "moderate"):
+            rewrite_strength = "minimal"
         ai_first_cmos = self._is_ai_first_cmos_mode(options)
         initials_rule = (
             "use author initials without periods (e.g., Smith AB)"
@@ -1534,6 +1552,13 @@ Final consistent manuscript:"""
             instructions.append(
                 "- Enforce strict CMOS body-content consistency: serial comma, standard abbreviation punctuation (e.g., i.e., e.g., etc.), and consistent formal prose mechanics"
             )
+        instructions.append(f"- Editing mode: {editing_mode}")
+        instructions.append(f"- Target tone: {tone}")
+        if rewrite_strength == "minimal":
+            instructions.append("- Keep rewrites minimal: prefer local fixes and preserve sentence structure whenever possible")
+        else:
+            instructions.append("- Rewrite strength is moderate: improve readability and flow while preserving meaning and claims")
+        instructions.append("- Never change factual claims, numeric values, citations, or references intent")
         if ai_first_cmos:
             instructions.append(
                 "- Work as a professional CMOS copy editor: use context-aware grammar, usage, and capitalization judgment instead of rigid pattern substitutions"
@@ -2902,6 +2927,48 @@ Corrected manuscript:"""
             "counts": counts,
             "groups": groups,
         }
+
+    def build_edit_explanations(self, corrections_report: Dict, options: Dict) -> Dict:
+        """Build optional concise edit explanations grouped by correction category."""
+        if not bool((options or {}).get("explain_edits", False)):
+            return {"enabled": False, "summary": "", "groups": []}
+
+        report = corrections_report if isinstance(corrections_report, dict) else {}
+        groups = report.get("groups", {}) if isinstance(report.get("groups"), dict) else {}
+        out_groups: List[Dict] = []
+        total = 0
+        for key in ("spelling", "capitalization", "punctuation", "citation", "reference", "style"):
+            items = groups.get(key, []) if isinstance(groups.get(key), list) else []
+            count = len(items)
+            total += count
+            if count <= 0:
+                continue
+            sample = items[0] if isinstance(items[0], dict) else {}
+            out_groups.append(
+                {
+                    "group": key,
+                    "count": count,
+                    "why": self._group_reason_text(key),
+                    "sample_before": str(sample.get("original", "") or "")[:220],
+                    "sample_after": str(sample.get("corrected", "") or "")[:220],
+                }
+            )
+        return {
+            "enabled": True,
+            "summary": f"Applied {total} edits across {len(out_groups)} correction groups.",
+            "groups": out_groups,
+        }
+
+    def _group_reason_text(self, group: str) -> str:
+        mapping = {
+            "spelling": "Correct misspellings using configured editorial dictionary preferences.",
+            "capitalization": "Normalize sentence and proper-noun capitalization consistency.",
+            "punctuation": "Fix punctuation and spacing for readability and house style.",
+            "citation": "Normalize in-text citation patterns without changing citation meaning.",
+            "reference": "Improve reference structure/metadata consistency where possible.",
+            "style": "Apply conservative style and clarity improvements while preserving meaning.",
+        }
+        return mapping.get(str(group or ""), "Apply conservative editorial consistency improvements.")
 
     def build_strict_cmos_issues_summary(self, original: str, corrected: str, options: Optional[Dict] = None) -> Dict:
         """Return compact CMOS-focused counts for quick post-run QA."""
