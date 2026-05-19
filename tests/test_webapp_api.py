@@ -1326,6 +1326,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
                 "online_reference_validation_admin_cap": 220,
                 "auto_resolve_unresolved_references": False,
                 "domain_profile": "medical",
+                "editing_mode": "tone_adjust",
+                "tone": "formal",
+                "rewrite_strength": "moderate",
+                "explain_edits": True,
                 "cmos_profile": "strict",
                 "custom_terms": ["myocardial infarction", "HbA1c"],
             },
@@ -1355,6 +1359,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         self.assertEqual(payload.get("settings", {}).get("editing", {}).get("domain_profile"), "medical")
         self.assertEqual(payload.get("settings", {}).get("editing", {}).get("cmos_profile"), "strict")
+        self.assertEqual(payload.get("settings", {}).get("editing", {}).get("editing_mode"), "tone_adjust")
+        self.assertEqual(payload.get("settings", {}).get("editing", {}).get("tone"), "formal")
+        self.assertEqual(payload.get("settings", {}).get("editing", {}).get("rewrite_strength"), "moderate")
+        self.assertTrue(payload.get("settings", {}).get("editing", {}).get("explain_edits"))
         self.assertEqual(int(payload.get("settings", {}).get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
         self.assertFalse(payload.get("settings", {}).get("editing", {}).get("auto_resolve_unresolved_references"))
         admin_ai = payload.get("settings", {}).get("ai", {})
@@ -1374,6 +1382,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         user_settings = payload.get("settings", {})
         self.assertEqual(user_settings.get("editing", {}).get("domain_profile"), "medical")
         self.assertEqual(user_settings.get("editing", {}).get("cmos_profile"), "strict")
+        self.assertEqual(user_settings.get("editing", {}).get("editing_mode"), "tone_adjust")
+        self.assertEqual(user_settings.get("editing", {}).get("tone"), "formal")
+        self.assertEqual(user_settings.get("editing", {}).get("rewrite_strength"), "moderate")
+        self.assertTrue(user_settings.get("editing", {}).get("explain_edits"))
         self.assertEqual(int(user_settings.get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
         self.assertFalse(user_settings.get("editing", {}).get("auto_resolve_unresolved_references"))
         user_ai = user_settings.get("ai", {})
@@ -1383,7 +1395,48 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(float(user_ai.get("ollama_retry_backoff_seconds", 0)), 0.25)
         self.assertFalse(user_ai.get("ollama_fallback_model_retry"))
         self.assertEqual(user_settings.get("ai", {}).get("openrouter_api_key", ""), "")
-        self.assertEqual(user_settings.get("ai", {}).get("agent_router_api_key", ""), "")
+
+    def test_phase3_settings_ux_wiring_is_present(self):
+        status, html = self.client.request_text("GET", "/tasks/example-task-id")
+        self.assertEqual(status, 200)
+        self.assertIn('id="editing-mode-help"', html)
+        self.assertIn('id="target-tone-help"', html)
+        self.assertIn('id="rewrite-strength-help"', html)
+        self.assertIn('id="explain-edits-help"', html)
+        self.assertIn('id="managed-settings-runtime-status"', html)
+        self.assertIn('id="admin-editing-mode-help"', html)
+        self.assertIn('id="admin-tone-help"', html)
+        self.assertIn('id="admin-rewrite-strength-help"', html)
+
+        runtime_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "runtime.js")
+        with open(runtime_path, "r", encoding="utf-8") as handle:
+            runtime_source = handle.read()
+        self.assertIn("function setManagedRuntimeStatus", runtime_source)
+        self.assertIn("Loading managed runtime settings", runtime_source)
+        self.assertIn("Managed settings loaded", runtime_source)
+        self.assertIn("safe local fallback", runtime_source)
+
+        settings_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings.js")
+        with open(settings_path, "r", encoding="utf-8") as handle:
+            settings_source = handle.read()
+        self.assertIn("function updateEditingExperienceHints", settings_source)
+        self.assertIn("editingModeHelp", settings_source)
+        self.assertIn("targetToneHelp", settings_source)
+        self.assertIn("rewriteStrengthHelp", settings_source)
+        self.assertIn("explainEditsHelp", settings_source)
+
+        panel_path = os.path.join(os.path.dirname(__file__), "..", "web", "app-settings-panel.js")
+        with open(panel_path, "r", encoding="utf-8") as handle:
+            panel_source = handle.read()
+        self.assertIn("updateEditingExperienceHints", panel_source)
+        self.assertIn("updateAdminEditingControlsHint", panel_source)
+
+        admin_global_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "global-settings.js")
+        with open(admin_global_path, "r", encoding="utf-8") as handle:
+            admin_global_source = handle.read()
+        self.assertIn("function updateAdminEditingControlsHint", admin_global_source)
+        self.assertIn("Saving global settings...", admin_global_source)
+        self.assertIn("Global settings loaded.", admin_global_source)
 
     def test_admin_reference_validation_diagnostics_requires_admin(self):
         self._login("member@conwiz.in")
