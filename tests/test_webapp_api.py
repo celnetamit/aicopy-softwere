@@ -851,6 +851,76 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(payload.get("task_id"), task_id)
         self.assertIn("job", payload)
         self.assertIn((payload.get("job") or {}).get("status"), {"PENDING", "RUNNING", "SUCCEEDED", "FAILED"})
+        self.assertIn("task_run", payload)
+        task_run = payload.get("task_run") or {}
+        self.assertTrue(task_run.get("id"))
+
+    def test_runtime_telemetry_captures_processing_mode_and_editing_controls(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        status, payload = admin_client.request(
+            "POST",
+            "/api/admin/global-settings",
+            {
+                "settings": {
+                    "editing": {
+                        "editing_mode": "clarity",
+                        "tone": "business",
+                        "rewrite_strength": "moderate",
+                        "explain_edits": True,
+                    },
+                    "ai": {"enabled": False},
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        self._login("writer@conwiz.in")
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "telemetry.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = payload.get("task_id")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {
+                "options": {
+                    "spelling": True,
+                    "sentence_case": True,
+                    "punctuation": True,
+                    "chicago_style": True,
+                    "ai": {"enabled": False},
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        status, payload = self.client.request("GET", "/api/runtime-telemetry")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        telemetry = payload.get("telemetry") or {}
+        self.assertGreaterEqual(int(telemetry.get("process_runs_started", 0)), 1)
+        self.assertGreaterEqual(int(telemetry.get("process_runs_succeeded", 0)), 1)
+        self.assertEqual(int(telemetry.get("process_runs_failed", 0)), 0)
+        self.assertIn("editing_mode_counts", telemetry)
+        self.assertIn("tone_counts", telemetry)
+        self.assertIn("rewrite_strength_counts", telemetry)
+        self.assertIn("explain_edits_counts", telemetry)
+        self.assertGreaterEqual(int((telemetry.get("editing_mode_counts") or {}).get("clarity", 0)), 1)
+        self.assertGreaterEqual(int((telemetry.get("tone_counts") or {}).get("business", 0)), 1)
+        self.assertGreaterEqual(int((telemetry.get("rewrite_strength_counts") or {}).get("moderate", 0)), 1)
+        self.assertGreaterEqual(int((telemetry.get("explain_edits_counts") or {}).get("enabled", 0)), 1)
+        self.assertIn("mode_counts", telemetry)
 
     def test_binary_download_endpoint_returns_valid_docx(self):
         self._login("writer@conwiz.in")

@@ -176,6 +176,23 @@ def _default_runtime_telemetry() -> Dict:
         "save_successes": 0,
         "save_failures": 0,
         "save_fallback_used": 0,
+        "process_runs_started": 0,
+        "process_runs_succeeded": 0,
+        "process_runs_failed": 0,
+        "process_async_started": 0,
+        "process_async_succeeded": 0,
+        "process_async_failed": 0,
+        "task_run_pending": 0,
+        "task_run_running": 0,
+        "task_run_succeeded": 0,
+        "task_run_failed": 0,
+        "async_run_duration_samples": {"count": 0, "total_seconds": 0.0, "max_seconds": 0.0},
+        "mode_counts": {},
+        "editing_mode_counts": {},
+        "tone_counts": {},
+        "rewrite_strength_counts": {},
+        "explain_edits_counts": {},
+        "fallback_reason_counts": {},
         "errors_by_code": {},
     }
 
@@ -735,6 +752,45 @@ def _increment_runtime_counter(session_id: str, key: str, code: str = ""):
             bucket[code] = int(bucket.get(code, 0)) + 1
 
 
+def _increment_runtime_bucket(session_id: str, bucket_key: str, item_key: str):
+    sid = _normalize_session_id(session_id)
+    if not sid:
+        return
+    token = str(item_key or "unknown").strip().lower() or "unknown"
+    with _RUNTIME_TELEMETRY_LOCK:
+        telemetry = _RUNTIME_TELEMETRY.get(sid)
+        if telemetry is None:
+            telemetry = _default_runtime_telemetry()
+            _RUNTIME_TELEMETRY[sid] = telemetry
+        bucket = telemetry.setdefault(bucket_key, {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+            telemetry[bucket_key] = bucket
+        bucket[token] = int(bucket.get(token, 0)) + 1
+
+
+def _add_runtime_duration_sample(session_id: str, duration_seconds: float):
+    sid = _normalize_session_id(session_id)
+    if not sid:
+        return
+    try:
+        seconds = max(0.0, float(duration_seconds))
+    except Exception:
+        return
+    with _RUNTIME_TELEMETRY_LOCK:
+        telemetry = _RUNTIME_TELEMETRY.get(sid)
+        if telemetry is None:
+            telemetry = _default_runtime_telemetry()
+            _RUNTIME_TELEMETRY[sid] = telemetry
+        stats = telemetry.setdefault("async_run_duration_samples", {"count": 0, "total_seconds": 0.0, "max_seconds": 0.0})
+        if not isinstance(stats, dict):
+            stats = {"count": 0, "total_seconds": 0.0, "max_seconds": 0.0}
+            telemetry["async_run_duration_samples"] = stats
+        stats["count"] = int(stats.get("count", 0)) + 1
+        stats["total_seconds"] = float(stats.get("total_seconds", 0.0)) + seconds
+        stats["max_seconds"] = max(float(stats.get("max_seconds", 0.0)), seconds)
+
+
 def _read_runtime_telemetry(session_id: str) -> Dict:
     sid = _normalize_session_id(session_id)
     if not sid:
@@ -1105,6 +1161,7 @@ def _upload_docx_to_task(context: SessionContext, file_name: str, byte_data: byt
 
 
 def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
+    _increment_runtime_counter(context.session_id, "process_runs_started")
     processor = DocumentProcessor()
     original_text = str(task.get("original_text") or "")
     processing_source_text = original_text
@@ -1163,8 +1220,30 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         metadata={
             "word_count": process_payload["word_count"],
             "unresolved_reference_only": bool(safe_options.get("unresolved_reference_only", False)),
+            "editing_mode": str(safe_options.get("editing_mode") or "copyedit"),
+            "tone": str(safe_options.get("tone") or "neutral"),
+            "rewrite_strength": str(safe_options.get("rewrite_strength") or "minimal"),
+            "explain_edits": bool(safe_options.get("explain_edits", False)),
+            "processing_mode": str(((process_payload.get("processing_audit") or {}).get("mode") or "unknown")),
         },
     )
+
+    _increment_runtime_counter(context.session_id, "process_runs_succeeded")
+    _increment_runtime_bucket(context.session_id, "editing_mode_counts", str(safe_options.get("editing_mode") or "copyedit"))
+    _increment_runtime_bucket(context.session_id, "tone_counts", str(safe_options.get("tone") or "neutral"))
+    _increment_runtime_bucket(context.session_id, "rewrite_strength_counts", str(safe_options.get("rewrite_strength") or "minimal"))
+    _increment_runtime_bucket(context.session_id, "explain_edits_counts", "enabled" if bool(safe_options.get("explain_edits", False)) else "disabled")
+    processing_audit = process_payload.get("processing_audit", {}) if isinstance(process_payload, dict) else {}
+    summary = processing_audit.get("summary", {}) if isinstance(processing_audit.get("summary"), dict) else {}
+    _increment_runtime_bucket(context.session_id, "mode_counts", str(processing_audit.get("mode") or "unknown"))
+    fallback_reason_counts = summary.get("fallback_reason_counts", {}) if isinstance(summary.get("fallback_reason_counts"), dict) else {}
+    for reason_key, reason_count in fallback_reason_counts.items():
+        try:
+            count = max(0, int(reason_count))
+        except Exception:
+            count = 0
+        for _ in range(count):
+            _increment_runtime_bucket(context.session_id, "fallback_reason_counts", str(reason_key or "unknown"))
 
     return process_payload
 
@@ -1867,6 +1946,7 @@ def _build_route_dependencies():
         global_runtime_settings_for_user_payload=_global_runtime_settings_for_user_payload,
         google_client_id=GOOGLE_CLIENT_ID,
         increment_runtime_counter=_increment_runtime_counter,
+        add_runtime_duration_sample=_add_runtime_duration_sample,
         is_local_manual_login_allowed=_is_local_manual_login_allowed,
         is_local_request=_is_local_request,
         is_production_env=_is_production_env,

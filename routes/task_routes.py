@@ -124,6 +124,7 @@ def register_task_routes(app, deps):
             return error
 
         if bool(payload.get("async", False) or payload.get("background", False)):
+            deps.increment_runtime_counter(context.session_id, "process_async_started")
             deps.store.update_task_status(
                 task_id=task_id,
                 status="PROCESSING",
@@ -137,22 +138,59 @@ def register_task_routes(app, deps):
                 options=options,
             )
             task_run_id = str(task_run.get("id") or "")
+            deps.increment_runtime_counter(context.session_id, "task_run_pending")
+            deps.record_audit(
+                event_type="task_run_pending",
+                actor_user_id=context.user_id,
+                entity_type="task_run",
+                entity_id=task_run_id,
+                metadata={"task_id": task_id, "status": "PENDING"},
+            )
 
             def run_processing_job():
-                deps.store.update_task_run(
+                started_run = deps.store.update_task_run(
                     run_id=task_run_id,
                     user_id=str(task.get("user_id") or context.user_id),
                     is_admin=context.role == deps.role_admin,
                     status="RUNNING",
                 )
+                deps.increment_runtime_counter(context.session_id, "task_run_running")
+                if isinstance(started_run, dict):
+                    created_at = int(started_run.get("created_at") or 0)
+                    started_at = int(started_run.get("started_at") or 0)
+                    queue_seconds = max(0.0, float(started_at - created_at))
+                else:
+                    queue_seconds = 0.0
+                deps.record_audit(
+                    event_type="task_run_running",
+                    actor_user_id=context.user_id,
+                    entity_type="task_run",
+                    entity_id=task_run_id,
+                    metadata={"task_id": task_id, "status": "RUNNING", "queue_seconds": queue_seconds},
+                )
                 try:
                     result = deps.process_task(context, task, options)
-                    deps.store.update_task_run(
+                    completed_run = deps.store.update_task_run(
                         run_id=task_run_id,
                         user_id=str(task.get("user_id") or context.user_id),
                         is_admin=context.role == deps.role_admin,
                         status="SUCCEEDED",
                         result=result,
+                    )
+                    deps.increment_runtime_counter(context.session_id, "task_run_succeeded")
+                    deps.increment_runtime_counter(context.session_id, "process_async_succeeded")
+                    duration_seconds = 0.0
+                    if isinstance(completed_run, dict):
+                        started_at = int(completed_run.get("started_at") or 0)
+                        finished_at = int(completed_run.get("finished_at") or 0)
+                        duration_seconds = max(0.0, float(finished_at - started_at))
+                    deps.add_runtime_duration_sample(context.session_id, duration_seconds)
+                    deps.record_audit(
+                        event_type="task_run_succeeded",
+                        actor_user_id=context.user_id,
+                        entity_type="task_run",
+                        entity_id=task_run_id,
+                        metadata={"task_id": task_id, "status": "SUCCEEDED", "duration_seconds": duration_seconds},
                     )
                     return result
                 except Exception as exc:
@@ -167,14 +205,37 @@ def register_task_routes(app, deps):
                         actor_user_id=context.user_id,
                         entity_type="task",
                         entity_id=task_id,
-                        metadata={"error": str(exc), "async": True},
+                        metadata={
+                            "error": str(exc),
+                            "async": True,
+                            "editing_mode": str(options.get("editing_mode") or "copyedit"),
+                            "tone": str(options.get("tone") or "neutral"),
+                            "rewrite_strength": str(options.get("rewrite_strength") or "minimal"),
+                            "explain_edits": bool(options.get("explain_edits", False)),
+                        },
                     )
-                    deps.store.update_task_run(
+                    failed_run = deps.store.update_task_run(
                         run_id=task_run_id,
                         user_id=str(task.get("user_id") or context.user_id),
                         is_admin=context.role == deps.role_admin,
                         status="FAILED",
                         error=str(exc),
+                    )
+                    deps.increment_runtime_counter(context.session_id, "task_run_failed")
+                    deps.increment_runtime_counter(context.session_id, "process_async_failed")
+                    deps.increment_runtime_counter(context.session_id, "process_runs_failed")
+                    duration_seconds = 0.0
+                    if isinstance(failed_run, dict):
+                        started_at = int(failed_run.get("started_at") or 0)
+                        finished_at = int(failed_run.get("finished_at") or 0)
+                        duration_seconds = max(0.0, float(finished_at - started_at))
+                    deps.add_runtime_duration_sample(context.session_id, duration_seconds)
+                    deps.record_audit(
+                        event_type="task_run_failed",
+                        actor_user_id=context.user_id,
+                        entity_type="task_run",
+                        entity_id=task_run_id,
+                        metadata={"task_id": task_id, "status": "FAILED", "duration_seconds": duration_seconds, "error": str(exc)},
                     )
                     raise
 
@@ -216,12 +277,19 @@ def register_task_routes(app, deps):
             process_payload = deps.process_task(context, task, options)
             return deps.json_response(process_payload, session_id=context.session_id)
         except Exception as exc:
+            deps.increment_runtime_counter(context.session_id, "process_runs_failed")
             deps.record_audit(
                 event_type="task_process_failed",
                 actor_user_id=context.user_id,
                 entity_type="task",
                 entity_id=task_id,
-                metadata={"error": str(exc)},
+                metadata={
+                    "error": str(exc),
+                    "editing_mode": str(options.get("editing_mode") or "copyedit"),
+                    "tone": str(options.get("tone") or "neutral"),
+                    "rewrite_strength": str(options.get("rewrite_strength") or "minimal"),
+                    "explain_edits": bool(options.get("explain_edits", False)),
+                },
             )
             return deps.json_response(deps.error_payload("TASK_PROCESS_FAILED", str(exc)), status=500, session_id=context.session_id)
 
