@@ -313,6 +313,10 @@ function renderRichDocument(content, isHtmlInput) {
     }
 
     closeList();
+    const unmatchedImages = previewImages.slice(previewImageIndex);
+    if (unmatchedImages.length > 0) {
+        html += previewHelpers.renderFigureGalleryBlock(unmatchedImages, false);
+    }
     html += '</div>';
     return html;
 }
@@ -399,6 +403,14 @@ function renderPageDocument(content, isHtmlInput) {
         }
         blocks.push({ kind: 'p', plain: plainLine, html: rawLine });
     }
+    const unmatchedImages = previewImages.slice(previewImageIndex);
+    if (unmatchedImages.length > 0) {
+        blocks.push({
+            kind: 'gallery',
+            plain: `gallery ${unmatchedImages.length} images`,
+            html: previewHelpers.renderFigureGalleryBlock(unmatchedImages, true)
+        });
+    }
 
     const fontSizePx = ptToPx(previewState.pageSettings.fontPt);
     const linePx = fontSizePx * previewState.pageSettings.lineHeight;
@@ -419,6 +431,10 @@ function renderPageDocument(content, isHtmlInput) {
             const rowCount = Math.max(1, String(block.plain || '').match(/table\s+(\d+)x/i) ? Number((String(block.plain).match(/table\s+(\d+)x/i) || [])[1]) : 1);
             return rowCount * (linePx + 8) + 24;
         }
+        if (block.kind === 'gallery') {
+            const imageCount = Math.max(1, String(block.plain || '').match(/gallery\s+(\d+)\s+images/i) ? Number((String(block.plain).match(/gallery\s+(\d+)\s+images/i) || [])[1]) : 1);
+            return 40 + imageCount * 78;
+        }
         return estimatedLines * linePx + paraSpacingPx;
     }
 
@@ -429,6 +445,7 @@ function renderPageDocument(content, isHtmlInput) {
         if (block.kind === 'figure') return block.html;
         if (block.kind === 'table') return block.html;
         if (block.kind === 'equation') return block.html;
+        if (block.kind === 'gallery') return block.html;
         if (block.kind === 'bullet' || block.kind === 'numbered' || block.kind === 'ref') {
             return `<p class="page-list-item"><span class="page-list-marker">${block.marker}</span>${block.html}</p>`;
         }

@@ -588,6 +588,32 @@ function renderFigurePreviewCard(segment, pageMode = false, previewImage = null)
     return html;
 }
 
+function renderFigureGalleryBlock(images, pageMode = false) {
+    const safeImages = (Array.isArray(images) ? images : [])
+        .filter((item) => item && typeof item === 'object' && String(item.data_url || '').trim())
+        .slice(0, 24);
+    if (!safeImages.length) {
+        return '';
+    }
+    const wrapperClass = pageMode
+        ? 'doc-figure-gallery doc-figure-gallery-page'
+        : 'doc-figure-gallery';
+    let html = `<section class="${wrapperClass}">`;
+    html += '<div class="doc-figure-gallery-title">Additional embedded images</div>';
+    html += '<div class="doc-figure-gallery-note">Some DOCX images were not directly mapped to textbox-based figure labels. They are shown below to keep preview coverage complete.</div>';
+    html += '<div class="doc-figure-gallery-grid">';
+    safeImages.forEach((item, index) => {
+        const dataUrl = String(item.data_url || '').trim();
+        const fileName = String(item.name || `image-${index + 1}`);
+        html += '<figure class="doc-figure-gallery-item">';
+        html += `<img src="${escapeHtml(dataUrl)}" alt="${escapeHtml(fileName)}" loading="lazy" />`;
+        html += `<figcaption>${escapeHtml(fileName)}</figcaption>`;
+        html += '</figure>';
+    });
+    html += '</div></section>';
+    return html;
+}
+
 function clampNumber(value, min, max, fallback) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) {
@@ -671,6 +697,7 @@ app.helpers = {
     extractTextboxLineMeta,
     buildPreviewSegments,
     renderFigurePreviewCard,
+    renderFigureGalleryBlock,
     clampNumber,
     clampInt,
     formatUnixTimestamp,
