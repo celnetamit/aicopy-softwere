@@ -1145,6 +1145,41 @@ section h2 {
     color: #9fc4ff;
 }
 
+.doc-table-wrap {
+    margin: 12px 0;
+    border: 1px solid rgba(159, 196, 255, 0.24);
+    border-radius: 8px;
+    overflow-x: auto;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.doc-table-preview {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 420px;
+}
+
+.doc-table-preview td {
+    border: 1px solid rgba(159, 196, 255, 0.18);
+    padding: 7px 9px;
+    vertical-align: top;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #e5efff;
+    white-space: pre-wrap;
+}
+
+.doc-equation {
+    margin: 10px 0;
+    padding: 8px 11px;
+    border-left: 3px solid rgba(120, 168, 232, 0.7);
+    background: rgba(120, 168, 232, 0.1);
+    font-family: "Times New Roman", Times, serif;
+    font-style: italic;
+    color: #ecf4ff;
+    white-space: pre-wrap;
+}
+
 .doc-figure-card {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -1209,6 +1244,25 @@ section h2 {
 .doc-figure-card-page .doc-figure-note,
 .doc-figure-card-page .doc-figure-meta {
     color: #53627d;
+}
+
+.doc-figure-media {
+    margin: 8px 0 2px;
+}
+
+.doc-figure-media img {
+    display: block;
+    width: 100%;
+    max-width: min(560px, 100%);
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid rgba(159, 196, 255, 0.24);
+    background: rgba(10, 18, 38, 0.3);
+}
+
+.doc-figure-card-page .doc-figure-media img {
+    border-color: #cfd7e6;
+    background: #f5f7fb;
 }
 
 .doc-figure-meta {
@@ -1307,6 +1361,28 @@ section h2 {
     text-align: center;
     color: #666;
     font-size: 12px;
+}
+
+.page-sheet .doc-table-wrap {
+    border-color: #ccd4e3;
+    background: #f8f9fc;
+}
+
+.page-sheet .doc-table-preview {
+    min-width: 0;
+}
+
+.page-sheet .doc-table-preview td {
+    border-color: #cfd7e6;
+    color: #1a1d27;
+    font-size: inherit;
+}
+
+.page-sheet .doc-equation,
+.doc-equation-page {
+    border-left-color: #486a9e;
+    background: #edf3fb;
+    color: #1b2738;
 }
 
 .page-sheet .redline-del {

@@ -213,6 +213,8 @@ function isSectionHeading(text) {
 
 function renderRichDocument(content, isHtmlInput) {
     const segments = previewHelpers.buildPreviewSegments(content, isHtmlInput);
+    const previewImages = Array.isArray(previewState.fileContent.docxPreviewImages) ? previewState.fileContent.docxPreviewImages : [];
+    let previewImageIndex = 0;
     let html = '<div class="doc-preview">';
     let activeList = null;
     let sawFirstHeading = false;
@@ -240,10 +242,37 @@ function renderRichDocument(content, isHtmlInput) {
             : previewHelpers.escapeHtml(plainLine.replace(markerRegex, '').trim());
     }
 
+    function tableToHtml(rows) {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        if (!safeRows.length) return '';
+        let out = '<div class="doc-table-wrap"><table class="doc-table-preview"><tbody>';
+        safeRows.forEach((row) => {
+            out += '<tr>';
+            (Array.isArray(row) ? row : []).forEach((cell) => {
+                out += `<td>${previewHelpers.escapeHtml(String(cell || ''))}</td>`;
+            });
+            out += '</tr>';
+        });
+        out += '</tbody></table></div>';
+        return out;
+    }
+
     for (const segment of segments) {
         if (segment.kind === 'figure') {
             closeList();
-            html += previewHelpers.renderFigurePreviewCard(segment);
+            const previewImage = previewImageIndex < previewImages.length ? previewImages[previewImageIndex] : null;
+            previewImageIndex += 1;
+            html += previewHelpers.renderFigurePreviewCard(segment, false, previewImage);
+            continue;
+        }
+        if (segment.kind === 'table') {
+            closeList();
+            html += tableToHtml(segment.rows);
+            continue;
+        }
+        if (segment.kind === 'equation') {
+            closeList();
+            html += `<div class="doc-equation">${segment.rawLine}</div>`;
             continue;
         }
         const rawLine = segment.rawLine;
@@ -290,6 +319,8 @@ function renderRichDocument(content, isHtmlInput) {
 
 function renderPageDocument(content, isHtmlInput) {
     const segments = previewHelpers.buildPreviewSegments(content, isHtmlInput);
+    const previewImages = Array.isArray(previewState.fileContent.docxPreviewImages) ? previewState.fileContent.docxPreviewImages : [];
+    let previewImageIndex = 0;
     const blocks = [];
     let sawFirstHeading = false;
 
@@ -297,12 +328,46 @@ function renderPageDocument(content, isHtmlInput) {
         return isHtmlInput ? rawLine.replace(markerRegex, '').trim() : previewHelpers.escapeHtml(plainLine.replace(markerRegex, '').trim());
     }
 
+    function tableToHtml(rows) {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        if (!safeRows.length) return '';
+        let out = '<div class="doc-table-wrap doc-table-wrap-page"><table class="doc-table-preview doc-table-preview-page"><tbody>';
+        safeRows.forEach((row) => {
+            out += '<tr>';
+            (Array.isArray(row) ? row : []).forEach((cell) => {
+                out += `<td>${previewHelpers.escapeHtml(String(cell || ''))}</td>`;
+            });
+            out += '</tr>';
+        });
+        out += '</tbody></table></div>';
+        return out;
+    }
+
     for (const segment of segments) {
         if (segment.kind === 'figure') {
+            const previewImage = previewImageIndex < previewImages.length ? previewImages[previewImageIndex] : null;
+            previewImageIndex += 1;
             blocks.push({
                 kind: 'figure',
                 plain: segment.caption || (Array.isArray(segment.labels) ? segment.labels.join(' ') : 'Figure preview'),
-                html: previewHelpers.renderFigurePreviewCard(segment, true)
+                html: previewHelpers.renderFigurePreviewCard(segment, true, previewImage)
+            });
+            continue;
+        }
+        if (segment.kind === 'table') {
+            const maxCols = Math.max(0, ...(segment.rows || []).map((row) => (Array.isArray(row) ? row.length : 0)));
+            blocks.push({
+                kind: 'table',
+                plain: `table ${segment.rows ? segment.rows.length : 0}x${maxCols}`,
+                html: tableToHtml(segment.rows)
+            });
+            continue;
+        }
+        if (segment.kind === 'equation') {
+            blocks.push({
+                kind: 'equation',
+                plain: segment.plainLine || '',
+                html: `<div class="doc-equation doc-equation-page">${segment.rawLine}</div>`
             });
             continue;
         }
@@ -349,6 +414,11 @@ function renderPageDocument(content, isHtmlInput) {
         if (block.kind === 'h2') return 10 + estimatedLines * h2LinePx;
         if (block.kind === 'h3') return 8 + estimatedLines * h3LinePx;
         if (block.kind === 'gap') return Math.max(8, linePx * 0.5);
+        if (block.kind === 'equation') return Math.max(linePx * 1.5, estimatedLines * linePx + 16);
+        if (block.kind === 'table') {
+            const rowCount = Math.max(1, String(block.plain || '').match(/table\s+(\d+)x/i) ? Number((String(block.plain).match(/table\s+(\d+)x/i) || [])[1]) : 1);
+            return rowCount * (linePx + 8) + 24;
+        }
         return estimatedLines * linePx + paraSpacingPx;
     }
 
@@ -357,6 +427,8 @@ function renderPageDocument(content, isHtmlInput) {
         if (block.kind === 'h2') return `<h2>${block.html}</h2>`;
         if (block.kind === 'h3') return `<h3>${block.html}</h3>`;
         if (block.kind === 'figure') return block.html;
+        if (block.kind === 'table') return block.html;
+        if (block.kind === 'equation') return block.html;
         if (block.kind === 'bullet' || block.kind === 'numbered' || block.kind === 'ref') {
             return `<p class="page-list-item"><span class="page-list-marker">${block.marker}</span>${block.html}</p>`;
         }

@@ -419,6 +419,7 @@ function applyProcessResponseToState(response, options = {}) {
     mainState.fileContent.domainReport = response.domain_report || null;
     mainState.fileContent.journalProfileReport = response.journal_profile_report || null;
     mainState.fileContent.citationReferenceReport = response.citation_reference_report || null;
+    mainState.fileContent.docxPreviewImages = Array.isArray(response.docx_preview_images) ? response.docx_preview_images : [];
     mainState.fileContent.rerunActionMeta = options.rerunActionMeta && typeof options.rerunActionMeta === 'object'
         ? Object.assign({}, options.rerunActionMeta)
         : null;

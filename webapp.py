@@ -14,10 +14,12 @@ import threading
 import time
 import traceback
 import uuid
+import zipfile
+import xml.etree.ElementTree as ET
 import requests
 from functools import wraps
 from types import SimpleNamespace
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from bottle import Bottle, HTTPResponse, request, response, run, static_file
 
@@ -967,6 +969,98 @@ def _build_download_filename(original_file_name: str, file_type: str) -> str:
     return f"{prefix}_{base_name}.docx"
 
 
+def _extract_docx_preview_images(source_docx_path: str, max_images: int = 20, max_bytes: int = 6 * 1024 * 1024) -> List[Dict[str, Any]]:
+    """Extract embedded DOCX media images in document order for browser preview."""
+    if not source_docx_path or not os.path.exists(source_docx_path):
+        return []
+
+    mime_by_ext = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
+    }
+
+    def _safe_media_target(target: str) -> str:
+        candidate = str(target or "").replace("\\", "/").strip()
+        if not candidate:
+            return ""
+        if candidate.startswith("/"):
+            candidate = candidate[1:]
+        if candidate.startswith("../"):
+            candidate = candidate[3:]
+        if candidate.startswith("word/"):
+            return candidate
+        if candidate.startswith("media/"):
+            return "word/" + candidate
+        return "word/" + candidate
+
+    images: List[Dict[str, Any]] = []
+    seen_targets = set()
+    try:
+        with zipfile.ZipFile(source_docx_path) as archive:
+            names = set(archive.namelist())
+            ordered_targets: List[str] = []
+            if "word/document.xml" in names and "word/_rels/document.xml.rels" in names:
+                try:
+                    doc_xml = archive.read("word/document.xml").decode("utf-8", errors="ignore")
+                    rel_root = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+                    rel_map: Dict[str, str] = {}
+                    for node in rel_root.findall("{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"):
+                        rel_id = str(node.attrib.get("Id") or "")
+                        target = _safe_media_target(str(node.attrib.get("Target") or ""))
+                        if rel_id and target.startswith("word/media/"):
+                            rel_map[rel_id] = target
+                    for rel_id in re.findall(r'r:embed="([^"]+)"', doc_xml):
+                        target = rel_map.get(rel_id)
+                        if target and target not in ordered_targets:
+                            ordered_targets.append(target)
+                except Exception:
+                    ordered_targets = []
+
+            if not ordered_targets:
+                ordered_targets = sorted(
+                    [name for name in names if name.startswith("word/media/")],
+                    key=lambda item: item.lower(),
+                )
+
+            total_bytes = 0
+            for target in ordered_targets:
+                if len(images) >= max(1, int(max_images or 1)):
+                    break
+                if target in seen_targets:
+                    continue
+                seen_targets.add(target)
+                _, ext = os.path.splitext(target.lower())
+                mime = mime_by_ext.get(ext)
+                if not mime:
+                    continue
+                if target not in names:
+                    continue
+                blob = archive.read(target)
+                if not blob:
+                    continue
+                total_bytes += len(blob)
+                if total_bytes > max_bytes:
+                    break
+                encoded = base64.b64encode(blob).decode("ascii")
+                images.append(
+                    {
+                        "name": os.path.basename(target),
+                        "mime_type": mime,
+                        "size_bytes": len(blob),
+                        "data_url": f"data:{mime};base64,{encoded}",
+                    }
+                )
+    except Exception:
+        return []
+
+    return images
+
+
 def _build_process_payload(
     processor: DocumentProcessor,
     task_row: Dict,
@@ -977,7 +1071,7 @@ def _build_process_payload(
     original_text = str(task_row.get("original_text") or "")
     corrections_report = processor.build_corrections_report(original_text, corrected_text)
     edit_explanations = processor.build_edit_explanations(corrections_report, options or {})
-    return {
+    process_payload = {
         "success": True,
         "task_id": str(task_row.get("id") or ""),
         "text": corrected_text,
@@ -997,6 +1091,20 @@ def _build_process_payload(
         "processing_note": getattr(processor, "_last_selection_note", ""),
         "edit_explanations": edit_explanations,
     }
+    if str(task_row.get("source_type") or "").lower() == "docx":
+        source_docx_path = ""
+        try:
+            source_docx_path = _resolve_storage_path(str(task_row.get("source_path") or ""))
+        except Exception:
+            source_docx_path = ""
+        preview_images = _extract_docx_preview_images(source_docx_path)
+        process_payload["docx_preview_images"] = preview_images
+        audit = process_payload.get("processing_audit") if isinstance(process_payload.get("processing_audit"), dict) else {}
+        summary = audit.get("summary") if isinstance(audit.get("summary"), dict) else {}
+        summary["docx_preview_images"] = preview_images
+        audit["summary"] = summary
+        process_payload["processing_audit"] = audit
+    return process_payload
 
 
 def _extract_reports_from_process_payload(process_payload: Dict) -> Dict:
@@ -1013,6 +1121,7 @@ def _extract_reports_from_process_payload(process_payload: Dict) -> Dict:
         "processing_audit": process_payload.get("processing_audit") or {},
         "processing_note": process_payload.get("processing_note", ""),
         "edit_explanations": process_payload.get("edit_explanations") or {},
+        "docx_preview_images": process_payload.get("docx_preview_images") or [],
     }
 
 

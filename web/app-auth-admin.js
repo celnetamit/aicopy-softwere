@@ -271,6 +271,7 @@ function applyTaskDetailsToState(task) {
     authState.fileContent.domainReport = reports.domain_report || null;
     authState.fileContent.journalProfileReport = reports.journal_profile_report || null;
     authState.fileContent.citationReferenceReport = reports.citation_reference_report || null;
+    authState.fileContent.docxPreviewImages = Array.isArray(reports.docx_preview_images) ? reports.docx_preview_images : [];
     authState.fileContent.processingAudit = reports.processing_audit || null;
     authState.fileContent.groupDecisions = appAuth.preview.buildDefaultGroupDecisions();
     appAuth.syncWindowFileContent();

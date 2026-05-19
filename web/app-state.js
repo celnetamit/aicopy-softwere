@@ -18,6 +18,7 @@ function createEmptyFileContent() {
         domainReport: null,
         journalProfileReport: null,
         citationReferenceReport: null,
+        docxPreviewImages: [],
         rerunActionMeta: null,
         groupDecisions: null,
         processingAudit: null
@@ -372,6 +373,55 @@ function normalizeTextboxMarkersForDisplay(value) {
         .trim();
 }
 
+function normalizeTableCellMarkersForDisplay(value) {
+    return String(value || '')
+        .replaceAll('[[CELL_BLOCK]]', '\n')
+        .replaceAll('[[CELL_TABLE_ROW]]', '\n')
+        .replaceAll('[[CELL_TABLE_CELL]]', ' | ')
+        .replaceAll('[[CELL_PARA]]', '\n')
+        .replace(/\b[PT]:/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
+function extractTableCellsFromLine(line, isHtmlInput) {
+    const raw = String(line || '');
+    const plain = normalizeTableCellMarkersForDisplay(isHtmlInput ? stripHtml(raw) : raw);
+    if (!plain) {
+        return null;
+    }
+    if (!plain.includes('\t') && !plain.includes('[[CELL_TABLE_CELL]]')) {
+        return null;
+    }
+
+    const values = plain
+        .replaceAll('[[CELL_TABLE_CELL]]', '\t')
+        .split('\t')
+        .map((item) => normalizeTableCellMarkersForDisplay(item))
+        .filter((item) => item.length > 0);
+    if (values.length < 2) {
+        return null;
+    }
+    return values;
+}
+
+function isEquationLikeLine(line) {
+    const value = String(line || '').trim();
+    if (!value || value.length < 4 || value.length > 160) {
+        return false;
+    }
+    if (/^\d+[.)]\s+/.test(value) || /^[-*•]\s+/.test(value) || /^\[\d+\]\s+/.test(value)) {
+        return false;
+    }
+    const symbolHits = (value.match(/[=+\-/*^√∑∫≈≤≥∞]/g) || []).length;
+    const latexHints = /\\(?:frac|sum|int|alpha|beta|gamma|Delta|theta|lambda|mu|sigma)\b/.test(value);
+    const variablePattern = /[A-Za-z]\s*=\s*[A-Za-z0-9(]/.test(value);
+    const bracePair = /[()[\]{}]/.test(value);
+    return latexHints || (symbolHits >= 2 && (variablePattern || bracePair));
+}
+
 function uniqueNonEmpty(values) {
     const seen = new Set();
     const out = [];
@@ -447,7 +497,35 @@ function buildPreviewSegments(content, isHtmlInput) {
         const meta = collapseTextboxPreview ? extractTextboxLineMeta(line, isHtmlInput) : null;
 
         if (!meta) {
+            const tableCells = extractTableCellsFromLine(line, isHtmlInput);
+            if (tableCells) {
+                const rows = [tableCells];
+                let scanIndex = index + 1;
+                while (scanIndex < lines.length) {
+                    const nextCells = extractTableCellsFromLine(lines[scanIndex], isHtmlInput);
+                    if (!nextCells) {
+                        break;
+                    }
+                    rows.push(nextCells);
+                    scanIndex += 1;
+                }
+                index = scanIndex - 1;
+                segments.push({
+                    kind: 'table',
+                    rows: rows
+                });
+                continue;
+            }
+
             const displayLine = normalizeTextboxMarkersForDisplay(isHtmlInput ? stripHtml(line) : line);
+            if (isEquationLikeLine(displayLine)) {
+                segments.push({
+                    kind: 'equation',
+                    rawLine: isHtmlInput ? normalizeTextboxMarkersForDisplay(line) : escapeHtml(displayLine),
+                    plainLine: displayLine
+                });
+                continue;
+            }
             segments.push({
                 kind: 'line',
                 rawLine: isHtmlInput ? normalizeTextboxMarkersForDisplay(line) : escapeHtml(displayLine),
@@ -481,7 +559,7 @@ function buildPreviewSegments(content, isHtmlInput) {
     return segments;
 }
 
-function renderFigurePreviewCard(segment, pageMode = false) {
+function renderFigurePreviewCard(segment, pageMode = false, previewImage = null) {
     const safe = segment && typeof segment === 'object' ? segment : {};
     const title = safe.caption || 'Diagram/Textbox figure preview';
     const labels = Array.isArray(safe.labels) ? safe.labels.slice(0, 6) : [];
@@ -491,6 +569,11 @@ function renderFigurePreviewCard(segment, pageMode = false) {
     html += '<div class="doc-figure-icon">Figure</div>';
     html += `<div class="doc-figure-body"><div class="doc-figure-title">${escapeHtml(title)}</div>`;
     html += '<div class="doc-figure-note">Browser preview collapsed shape/textbox-derived DOCX content to keep figure-heavy pages readable. Exported DOCX preserves the actual drawing container.</div>';
+    const safeImage = previewImage && typeof previewImage === 'object' ? previewImage : null;
+    const dataUrl = safeImage ? String(safeImage.data_url || '') : '';
+    if (dataUrl) {
+        html += `<figure class="doc-figure-media"><img src="${escapeHtml(dataUrl)}" alt="${escapeHtml(title)}" loading="lazy" /></figure>`;
+    }
     if (labels.length > 0) {
         html += '<div class="doc-figure-tags">';
         labels.forEach((label) => {
@@ -579,6 +662,9 @@ app.helpers = {
     escapeHtml,
     stripHtml,
     normalizeTextboxMarkersForDisplay,
+    normalizeTableCellMarkersForDisplay,
+    extractTableCellsFromLine,
+    isEquationLikeLine,
     uniqueNonEmpty,
     getDocxPreviewFeatures,
     shouldCollapseTextboxHeavyPreview,
