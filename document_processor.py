@@ -2113,7 +2113,15 @@ Corrected manuscript:"""
         original_body, _ = self._split_paragraph_and_textboxes(paragraph, original)
         corrected_body, _ = self._split_paragraph_and_textboxes(paragraph, corrected)
         self._clear_paragraph_content(paragraph, keep_drawings=keep_drawings)
-        for segment_type, segment_text in self._iter_diff_segments(original_body, corrected_body):
+        if self._should_use_simple_replace_diff(original_body, corrected_body):
+            diff_segments = []
+            if original_body:
+                diff_segments.append(("delete", original_body))
+            if corrected_body:
+                diff_segments.append(("insert", corrected_body))
+        else:
+            diff_segments = list(self._iter_diff_segments(original_body, corrected_body))
+        for segment_type, segment_text in diff_segments:
             self._append_text_segments_to_paragraph(
                 paragraph,
                 segment_text,
@@ -2265,7 +2273,7 @@ Corrected manuscript:"""
             self._clear_paragraph_content(new_paragraph)
             self._append_text_segments_to_paragraph(new_paragraph, extra_paragraph["text"])
 
-    def _rewrite_cell_diff(self, cell, original: str, corrected: str):
+    def _rewrite_cell_diff(self, cell, original: str, corrected: str, *, use_revisions: bool = False):
         """Replace cell text with redline-style runs."""
         original_blocks = self._split_cell_blocks(original)
         corrected_blocks = self._split_cell_blocks(corrected)
@@ -2295,12 +2303,20 @@ Corrected manuscript:"""
                 corrected_text = corrected_paragraphs[paragraph_index]["text"] if paragraph_index < len(corrected_paragraphs) else ""
                 paragraph_index += 1
                 self._clear_paragraph_content(block)
-                for segment_type, segment_text in self._iter_diff_segments(original_text, corrected_text):
+                if self._should_use_simple_replace_diff(original_text, corrected_text):
+                    diff_segments = []
+                    if original_text:
+                        diff_segments.append(("delete", original_text))
+                    if corrected_text:
+                        diff_segments.append(("insert", corrected_text))
+                else:
+                    diff_segments = list(self._iter_diff_segments(original_text, corrected_text))
+                for segment_type, segment_text in diff_segments:
                     self._append_text_segments_to_paragraph(
                         block,
                         segment_text,
                         segment_type=segment_type,
-                        use_revisions=False,
+                        use_revisions=use_revisions,
                     )
                 continue
 
@@ -2315,12 +2331,20 @@ Corrected manuscript:"""
             self._clear_paragraph_content(target_paragraph)
             original_text = original_paragraphs[idx]["text"] if idx < len(original_paragraphs) else ""
             corrected_text = corrected_paragraphs[idx]["text"] if idx < len(corrected_paragraphs) else ""
-            for segment_type, segment_text in self._iter_diff_segments(original_text, corrected_text):
+            if self._should_use_simple_replace_diff(original_text, corrected_text):
+                diff_segments = []
+                if original_text:
+                    diff_segments.append(("delete", original_text))
+                if corrected_text:
+                    diff_segments.append(("insert", corrected_text))
+            else:
+                diff_segments = list(self._iter_diff_segments(original_text, corrected_text))
+            for segment_type, segment_text in diff_segments:
                 self._append_text_segments_to_paragraph(
                     target_paragraph,
                     segment_text,
                     segment_type=segment_type,
-                    use_revisions=False,
+                    use_revisions=use_revisions,
                 )
 
     def _apply_text_to_template_docx(self, source_docx_path: str, text: str, output_path: str, highlighted: bool = False):
@@ -3167,6 +3191,19 @@ Corrected manuscript:"""
                     yield "delete", del_text
                 if ins_text:
                     yield "insert", ins_text
+
+    def _should_use_simple_replace_diff(self, original: str, corrected: str) -> bool:
+        """Use full-span delete/insert for heavy rewrites to keep DOCX redline readable."""
+        left = str(original or "")
+        right = str(corrected or "")
+        if not left or not right:
+            return False
+        if left == right:
+            return False
+        if max(len(left), len(right)) < 240:
+            return False
+        ratio = difflib.SequenceMatcher(a=left, b=right, autojunk=False).ratio()
+        return ratio < 0.42
 
     def _iter_diff_segments(self, original: str, corrected: str):
         """Yield (segment_type, segment_text) where type is equal/delete/insert."""
